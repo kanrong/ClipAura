@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "actions": [
+    { "id": "copy",      "type": "builtin", "builtIn": "builtin.copy",            "title": "复制",       "icon": "Copy",      "enabled": true },
+    { "id": "open-url",  "type": "builtin", "builtIn": "builtin.open.url",        "title": "打开链接",   "icon": "Url",       "enabled": true },
+    { "id": "mailto",    "type": "builtin", "builtIn": "builtin.open.mailto",     "title": "邮件",       "icon": "Mail",      "enabled": true },
+    { "id": "google",    "type": "builtin", "builtIn": "builtin.search.google",   "title": "Google",     "icon": "Google",    "enabled": true },
+    { "id": "bing",      "type": "builtin", "builtIn": "builtin.search.bing",     "title": "Bing",       "icon": "Bing",      "enabled": true },
+    { "id": "translate", "type": "builtin", "builtIn": "builtin.translate.bing",  "title": "翻译",       "icon": "Translate", "enabled": true },
+    { "id": "upper",     "type": "builtin", "builtIn": "builtin.case.upper",      "title": "大写",       "icon": "Upper",     "enabled": true },
+    { "id": "lower",     "type": "builtin", "builtIn": "builtin.case.lower",      "title": "小写",       "icon": "Lower",     "enabled": true },
+    { "id": "title",     "type": "builtin", "builtIn": "builtin.case.title",      "title": "Title",      "icon": "Title",     "enabled": true },
+    { "id": "calc",      "type": "builtin", "builtIn": "builtin.calculate",       "title": "计算",       "icon": "Calc",      "enabled": true },
+    { "id": "wc",        "type": "builtin", "builtIn": "builtin.wordcount",       "title": "字数",       "icon": "Count",     "enabled": true }
+  ]
+}

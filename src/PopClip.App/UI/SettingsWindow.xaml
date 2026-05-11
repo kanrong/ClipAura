@@ -1,0 +1,46 @@
+<Window x:Class="PopClip.App.UI.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PopClip Win 设置"
+        Width="540" Height="420"
+        ShowInTaskbar="True"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="PopClip Win" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="MVP 阶段：仅支持内置动作。配置文件位于 %LOCALAPPDATA%\PopClip.Win" Opacity="0.7" />
+        </StackPanel>
+
+        <TabControl Grid.Row="1">
+            <TabItem Header="进程过滤">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,8">
+                        <RadioButton x:Name="BlacklistRadio" Content="黑名单（默认）" Margin="0,0,16,0" />
+                        <RadioButton x:Name="WhitelistRadio" Content="白名单（仅以下进程弹出）" />
+                    </StackPanel>
+                    <ListBox x:Name="ProcessList" Grid.Row="1" />
+                </Grid>
+            </TabItem>
+            <TabItem Header="高级">
+                <StackPanel Margin="8">
+                    <CheckBox x:Name="FullScreenSuppress" Content="全屏应用（游戏/演示）期间抑制弹出" />
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="OkBtn" Content="保存" Width="80" Margin="0,0,8,0" Click="OnSave" />
+            <Button x:Name="CancelBtn" Content="取消" Width="80" Click="OnCancel" />
+        </StackPanel>
+    </Grid>
+</Window>

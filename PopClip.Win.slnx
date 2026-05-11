@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PopClip.Actions.BuiltIn/PopClip.Actions.BuiltIn.csproj" />
+    <Project Path="src/PopClip.App/PopClip.App.csproj" />
+    <Project Path="src/PopClip.Core/PopClip.Core.csproj" />
+    <Project Path="src/PopClip.Hooks/PopClip.Hooks.csproj" />
+    <Project Path="src/PopClip.Uia/PopClip.Uia.csproj" />
+  </Folder>
+</Solution>

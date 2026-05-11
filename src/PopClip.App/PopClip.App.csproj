@@ -7,9 +7,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <RootNamespace>PopClip.App</RootNamespace>
-    <AssemblyName>PopClip</AssemblyName>
+    <AssemblyName>ClipAura</AssemblyName>
+    <!-- WPF 通过 app.manifest 读 PerMonitorV2 是正确做法；WinForms 端这条提示无需理会 -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,7 +23,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.1.4" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="8.0.1" />
   </ItemGroup>

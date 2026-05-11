@@ -1,6 +1,4 @@
-using System.Collections.ObjectModel;
 using System.Threading.Channels;
-using System.Windows;
 using PopClip.Actions.BuiltIn;
 using PopClip.App.Services;
 using PopClip.App.UI;
@@ -10,6 +8,7 @@ using PopClip.Core.Model;
 using PopClip.Core.Session;
 using PopClip.Hooks;
 using PopClip.Uia;
+using WpfApplication = System.Windows.Application;
 
 namespace PopClip.App.Hosting;
 
@@ -104,27 +103,48 @@ internal sealed class SelectionSessionManager : IDisposable
 
     private async Task ProcessCandidateAsync(SelectionCandidate candidate)
     {
+        _log.Info("candidate", ("trigger", candidate.Trigger), ("x", candidate.X), ("y", candidate.Y));
+
         if (_pause.IsPaused)
         {
-            _log.Debug("candidate dropped: paused");
+            _log.Info("candidate dropped: paused");
             return;
         }
 
         var foreground = ForegroundWatcher.Snapshot();
+        _log.Info("foreground", ("proc", foreground.ProcessName), ("class", foreground.WindowClassName));
+
         if (_gate.ShouldSuppress(foreground, out var reason))
         {
-            _log.Debug("suppressed", ("reason", reason), ("proc", foreground.ProcessName));
+            _log.Info("suppressed", ("reason", reason), ("proc", foreground.ProcessName));
             return;
         }
 
         var mouseRect = SelectionRect.FromPoint(candidate.X, candidate.Y);
         var outcome = await Task.Run(() => _acquisition.Acquire(foreground, mouseRect)).ConfigureAwait(false);
-        if (outcome is null) return;
-        if (outcome.Context.IsEmpty) return;
+        if (outcome is null)
+        {
+            _log.Info("acquisition failed: no text from UIA nor clipboard");
+            return;
+        }
+        if (outcome.Context.IsEmpty)
+        {
+            _log.Info("acquisition empty text", ("source", outcome.Context.Source));
+            return;
+        }
+
+        var preview = outcome.Context.Text.Length > 40
+            ? outcome.Context.Text.Substring(0, 40) + "..."
+            : outcome.Context.Text;
+        _log.Info("acquired",
+            ("source", outcome.Context.Source),
+            ("len", outcome.Context.Text.Length),
+            ("preview", preview));
 
         _replacer.SetCurrentElement(outcome.Element);
 
         var visible = _catalog.GetVisible(outcome.Context);
+        _log.Info("visible actions", ("count", visible.Count));
         if (visible.Count == 0) return;
 
         var items = visible.Select(v => new ToolbarItem(
@@ -133,7 +153,7 @@ internal sealed class SelectionSessionManager : IDisposable
             new DelegateCommand(() => RunAction(v.Action, outcome.Context)))).ToList();
 
         // UI 线程上更新 ItemsControl + 显示窗口
-        await Application.Current.Dispatcher.InvokeAsync(() =>
+        await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
         {
             _toolbar.Items.Clear();
             foreach (var it in items) _toolbar.Items.Add(it);

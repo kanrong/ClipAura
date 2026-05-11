@@ -1,4 +1,3 @@
-using System.Windows;
 using PopClip.Actions.BuiltIn;
 using PopClip.App.Config;
 using PopClip.App.Services;
@@ -7,6 +6,7 @@ using PopClip.Core.Logging;
 using PopClip.Hooks;
 using PopClip.Uia;
 using PopClip.Uia.Clipboard;
+using WpfApplication = System.Windows.Application;
 
 namespace PopClip.App.Hosting;
 
@@ -71,13 +71,14 @@ internal sealed class AppHost : IDisposable
 
         _gate = new SuppressionGate(_log, _settings);
         _toolbar = new FloatingToolbar(_log);
+        _toolbar.PrewarmLayout();
         _pause = new PauseState();
 
         _session = new SelectionSessionManager(
             _log, _watcher, _acquisition, _replacer, _catalog, _actionHost, _gate, _toolbar, _pause);
 
         _tray = new TrayController(_log, _store, _settings, _pause);
-        _tray.OnExitRequested += () => Application.Current.Shutdown();
+        _tray.OnExitRequested += () => WpfApplication.Current.Shutdown();
         _tray.OnPauseChanged += paused =>
         {
             if (paused) _toolbar.DismissExternal("paused");
@@ -92,7 +93,7 @@ internal sealed class AppHost : IDisposable
 
     private void OnIpcCommand(string command)
     {
-        Application.Current?.Dispatcher.Invoke(() =>
+        WpfApplication.Current?.Dispatcher.Invoke(() =>
         {
             switch (command)
             {

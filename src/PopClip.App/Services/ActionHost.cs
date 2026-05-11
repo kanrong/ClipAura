@@ -8,13 +8,20 @@ internal sealed class ActionHost : IActionHost
     public ITextReplacer Replacer { get; }
     public IUrlLauncher UrlLauncher { get; }
     public IClipboardWriter Clipboard { get; }
+    public INotificationSink Notifier { get; }
     public ILog Log { get; }
 
-    public ActionHost(ILog log, ITextReplacer replacer, IUrlLauncher urlLauncher, IClipboardWriter clipboard)
+    public ActionHost(
+        ILog log,
+        ITextReplacer replacer,
+        IUrlLauncher urlLauncher,
+        IClipboardWriter clipboard,
+        INotificationSink notifier)
     {
         Log = log;
         Replacer = replacer;
         UrlLauncher = urlLauncher;
         Clipboard = clipboard;
+        Notifier = notifier;
     }
 }

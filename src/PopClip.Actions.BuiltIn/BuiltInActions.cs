@@ -177,11 +177,13 @@ internal sealed class CalculateAction : BuiltInAction
             var text = result.ToString("G15", CultureInfo.InvariantCulture);
             // 复制到剪贴板，避免直接替换破坏用户原文
             host.Clipboard.SetText(text);
+            host.Notifier.Notify($"{expr} = {text}（已复制）");
             host.Log.Info("calc result copied", ("expr", expr), ("result", text));
             await Task.CompletedTask;
         }
         catch (Exception ex)
         {
+            host.Notifier.Notify($"计算失败：{ex.Message}");
             host.Log.Warn("calc failed", ("err", ex.Message));
         }
     }
@@ -195,12 +197,16 @@ internal sealed class WordCountAction : BuiltInAction
 
     public override Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
     {
-        var chars = context.Text.Length;
-        var words = context.Text.Split(
+        var text = context.Text;
+        var chars = text.Length;
+        var charsNoSpace = text.Count(c => !char.IsWhiteSpace(c));
+        var words = text.Split(
             new[] { ' ', '\t', '\r', '\n' },
             StringSplitOptions.RemoveEmptyEntries).Length;
-        var summary = $"字符 {chars} / 词 {words}";
+        var lines = text.Count(c => c == '\n') + (text.Length > 0 ? 1 : 0);
+        var summary = $"字符 {chars}（去空白 {charsNoSpace}）/ 词 {words} / 行 {lines}";
         host.Clipboard.SetText(summary);
+        host.Notifier.Notify(summary);
         host.Log.Info("wordcount", ("summary", summary));
         return Task.CompletedTask;
     }

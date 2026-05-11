@@ -39,10 +39,11 @@
                             ToolTip="{Binding Title}">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="{Binding IconKey, Converter={StaticResource IconConv}}"
-                                       FontFamily="Segoe UI Symbol"
+                                       FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
                                        FontSize="14"
-                                       Margin="0,0,4,0" />
-                            <TextBlock Text="{Binding Title}" />
+                                       Margin="0,0,6,0"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding Title}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
                 </DataTemplate>

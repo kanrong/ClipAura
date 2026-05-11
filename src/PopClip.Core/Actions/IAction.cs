@@ -22,7 +22,15 @@ public interface IActionHost
     ITextReplacer Replacer { get; }
     IUrlLauncher UrlLauncher { get; }
     IClipboardWriter Clipboard { get; }
+    INotificationSink Notifier { get; }
     Logging.ILog Log { get; }
+}
+
+/// <summary>向用户展示一次性短信息（如计算结果、字数统计）。
+/// 实现可以是托盘气球通知、屏幕角落 toast 等，对动作层透明</summary>
+public interface INotificationSink
+{
+    void Notify(string text);
 }
 
 public interface ITextReplacer

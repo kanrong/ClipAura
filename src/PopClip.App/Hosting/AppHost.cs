@@ -67,23 +67,28 @@ internal sealed class AppHost : IDisposable
 
         var urlLauncher = new UrlLauncher(_log);
         var clipboardWriter = new ClipboardWriter(_log, clipboardAccess);
-        _actionHost = new ActionHost(_log, _replacer, urlLauncher, clipboardWriter);
+
+        _pause = new PauseState();
+        // TrayController 同时担任 INotificationSink，必须先构造并 Show（建好 NotifyIcon）
+        // 才能在 ActionHost 中作为 Notifier 注入；否则 BalloonTip 调用时 _icon 仍为 null
+        _tray = new TrayController(_log, _store, _settings, _pause);
+        _tray.OnExitRequested += () => WpfApplication.Current.Shutdown();
+        _tray.Show();
+
+        _actionHost = new ActionHost(_log, _replacer, urlLauncher, clipboardWriter, _tray);
 
         _gate = new SuppressionGate(_log, _settings);
         _toolbar = new FloatingToolbar(_log);
         _toolbar.PrewarmLayout();
-        _pause = new PauseState();
 
         _session = new SelectionSessionManager(
             _log, _watcher, _acquisition, _replacer, _catalog, _actionHost, _gate, _toolbar, _pause);
 
-        _tray = new TrayController(_log, _store, _settings, _pause);
-        _tray.OnExitRequested += () => WpfApplication.Current.Shutdown();
+        // toolbar 构造完成后才能注册依赖它的事件
         _tray.OnPauseChanged += paused =>
         {
             if (paused) _toolbar.DismissExternal("paused");
         };
-        _tray.Show();
 
         _watcher.Start();
         _session.Start();

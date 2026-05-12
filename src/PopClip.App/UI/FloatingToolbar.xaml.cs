@@ -206,7 +206,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
         int shadowPaddingPxY)
     {
         const int HorizontalOffset = -6;
-        const int VerticalGap = 14;
+        const int VerticalGap = 20;
         var x = anchor.Left + HorizontalOffset - shadowPaddingPxX;
         var y = anchor.Bottom + VerticalGap - shadowPaddingPxY;
 

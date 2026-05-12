@@ -21,7 +21,7 @@
     <Grid Margin="9"
           SnapsToDevicePixels="True">
         <Border Background="{DynamicResource ToolbarShadow}"
-                CornerRadius="0">
+                CornerRadius="4">
             <Border.Effect>
                 <DropShadowEffect Color="#000" BlurRadius="16" ShadowDepth="2" Opacity="0.32" />
             </Border.Effect>
@@ -29,7 +29,7 @@
 
         <Border Background="{DynamicResource ToolbarBackground}"
                 BorderThickness="0"
-                CornerRadius="0"
+                CornerRadius="4"
                 Padding="1"
                 SnapsToDevicePixels="True">
             <ItemsControl x:Name="ItemsHost" ItemsSource="{Binding Items, RelativeSource={RelativeSource AncestorType=Window}}">

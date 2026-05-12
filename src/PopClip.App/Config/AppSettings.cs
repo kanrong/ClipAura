@@ -70,6 +70,11 @@ public sealed class AppSettings
     public int HoverDelayMs { get; set; } = 300;
     public SelectionModifierKey RequiredModifier { get; set; } = SelectionModifierKey.Alt;
 
+    /// <summary>Ctrl+A 全选时是否弹出浮窗。
+    /// 默认 true：全选是有明确意图的键盘操作，保留弹窗便于后续动作；
+    /// false：纯键盘用户可关闭以避免一切键盘事件触发浮窗</summary>
+    public bool EnableSelectAllPopup { get; set; } = true;
+
     public string PauseHotKey { get; set; } = "Ctrl+Alt+P";
     public string ToolbarHotKey { get; set; } = "Ctrl+Alt+Space";
 

@@ -90,6 +90,9 @@
                                     Command="{Binding Command}"
                                     ToolTip="{Binding Title}">
                                 <StackPanel Orientation="Horizontal">
+                                    <!-- 图标：比正文大 4 号 + SemiBold；
+                                         对 Segoe Fluent Icons 字体而言字重影响很小，但对
+                                         普通字符/emoji 起到加粗强调，整体让图标成为按钮焦点 -->
                                     <TextBlock Text="{Binding IconKey, Converter={StaticResource IconConv}}"
                                                FontFamily="{Binding IconKey, Converter={StaticResource IconFontConv}}"
                                                FontSize="{DynamicResource ToolbarIconFontSize}"

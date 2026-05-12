@@ -115,33 +115,47 @@ public sealed class SelectionStateMachine
         }
     }
 
+    // 产品决定：纯键盘操作下默认不弹浮窗，避免对键盘流的输入造成干扰。
+    // 例外：Ctrl+A 全选有明确意图（用户希望对全文做点什么），保留弹窗能力，
+    // 并通过 SelectionStateOptions.EnableSelectAllPopup 让用户在设置里随时关掉
     private void HandleKey(KeyEvent k)
     {
         const int VK_ESCAPE = 0x1B;
-        if (k.IsDown && k.VirtualKey == VK_ESCAPE)
+        const int VK_A = 0x41;
+
+        if (!k.IsDown) return;
+
+        if (k.VirtualKey == VK_ESCAPE)
         {
             CancelPending();
             return;
         }
 
-        if (k.IsDown && k.Shift && IsArrowOrNavKey(k.VirtualKey))
+        if (k.Shift && IsArrowOrNavKey(k.VirtualKey))
         {
-            TryScheduleSelection(
-                new SelectionCandidate(SelectionTrigger.KeyboardSelection, -1, -1, k.TimestampUtc),
-                k);
+            // Shift+方向键扩展选区：取消鼠标触发的待发弹窗，且不创建新候选
+            CancelPending();
             return;
         }
 
-        if (k.IsDown && k.Ctrl && k.VirtualKey == 0x41)
+        if (k.Ctrl && k.VirtualKey == VK_A)
         {
-            TryScheduleSelection(
-                new SelectionCandidate(SelectionTrigger.KeyboardSelection, -1, -1, k.TimestampUtc),
-                k);
+            var options = GetOptions();
+            if (options.EnableSelectAllPopup && PassesModifierPolicy(false, true, false))
+            {
+                SchedulePending(
+                    new SelectionCandidate(SelectionTrigger.KeyboardSelection, -1, -1, k.TimestampUtc),
+                    GetDelay(k));
+            }
+            else
+            {
+                CancelPending();
+            }
             return;
         }
 
-        // 任何非 Shift 修饰的字符输入，认定选区被替换/取消
-        if (k.IsDown && !k.Shift && !k.Ctrl && !k.Alt && IsTypingKey(k.VirtualKey))
+        // 任何字符输入（含 Shift+字母大写）都视为选区被替换/取消
+        if (!k.Ctrl && !k.Alt && IsTypingKey(k.VirtualKey))
         {
             CancelPending();
         }
@@ -159,12 +173,6 @@ public sealed class SelectionStateMachine
     private void TryScheduleSelection(SelectionCandidate candidate, MouseUpEvent ev)
     {
         if (!PassesModifierPolicy(_downWithShift || ev.Shift, _downWithCtrl || ev.Ctrl, _downWithAlt || ev.Alt)) return;
-        SchedulePending(candidate, GetDelay(ev));
-    }
-
-    private void TryScheduleSelection(SelectionCandidate candidate, KeyEvent ev)
-    {
-        if (!PassesModifierPolicy(ev.Shift, ev.Ctrl, ev.Alt)) return;
         SchedulePending(candidate, GetDelay(ev));
     }
 

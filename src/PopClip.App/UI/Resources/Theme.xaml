@@ -37,11 +37,11 @@
     <Thickness x:Key="ToolbarBorderThickness">1</Thickness>
     <Thickness x:Key="ToolbarButtonPadding">10,4</Thickness>
     <Thickness x:Key="ToolbarButtonMargin">1</Thickness>
-    <!-- 阴影默认值（ShadowAndBorder 风格）。Margin=9 留给阴影外扩的空间约 9 DIP，
-         因此 BlurRadius + ShadowDepth 之和不宜超过 ~14，否则阴影会被透明窗口边界裁切 -->
-    <sys:Double x:Key="ToolbarShadowBlurRadius" xmlns:sys="clr-namespace:System;assembly=mscorlib">14</sys:Double>
+    <!-- 阴影默认值（ShadowAndBorder 风格）：阴影更深但范围收紧，紧贴边框不远离。
+         Margin=9 留给阴影外扩的空间约 9 DIP，BlurRadius + ShadowDepth 不应超过 ~9 避免裁切 -->
+    <sys:Double x:Key="ToolbarShadowBlurRadius" xmlns:sys="clr-namespace:System;assembly=mscorlib">6</sys:Double>
     <sys:Double x:Key="ToolbarShadowDepth" xmlns:sys="clr-namespace:System;assembly=mscorlib">2</sys:Double>
-    <sys:Double x:Key="ToolbarShadowOpacity" xmlns:sys="clr-namespace:System;assembly=mscorlib">0.16</sys:Double>
+    <sys:Double x:Key="ToolbarShadowOpacity" xmlns:sys="clr-namespace:System;assembly=mscorlib">0.32</sys:Double>
     <sys:Double x:Key="ToolbarButtonFontSize" xmlns:sys="clr-namespace:System;assembly=mscorlib">12</sys:Double>
     <sys:Double x:Key="ToolbarIconFontSize" xmlns:sys="clr-namespace:System;assembly=mscorlib">14</sys:Double>
 

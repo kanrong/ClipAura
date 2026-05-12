@@ -138,12 +138,14 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             Resources["ToolbarButtonCornerRadius"] = new CornerRadius(0);
             _outerCornerRadius = radius + 1;
             // spacing 仅作用于按钮的左右 Margin；按钮 Padding 固定（仅决定按钮内容的内边距）。
+            // 上下 7px 让按钮整体更高，整个浮窗高度上抬 6px，视觉更稳重；
             // 不再有 container padding：StackPanel 直接贴满 ContentClipHost，
             // ItemsPanel 通过负 Margin 抵消最外侧按钮的左右 Margin，最左/最右按钮的高亮区直接贴到外壳内边
             Resources["ToolbarButtonMargin"] = new Thickness(spacing, 0, spacing, 0);
-            Resources["ToolbarButtonPadding"] = new Thickness(10, 4, 10, 4);
+            Resources["ToolbarButtonPadding"] = new Thickness(12, 7, 12, 7);
             Resources["ToolbarItemsPanelMargin"] = new Thickness(-spacing, 0, -spacing, 0);
             Resources["ToolbarButtonFontSize"] = fontSize;
+            // 图标比正文大 4 号 + SemiBold 字重，让图标在按钮里成为视觉重心
             Resources["ToolbarIconFontSize"] = fontSize + 2;
             // 圆角变化时 Clip 半径也要跟着改，否则按钮还会以旧半径被裁切
             UpdateContentClip();
@@ -202,8 +204,8 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         });
     }
 
-    // 阴影参数总预算：BlurRadius + ShadowDepth 不超过 ShadowPaddingDip(=9)，
-    // 否则阴影会被 Window 的透明外缘裁切，出现"下边阴影被切平"的硬边
+    // 阴影参数策略：加深 Opacity（更明显）+ 缩小 BlurRadius（不晕散到边框外远处）；
+    // 总预算 BlurRadius + ShadowDepth 不超过 ShadowPaddingDip(=9) 避免被透明窗口边界裁切
     private void ApplySurfaceStyle(ToolbarSurfaceStyle style)
     {
         Dispatcher.Invoke(() =>
@@ -211,11 +213,11 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             switch (style)
             {
                 case ToolbarSurfaceStyle.Shadow:
-                    // 纯阴影：阴影稍强、稍下沉，但仍控制在 padding 预算内
+                    // 纯阴影：在没有描边的情况下用稍宽一点的范围让外形可读，但仍偏紧
                     Resources["ToolbarBorderThickness"] = new Thickness(0);
-                    Resources["ToolbarShadowBlurRadius"] = 16d;
-                    Resources["ToolbarShadowDepth"] = 3d;
-                    Resources["ToolbarShadowOpacity"] = 0.22d;
+                    Resources["ToolbarShadowBlurRadius"] = 7d;
+                    Resources["ToolbarShadowDepth"] = 2d;
+                    Resources["ToolbarShadowOpacity"] = 0.42d;
                     break;
                 case ToolbarSurfaceStyle.Border:
                     // 纯细边框：去掉阴影完全避免裁切；边框颜色由 ToolbarBorder 主题切换
@@ -225,12 +227,11 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
                     Resources["ToolbarShadowOpacity"] = 0d;
                     break;
                 default:
-                    // ShadowAndBorder：阴影更柔（低 Opacity + 适中模糊），细边框收住主体边缘，
-                    // 圆角处不会出现"边框 + 深阴影"的双层硬边
+                    // ShadowAndBorder：阴影更深更紧贴，细边框 + 重阴影构成"漂浮卡片"感
                     Resources["ToolbarBorderThickness"] = new Thickness(1);
-                    Resources["ToolbarShadowBlurRadius"] = 14d;
+                    Resources["ToolbarShadowBlurRadius"] = 6d;
                     Resources["ToolbarShadowDepth"] = 2d;
-                    Resources["ToolbarShadowOpacity"] = 0.16d;
+                    Resources["ToolbarShadowOpacity"] = 0.32d;
                     break;
             }
         });

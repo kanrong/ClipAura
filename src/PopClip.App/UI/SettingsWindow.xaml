@@ -484,6 +484,12 @@
                                             </ComboBox>
                                         </StackPanel>
                                     </Grid>
+
+                                    <!-- 键盘选择默认全部不弹（避免干扰键盘流），唯一例外是 Ctrl+A
+                                         因为全选是带明确意图的操作；此开关可让纯键盘用户彻底关掉 -->
+                                    <ui:ToggleSwitch x:Name="EnableSelectAllPopupBox"
+                                                     Content="Ctrl+A 全选时弹出浮窗"
+                                                     Margin="0,16,0,0" />
                                 </StackPanel>
                             </Border>
 

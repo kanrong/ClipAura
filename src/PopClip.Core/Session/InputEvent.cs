@@ -35,4 +35,6 @@ public sealed class SelectionStateOptions
     public int PopupDelayMs { get; set; } = 200;
     public int HoverDelayMs { get; set; } = 300;
     public SelectionModifierKey RequiredModifier { get; set; } = SelectionModifierKey.Alt;
+    /// <summary>Ctrl+A 全选是否触发弹窗。其他键盘选区动作不弹</summary>
+    public bool EnableSelectAllPopup { get; set; } = true;
 }

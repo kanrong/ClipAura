@@ -186,6 +186,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         SelectComboByTag(RequiredModifierBox, _settings.RequiredModifier.ToString());
         PopupDelayBox.Value = _settings.PopupDelayMs;
         HoverDelayBox.Value = _settings.HoverDelayMs;
+        EnableSelectAllPopupBox.IsChecked = _settings.EnableSelectAllPopup;
 
         DismissOnMouseLeaveBox.IsChecked = _settings.DismissOnMouseLeave;
         DismissOnForegroundChangedBox.IsChecked = _settings.DismissOnForegroundChanged;
@@ -599,6 +600,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             : SelectionModifierKey.Alt;
         _settings.PopupDelayMs = NumberBoxInt(PopupDelayBox, _settings.PopupDelayMs, 0, 1500);
         _settings.HoverDelayMs = NumberBoxInt(HoverDelayBox, _settings.HoverDelayMs, 0, 1500);
+        _settings.EnableSelectAllPopup = EnableSelectAllPopupBox.IsChecked == true;
 
         _settings.DismissOnMouseLeave = DismissOnMouseLeaveBox.IsChecked == true;
         _settings.DismissOnForegroundChanged = DismissOnForegroundChangedBox.IsChecked == true;

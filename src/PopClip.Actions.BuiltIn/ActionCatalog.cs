@@ -33,11 +33,11 @@ public sealed class ActionCatalog
             [BuiltInActionIds.Mailto] = new MailtoAction(),
             [BuiltInActionIds.Calculate] = new CalculateAction(),
             [BuiltInActionIds.WordCount] = new WordCountAction(),
-            [BuiltInActionIds.AiSummarize] = new AiTextAction(BuiltInActionIds.AiSummarize, "AI 总结", AiTextActionKind.Summarize),
-            [BuiltInActionIds.AiRewrite] = new AiTextAction(BuiltInActionIds.AiRewrite, "AI 改写", AiTextActionKind.Rewrite),
-            [BuiltInActionIds.AiTranslate] = new AiTextAction(BuiltInActionIds.AiTranslate, "AI 翻译", AiTextActionKind.Translate),
-            [BuiltInActionIds.AiExplain] = new AiTextAction(BuiltInActionIds.AiExplain, "AI 解释", AiTextActionKind.Explain),
-            [BuiltInActionIds.AiReply] = new AiTextAction(BuiltInActionIds.AiReply, "AI 回复", AiTextActionKind.Reply),
+            [BuiltInActionIds.AiSummarize] = new AiTextAction(BuiltInActionIds.AiSummarize, "AI 总结", "AiSummary", AiTextActionKind.Summarize),
+            [BuiltInActionIds.AiRewrite] = new AiTextAction(BuiltInActionIds.AiRewrite, "AI 改写", "AiRewrite", AiTextActionKind.Rewrite),
+            [BuiltInActionIds.AiTranslate] = new AiTextAction(BuiltInActionIds.AiTranslate, "AI 翻译", "AiTranslate", AiTextActionKind.Translate),
+            [BuiltInActionIds.AiExplain] = new AiTextAction(BuiltInActionIds.AiExplain, "AI 解释", "AiExplain", AiTextActionKind.Explain),
+            [BuiltInActionIds.AiReply] = new AiTextAction(BuiltInActionIds.AiReply, "AI 回复", "AiReply", AiTextActionKind.Reply),
         };
     }
 

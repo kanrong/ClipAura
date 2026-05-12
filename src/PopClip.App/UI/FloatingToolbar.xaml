@@ -1,6 +1,7 @@
 <Window x:Class="PopClip.App.UI.FloatingToolbar"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
         xmlns:local="clr-namespace:PopClip.App.UI"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -18,6 +19,7 @@
     <Window.Resources>
         <local:IconKeyToGlyphConverter x:Key="IconConv" />
         <local:IconKeyToFontFamilyConverter x:Key="IconFontConv" />
+        <local:IconKeyToMaterialDesignKindConverter x:Key="MaterialIconConv" />
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
 
         <!-- 浮窗内的"复制"小按钮：屏蔽全局 WPF-UI Fluent 默认样式，保持极简紧凑的外观 -->
@@ -93,13 +95,13 @@
                                     <!-- 图标：比正文大 4 号 + SemiBold；
                                          对 Segoe Fluent Icons 字体而言字重影响很小，但对
                                          普通字符/emoji 起到加粗强调，整体让图标成为按钮焦点 -->
-                                    <TextBlock Text="{Binding IconKey, Converter={StaticResource IconConv}}"
-                                               FontFamily="{Binding IconKey, Converter={StaticResource IconFontConv}}"
-                                               FontSize="{DynamicResource ToolbarIconFontSize}"
-                                               VerticalAlignment="Center"
-                                               Visibility="{Binding DataContext.IsIconVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
+                                    <iconPacks:PackIconMaterialDesign Kind="{Binding IconKey, Converter={StaticResource MaterialIconConv}}"
+                                                                      Width="{DynamicResource ToolbarIconFontSize}"
+                                                                      Height="{DynamicResource ToolbarIconFontSize}"
+                                                                      VerticalAlignment="Center"
+                                                                      Visibility="{Binding DataContext.IsIconVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}">
+                                        <iconPacks:PackIconMaterialDesign.Style>
+                                            <Style TargetType="iconPacks:PackIconMaterialDesign">
                                                 <Setter Property="Margin" Value="0,0,6,0" />
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}}" Value="False">
@@ -107,8 +109,8 @@
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
+                                        </iconPacks:PackIconMaterialDesign.Style>
+                                    </iconPacks:PackIconMaterialDesign>
                                     <TextBlock Text="{Binding Title}"
                                                VerticalAlignment="Center"
                                                Visibility="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />

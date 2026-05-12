@@ -10,7 +10,7 @@ internal static class ConfigPaths
         {
             var dir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "PopClip.Win");
+                "ClipAura");
             Directory.CreateDirectory(dir);
             return dir;
         }

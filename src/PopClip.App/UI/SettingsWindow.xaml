@@ -1,6 +1,7 @@
 <ui:FluentWindow x:Class="PopClip.App.UI.SettingsWindow"
                  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  xmlns:local="clr-namespace:PopClip.App.UI"
                  Title="ClipAura 设置"
@@ -18,6 +19,7 @@
     <Window.Resources>
         <local:IconKeyToGlyphConverter x:Key="IconConv" />
         <local:IconKeyToFontFamilyConverter x:Key="IconFontConv" />
+        <local:IconKeyToMaterialDesignKindConverter x:Key="MaterialIconConv" />
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
 
         <!-- 每条 Action 卡片的 DataTemplate -->
@@ -65,12 +67,12 @@
                                 Background="{DynamicResource Settings.AccentSoft}"
                                 CornerRadius="{StaticResource Settings.Radius.Sm}"
                                 Margin="0,0,12,0">
-                            <TextBlock Text="{Binding Icon, Converter={StaticResource IconConv}}"
-                                       FontFamily="{Binding Icon, Converter={StaticResource IconFontConv}}"
-                                       FontSize="16"
-                                       Foreground="{DynamicResource Settings.Accent}"
-                                       VerticalAlignment="Center"
-                                       HorizontalAlignment="Center" />
+                            <iconPacks:PackIconMaterialDesign Kind="{Binding Icon, Converter={StaticResource MaterialIconConv}}"
+                                                              Width="17"
+                                                              Height="17"
+                                                              Foreground="{DynamicResource Settings.Accent}"
+                                                              VerticalAlignment="Center"
+                                                              HorizontalAlignment="Center" />
                         </Border>
 
                         <!-- 标题 + ID -->
@@ -958,7 +960,7 @@
                                             <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="配置目录" />
-                                        <TextBlock Grid.Column="1" Text="%LOCALAPPDATA%\PopClip.Win"
+                                        <TextBlock Grid.Column="1" Text="%LOCALAPPDATA%\ClipAura"
                                                    Foreground="{DynamicResource Settings.Foreground}"
                                                    VerticalAlignment="Center" />
                                     </Grid>

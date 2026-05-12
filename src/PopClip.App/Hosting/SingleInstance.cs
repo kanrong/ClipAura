@@ -7,8 +7,8 @@ namespace PopClip.App.Hosting;
 /// <summary>Mutex 单实例 + 命名管道唤起。后启动的进程把"打开设置"等命令推给已有实例</summary>
 public sealed class SingleInstance : IDisposable
 {
-    private const string MutexName = @"Global\PopClip.Win.SingleInstance.B1F3";
-    private const string PipeName = "PopClip.Win.IPC.B1F3";
+    private const string MutexName = @"Global\ClipAura.SingleInstance.B1F3";
+    private const string PipeName = "ClipAura.IPC.B1F3";
 
     private readonly ILog _log;
     private Mutex? _mutex;

@@ -613,11 +613,11 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         BuiltInActionIds.ToTitle => "Title",
         BuiltInActionIds.Calculate => "Calc",
         BuiltInActionIds.WordCount => "Count",
-        BuiltInActionIds.AiSummarize => "Ai",
-        BuiltInActionIds.AiRewrite => "Ai",
-        BuiltInActionIds.AiTranslate => "Ai",
-        BuiltInActionIds.AiExplain => "Ai",
-        BuiltInActionIds.AiReply => "Ai",
+        BuiltInActionIds.AiSummarize => "AiSummary",
+        BuiltInActionIds.AiRewrite => "AiRewrite",
+        BuiltInActionIds.AiTranslate => "AiTranslate",
+        BuiltInActionIds.AiExplain => "AiExplain",
+        BuiltInActionIds.AiReply => "AiReply",
         _ => "Script",
     };
 
@@ -818,7 +818,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             Type = "builtin",
             BuiltIn = builtIn,
             Title = title,
-            Icon = "Ai",
+            Icon = SuggestIcon(builtIn),
             Enabled = true,
             RegexTestText = ActionGlobalTestText.Text,
         });

@@ -225,17 +225,19 @@ internal sealed class AiTextAction : BuiltInAction
     private readonly AiTextActionKind _kind;
     private readonly string _id;
     private readonly string _title;
+    private readonly string _iconKey;
 
-    public AiTextAction(string id, string title, AiTextActionKind kind)
+    public AiTextAction(string id, string title, string iconKey, AiTextActionKind kind)
     {
         _id = id;
         _title = title;
+        _iconKey = iconKey;
         _kind = kind;
     }
 
     public override string Id => _id;
     public override string Title => _title;
-    public override string IconKey => "Ai";
+    public override string IconKey => _iconKey;
 
     public override bool CanRun(SelectionContext context)
         => !context.IsEmpty;

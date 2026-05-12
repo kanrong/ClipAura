@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Data;
+using MahApps.Metro.IconPacks;
 using FontFamily = System.Windows.Media.FontFamily;
 
 namespace PopClip.App.UI;
@@ -25,6 +26,11 @@ internal sealed class IconKeyToGlyphConverter : IValueConverter
         ["Count"] = "\uE8FD",
         ["Script"] = "\uE756",
         ["Ai"] = "\uF0E7",
+        ["AiSummary"] = "\uE8FD",
+        ["AiRewrite"] = "\uE70F",
+        ["AiTranslate"] = "\uF2B7",
+        ["AiExplain"] = "\uE946",
+        ["AiReply"] = "\uE8F2",
     };
 
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
@@ -61,6 +67,42 @@ internal sealed class IconKeyToFontFamilyConverter : IValueConverter
             if (ch >= '\uE000' && ch <= '\uF8FF') return Symbol;
         }
         return Text;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotImplementedException();
+}
+
+internal sealed class IconKeyToMaterialDesignKindConverter : IValueConverter
+{
+    private static readonly Dictionary<string, PackIconMaterialDesignKind> Map = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Copy"] = PackIconMaterialDesignKind.ContentCopyRound,
+        ["Search"] = PackIconMaterialDesignKind.SearchRound,
+        ["Google"] = PackIconMaterialDesignKind.SearchRound,
+        ["Bing"] = PackIconMaterialDesignKind.SearchRound,
+        ["Paste"] = PackIconMaterialDesignKind.ContentPasteRound,
+        ["Translate"] = PackIconMaterialDesignKind.TranslateRound,
+        ["Upper"] = PackIconMaterialDesignKind.TextIncreaseRound,
+        ["Lower"] = PackIconMaterialDesignKind.TextDecreaseRound,
+        ["Title"] = PackIconMaterialDesignKind.TitleRound,
+        ["Url"] = PackIconMaterialDesignKind.OpenInNewRound,
+        ["Mail"] = PackIconMaterialDesignKind.EmailRound,
+        ["Calc"] = PackIconMaterialDesignKind.CalculateRound,
+        ["Count"] = PackIconMaterialDesignKind.FormatListNumberedRound,
+        ["Script"] = PackIconMaterialDesignKind.CodeRound,
+        ["Ai"] = PackIconMaterialDesignKind.SmartToyRound,
+        ["AiSummary"] = PackIconMaterialDesignKind.SummarizeRound,
+        ["AiRewrite"] = PackIconMaterialDesignKind.AutoFixHighRound,
+        ["AiTranslate"] = PackIconMaterialDesignKind.TranslateRound,
+        ["AiExplain"] = PackIconMaterialDesignKind.InfoRound,
+        ["AiReply"] = PackIconMaterialDesignKind.ReplyRound,
+    };
+
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is string key && Map.TryGetValue(key, out var kind)) return kind;
+        return PackIconMaterialDesignKind.QuestionMarkRound;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)

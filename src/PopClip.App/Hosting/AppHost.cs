@@ -117,7 +117,7 @@ internal sealed class AppHost : IDisposable
             WpfApplication.Current.Dispatcher.BeginInvoke(new Action(() => ShowSettingsWindow(null)));
         }
 
-        _log.Info("PopClip started");
+        _log.Info("ClipAura started");
     }
 
     private void OnIpcCommand(string command)

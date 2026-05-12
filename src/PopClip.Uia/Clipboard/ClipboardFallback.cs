@@ -37,6 +37,12 @@ public sealed class ClipboardFallback
 
             try
             {
+                if (!WaitForSafeCopyModifiers(TimeSpan.FromMilliseconds(350)))
+                {
+                    _log.Info("clipboard fallback skipped: modifier still down");
+                    return null;
+                }
+
                 SendCtrlC();
 
                 var deadline = DateTime.UtcNow + timeout;
@@ -63,6 +69,37 @@ public sealed class ClipboardFallback
             Monitor.Exit(Gate);
         }
     }
+
+    private static bool WaitForSafeCopyModifiers(TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (!IsCopyAlteringModifierDown()) return true;
+            Thread.Sleep(10);
+        }
+        return !IsCopyAlteringModifierDown();
+    }
+
+    private static bool IsCopyAlteringModifierDown()
+    {
+        const int VK_LMENU = 0xA4;
+        const int VK_RMENU = 0xA5;
+        const int VK_LWIN = 0x5B;
+        const int VK_RWIN = 0x5C;
+
+        return IsDown(NativeMethods.VK_SHIFT)
+            || IsDown(NativeMethods.VK_LSHIFT)
+            || IsDown(NativeMethods.VK_RSHIFT)
+            || IsDown(NativeMethods.VK_MENU)
+            || IsDown(VK_LMENU)
+            || IsDown(VK_RMENU)
+            || IsDown(VK_LWIN)
+            || IsDown(VK_RWIN);
+    }
+
+    private static bool IsDown(int vk)
+        => (NativeMethods.GetAsyncKeyState(vk) & 0x8000) != 0;
 
     private static void SendCtrlC()
     {

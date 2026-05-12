@@ -321,7 +321,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     {
         PrewarmLayout();
         UpdateOverflowLayout();
-        SelectIndex(_keyboardShortcutsEnabled && Items.Count > 0 ? 0 : -1);
+        SelectIndex(ShouldAutoSelectFirstItem() ? 0 : -1);
 
         // 关键：必须 base.Show() 一次让 SizeToContent="WidthAndHeight" 真正生效。
         // Hidden 状态下的 UpdateLayout 不会更新 Window 的 ActualWidth/Height。
@@ -470,12 +470,26 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         }
     }
 
+    private bool ShouldAutoSelectFirstItem()
+        => _keyboardShortcutsEnabled && _tabNavigationEnabled && Items.Count > 0;
+
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         Dispatcher.Invoke(() =>
         {
             UpdateOverflowLayout();
-            SelectIndex(Items.Count > 0 ? Math.Clamp(_selectedIndex, 0, Items.Count - 1) : -1);
+            if (Items.Count == 0)
+            {
+                SelectIndex(-1);
+            }
+            else if (_selectedIndex >= 0)
+            {
+                SelectIndex(Math.Clamp(_selectedIndex, 0, Items.Count - 1));
+            }
+            else
+            {
+                SelectIndex(ShouldAutoSelectFirstItem() ? 0 : -1);
+            }
         });
     }
 

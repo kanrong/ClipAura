@@ -97,12 +97,22 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
         Dispatcher.Invoke(() =>
         {
             var prefix = mode == ToolbarThemeMode.Dark ? "ToolbarDark" : "ToolbarLight";
-            Resources["ToolbarBackground"] = FindResource($"{prefix}Background");
-            Resources["ToolbarShadow"] = FindResource($"{prefix}Shadow");
-            Resources["ToolbarForeground"] = FindResource($"{prefix}Foreground");
-            Resources["ToolbarHover"] = FindResource($"{prefix}Hover");
-            Resources["ToolbarSeparator"] = FindResource($"{prefix}Separator");
+            SetToolbarResource("ToolbarBackground", $"{prefix}Background");
+            SetToolbarResource("ToolbarShadow", $"{prefix}Shadow");
+            SetToolbarResource("ToolbarForeground", $"{prefix}Foreground");
+            SetToolbarResource("ToolbarHover", $"{prefix}Hover");
         });
+    }
+
+    private void SetToolbarResource(string targetKey, string sourceKey)
+    {
+        var value = TryFindResource(sourceKey) ?? System.Windows.Application.Current?.TryFindResource(sourceKey);
+        if (value is null)
+        {
+            _log.Warn("toolbar theme resource missing", ("key", sourceKey));
+            return;
+        }
+        Resources[targetKey] = value;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? name = null)
@@ -205,7 +215,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
         int shadowPaddingPxX,
         int shadowPaddingPxY)
     {
-        const int HorizontalOffset = -6;
+        const int HorizontalOffset = 0;
         const int VerticalGap = 20;
         var x = anchor.Left + HorizontalOffset - shadowPaddingPxX;
         var y = anchor.Bottom + VerticalGap - shadowPaddingPxY;

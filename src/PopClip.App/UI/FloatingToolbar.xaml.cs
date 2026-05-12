@@ -29,6 +29,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
     private bool _isShown;
     private bool _isIconVisible = true;
     private bool _isTextVisible = true;
+    private const int ShadowPaddingDip = 9;
 
     public event Action? Dismissed;
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -166,7 +167,9 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
         var widthPx = (int)Math.Ceiling(widthDip * monitor.DpiX / 96.0);
         var heightPx = (int)Math.Ceiling(heightDip * monitor.DpiY / 96.0);
 
-        var (x, y) = ComputePositionPx(anchorRect, monitor, widthPx, heightPx);
+        var shadowPaddingPxX = (int)Math.Ceiling(ShadowPaddingDip * monitor.DpiX / 96.0);
+        var shadowPaddingPxY = (int)Math.Ceiling(ShadowPaddingDip * monitor.DpiY / 96.0);
+        var (x, y) = ComputePositionPx(anchorRect, monitor, widthPx, heightPx, shadowPaddingPxX, shadowPaddingPxY);
         _log.Info("toolbar show",
             ("anchorRight", anchorRect.Right), ("anchorBottom", anchorRect.Bottom),
             ("widthPx", widthPx), ("heightPx", heightPx),
@@ -181,21 +184,28 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
 
     /// <summary>把工具栏摆到 anchor 的右下方（左上角对齐 anchor 右下角 + Gap）。
     /// 触底则上翻到 anchor 上方；触右则左翻到 anchor 左侧；最后按工作区做硬约束</summary>
-    private static (int X, int Y) ComputePositionPx(SelectionRect anchor, MonitorMetrics monitor, int widthPx, int heightPx)
+    private static (int X, int Y) ComputePositionPx(
+        SelectionRect anchor,
+        MonitorMetrics monitor,
+        int widthPx,
+        int heightPx,
+        int shadowPaddingPxX,
+        int shadowPaddingPxY)
     {
-        const int Gap = 8;
-        var x = anchor.Right + Gap;
-        var y = anchor.Bottom + Gap;
+        const int HorizontalGap = 8;
+        const int VerticalGap = 14;
+        var x = anchor.Right + HorizontalGap - shadowPaddingPxX;
+        var y = anchor.Bottom + VerticalGap - shadowPaddingPxY;
 
         if (x + widthPx > monitor.WorkRight - 4)
         {
             // 右侧放不下，回退到 anchor 左侧
-            x = anchor.Left - widthPx - Gap;
+            x = anchor.Left - widthPx - HorizontalGap + shadowPaddingPxX;
         }
         if (y + heightPx > monitor.WorkBottom - 4)
         {
             // 下方放不下，回退到 anchor 上方
-            y = anchor.Top - heightPx - Gap;
+            y = anchor.Top - heightPx - VerticalGap + shadowPaddingPxY;
         }
 
         if (x < monitor.WorkLeft + 4) x = monitor.WorkLeft + 4;

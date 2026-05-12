@@ -18,50 +18,56 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
     </Window.Resources>
 
-    <Border Background="{StaticResource ToolbarBackground}"
-            BorderThickness="0"
-            CornerRadius="10"
-            Padding="0"
-            SnapsToDevicePixels="True">
-        <Border.Effect>
-            <DropShadowEffect Color="#000" BlurRadius="14" ShadowDepth="2" Opacity="0.45" />
-        </Border.Effect>
+    <Grid Margin="9"
+          SnapsToDevicePixels="True">
+        <Border Background="{StaticResource ToolbarShadow}"
+                CornerRadius="11">
+            <Border.Effect>
+                <DropShadowEffect Color="#000" BlurRadius="16" ShadowDepth="2" Opacity="0.32" />
+            </Border.Effect>
+        </Border>
 
-        <ItemsControl x:Name="ItemsHost" ItemsSource="{Binding Items, RelativeSource={RelativeSource AncestorType=Window}}">
-            <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <StackPanel Orientation="Horizontal" />
-                </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                    <Button Style="{StaticResource ToolbarButtonStyle}"
-                            Command="{Binding Command}"
-                            ToolTip="{Binding Title}">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="{Binding IconKey, Converter={StaticResource IconConv}}"
-                                       FontFamily="{Binding IconKey, Converter={StaticResource IconFontConv}}"
-                                       FontSize="14"
-                                       VerticalAlignment="Center"
-                                       Visibility="{Binding DataContext.IsIconVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Margin" Value="0,0,6,0" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}}" Value="False">
-                                                <Setter Property="Margin" Value="0" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                            <TextBlock Text="{Binding Title}"
-                                       VerticalAlignment="Center"
-                                       Visibility="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
-                        </StackPanel>
-                    </Button>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
-    </Border>
+        <Border Background="{StaticResource ToolbarBackground}"
+                BorderThickness="0"
+                CornerRadius="10"
+                Padding="1"
+                SnapsToDevicePixels="True">
+            <ItemsControl x:Name="ItemsHost" ItemsSource="{Binding Items, RelativeSource={RelativeSource AncestorType=Window}}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Style="{StaticResource ToolbarButtonStyle}"
+                                Command="{Binding Command}"
+                                ToolTip="{Binding Title}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding IconKey, Converter={StaticResource IconConv}}"
+                                           FontFamily="{Binding IconKey, Converter={StaticResource IconFontConv}}"
+                                           FontSize="14"
+                                           VerticalAlignment="Center"
+                                           Visibility="{Binding DataContext.IsIconVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Margin" Value="0,0,6,0" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}}" Value="False">
+                                                    <Setter Property="Margin" Value="0" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <TextBlock Text="{Binding Title}"
+                                           VerticalAlignment="Center"
+                                           Visibility="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
+                            </StackPanel>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Border>
+    </Grid>
 </Window>

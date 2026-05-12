@@ -9,6 +9,7 @@ internal sealed class ActionHost : IActionHost
     public IUrlLauncher UrlLauncher { get; }
     public IClipboardWriter Clipboard { get; }
     public INotificationSink Notifier { get; }
+    public ISettingsProvider Settings { get; }
     public ILog Log { get; }
 
     public ActionHost(
@@ -16,12 +17,14 @@ internal sealed class ActionHost : IActionHost
         ITextReplacer replacer,
         IUrlLauncher urlLauncher,
         IClipboardWriter clipboard,
-        INotificationSink notifier)
+        INotificationSink notifier,
+        ISettingsProvider settings)
     {
         Log = log;
         Replacer = replacer;
         UrlLauncher = urlLauncher;
         Clipboard = clipboard;
         Notifier = notifier;
+        Settings = settings;
     }
 }

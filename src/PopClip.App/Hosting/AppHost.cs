@@ -75,14 +75,19 @@ internal sealed class AppHost : IDisposable
         _tray.OnExitRequested += () => WpfApplication.Current.Shutdown();
         _tray.Show();
 
-        _actionHost = new ActionHost(_log, _replacer, urlLauncher, clipboardWriter, _tray);
+        var settingsProvider = new SettingsProvider(_settings);
+        _actionHost = new ActionHost(_log, _replacer, urlLauncher, clipboardWriter, _tray, settingsProvider);
 
         _gate = new SuppressionGate(_log, _settings);
         _toolbar = new FloatingToolbar(_log);
         _toolbar.PrewarmLayout();
 
         _session = new SelectionSessionManager(
-            _log, _watcher, _acquisition, _replacer, _catalog, _actionHost, _gate, _toolbar, _pause);
+            _log, _watcher, _acquisition, _replacer, _catalog, _actionHost, _gate, _toolbar, _pause, _settings,
+            clipboardAccess, clipboardPaste);
+
+        // 启动时也把当前显示模式同步给浮窗，避免首屏使用默认模式
+        _toolbar.ApplyDisplayMode(_settings.ToolbarDisplay);
 
         // toolbar 构造完成后才能注册依赖它的事件
         _tray.OnPauseChanged += paused =>

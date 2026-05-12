@@ -16,6 +16,27 @@ public sealed class ClipboardPaste
         _clipboard = clipboard;
     }
 
+    /// <summary>把当前剪贴板内容直接粘贴到目标窗口，不修改剪贴板。
+    /// 用于"用户主动想粘贴"的场景（Shift+点击空白光标位置）</summary>
+    public bool PasteCurrent(nint targetHwnd)
+    {
+        try
+        {
+            if (targetHwnd != 0)
+            {
+                NativeMethods.SetForegroundWindow(targetHwnd);
+                Thread.Sleep(40);
+            }
+            SendCtrlV();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("paste current failed", ("err", ex.Message));
+            return false;
+        }
+    }
+
     public bool PasteAsReplacement(nint targetHwnd, string newText)
     {
         var snapshot = _clipboard.Capture();
@@ -49,7 +70,7 @@ public sealed class ClipboardPaste
         }
     }
 
-    private static void SendCtrlV()
+    internal static void SendCtrlV()
     {
         const ushort VK_CONTROL = 0x11;
         const ushort VK_V = 0x56;

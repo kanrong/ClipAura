@@ -8,8 +8,10 @@ public sealed class SelectionStateMachine
 {
     private const int MouseDragThresholdPx = 4;
     private const int DoubleClickDistancePx = 5;
-    private static readonly TimeSpan MouseDebounce = TimeSpan.FromMilliseconds(300);
-    private static readonly TimeSpan KeyboardDebounce = TimeSpan.FromMilliseconds(150);
+    // 0 延迟：候选事件下一刻就投递。仍走异步是为了不在钩子线程里直接触发 UI 路径，
+    // 而是回到工作线程消费，避免拉慢钩子返回触发系统 LowLevelHooksTimeout
+    private static readonly TimeSpan MouseDebounce = TimeSpan.Zero;
+    private static readonly TimeSpan KeyboardDebounce = TimeSpan.Zero;
     private static readonly TimeSpan DoubleClickWindow = TimeSpan.FromMilliseconds(500);
 
     private readonly ILog _log;
@@ -18,6 +20,8 @@ public sealed class SelectionStateMachine
     private int _mouseDownX, _mouseDownY;
     private bool _leftDown;
     private bool _movedFarEnough;
+    private bool _downWithCtrl;
+    private bool _downWithShift;
 
     // 双击识别状态：记录上一次 mouse-up 的时间与位置
     private DateTime _lastUpAtUtc = DateTime.MinValue;
@@ -40,6 +44,8 @@ public sealed class SelectionStateMachine
                 _mouseDownX = md.X;
                 _mouseDownY = md.Y;
                 _movedFarEnough = false;
+                _downWithCtrl = md.Ctrl;
+                _downWithShift = md.Shift;
                 CancelPending();
                 break;
 
@@ -57,10 +63,23 @@ public sealed class SelectionStateMachine
 
             case MouseUpEvent mu:
                 _leftDown = false;
-                if (_movedFarEnough)
+                // Ctrl+原地点击优先级最高：直接当作"粘贴意图"，不参与拖选/双击识别
+                if (!_movedFarEnough && (_downWithCtrl || mu.Ctrl))
                 {
+                    SchedulePending(new SelectionCandidate(SelectionTrigger.MouseCtrlClick, mu.X, mu.Y, mu.TimestampUtc), MouseDebounce);
+                    _lastUpAtUtc = DateTime.MinValue;
+                }
+                else if (_movedFarEnough)
+                {
+                    // Shift+拖动也归入此分支（扩展选区是用户的主要意图）
                     SchedulePending(new SelectionCandidate(SelectionTrigger.MouseDrag, mu.X, mu.Y, mu.TimestampUtc), MouseDebounce);
-                    _lastUpAtUtc = DateTime.MinValue; // 拖选后不再算作双击候选
+                    _lastUpAtUtc = DateTime.MinValue;
+                }
+                else if (_downWithShift || mu.Shift)
+                {
+                    // Shift+原地点击：编辑器中通常表示"从光标延伸到此位置"，按拖选语义走文本采集
+                    SchedulePending(new SelectionCandidate(SelectionTrigger.MouseDrag, mu.X, mu.Y, mu.TimestampUtc), MouseDebounce);
+                    _lastUpAtUtc = DateTime.MinValue;
                 }
                 else if (IsDoubleClick(mu))
                 {
@@ -74,6 +93,8 @@ public sealed class SelectionStateMachine
                     _lastUpY = mu.Y;
                 }
                 _movedFarEnough = false;
+                _downWithCtrl = false;
+                _downWithShift = false;
                 break;
 
             case KeyEvent k:

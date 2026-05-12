@@ -1,7 +1,10 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using PopClip.App.Config;
 using PopClip.Core.Logging;
 using PopClip.Core.Model;
 using PopClip.Hooks.Interop;
@@ -15,7 +18,7 @@ namespace PopClip.App.UI;
 /// - 重写 WndProc 处理 WM_MOUSEACTIVATE 返回 MA_NOACTIVATE
 /// - 用 SetWindowPos(SWP_NOACTIVATE) + ShowWindow(SW_SHOWNOACTIVATE) 显示，不走 Window.Show()
 /// - 定位使用 GetDpiForWindow 处理多显示器异构 DPI</summary>
-public partial class FloatingToolbar : Window
+public partial class FloatingToolbar : Window, INotifyPropertyChanged
 {
     public ObservableCollection<ToolbarItem> Items { get; } = new();
 
@@ -24,8 +27,35 @@ public partial class FloatingToolbar : Window
     private DateTime _lastShownAtUtc;
     private bool _prewarmed;
     private bool _isShown;
+    private bool _isIconVisible = true;
+    private bool _isTextVisible = true;
 
     public event Action? Dismissed;
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>是否显示按钮的图标部分；与 IsTextVisible 联动构成三种显示模式</summary>
+    public bool IsIconVisible
+    {
+        get => _isIconVisible;
+        private set
+        {
+            if (_isIconVisible == value) return;
+            _isIconVisible = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>是否显示按钮的文字部分</summary>
+    public bool IsTextVisible
+    {
+        get => _isTextVisible;
+        private set
+        {
+            if (_isTextVisible == value) return;
+            _isTextVisible = value;
+            OnPropertyChanged();
+        }
+    }
 
     public FloatingToolbar(ILog log)
     {
@@ -35,6 +65,46 @@ public partial class FloatingToolbar : Window
         SourceInitialized += OnSourceInitialized;
         MouseLeave += OnMouseLeave;
     }
+
+    /// <summary>由设置层调用，切换三种显示模式。
+    /// 兜底：两者都关闭时回退为图标+文字，避免按钮空空如也无法点击</summary>
+    public void ApplyDisplayMode(ToolbarDisplayMode mode)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            switch (mode)
+            {
+                case ToolbarDisplayMode.IconOnly:
+                    IsIconVisible = true;
+                    IsTextVisible = false;
+                    break;
+                case ToolbarDisplayMode.TextOnly:
+                    IsIconVisible = false;
+                    IsTextVisible = true;
+                    break;
+                default:
+                    IsIconVisible = true;
+                    IsTextVisible = true;
+                    break;
+            }
+        });
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? name = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    /// <summary>当前是否处于显示状态。供外层在监听全局点击时判断要不要主动 Dismiss</summary>
+    public bool IsShown => _isShown;
+
+    /// <summary>判断屏幕物理像素坐标是否落在浮窗矩形内。
+    /// 用 Win32 GetWindowRect 取真实物理像素，避免与低级钩子坐标系混用 DIP</summary>
+    public bool ContainsScreenPoint(int x, int y)
+    {
+        if (!_isShown || _hwnd == 0) return false;
+        if (!NativeMethods.GetWindowRect(_hwnd, out var rect)) return false;
+        return x >= rect.Left && x < rect.Right && y >= rect.Top && y < rect.Bottom;
+    }
+
 
     /// <summary>预热：触发 HWND 创建并 attach WndProc hook。
     /// 不在此预算 size，因为预热时 Items 为空，size 是 padding-only 的 10x10，毫无意义</summary>
@@ -109,19 +179,29 @@ public partial class FloatingToolbar : Window
         _lastShownAtUtc = DateTime.UtcNow;
     }
 
+    /// <summary>把工具栏摆到 anchor 的右下方（左上角对齐 anchor 右下角 + Gap）。
+    /// 触底则上翻到 anchor 上方；触右则左翻到 anchor 左侧；最后按工作区做硬约束</summary>
     private static (int X, int Y) ComputePositionPx(SelectionRect anchor, MonitorMetrics monitor, int widthPx, int heightPx)
     {
         const int Gap = 8;
-        var x = anchor.Right - widthPx / 2;
+        var x = anchor.Right + Gap;
         var y = anchor.Bottom + Gap;
+
+        if (x + widthPx > monitor.WorkRight - 4)
+        {
+            // 右侧放不下，回退到 anchor 左侧
+            x = anchor.Left - widthPx - Gap;
+        }
+        if (y + heightPx > monitor.WorkBottom - 4)
+        {
+            // 下方放不下，回退到 anchor 上方
+            y = anchor.Top - heightPx - Gap;
+        }
 
         if (x < monitor.WorkLeft + 4) x = monitor.WorkLeft + 4;
         if (x + widthPx > monitor.WorkRight - 4) x = monitor.WorkRight - widthPx - 4;
-        if (y + heightPx > monitor.WorkBottom - 4)
-        {
-            y = anchor.Top - heightPx - Gap;
-        }
         if (y < monitor.WorkTop + 4) y = monitor.WorkTop + 4;
+        if (y + heightPx > monitor.WorkBottom - 4) y = monitor.WorkBottom - heightPx - 4;
         return (x, y);
     }
 

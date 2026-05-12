@@ -14,13 +14,14 @@
         UseLayoutRounding="True">
     <Window.Resources>
         <local:IconKeyToGlyphConverter x:Key="IconConv" />
+        <local:IconKeyToFontFamilyConverter x:Key="IconFontConv" />
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
     </Window.Resources>
 
     <Border Background="{StaticResource ToolbarBackground}"
-            BorderBrush="{StaticResource ToolbarBorder}"
-            BorderThickness="1"
+            BorderThickness="0"
             CornerRadius="10"
-            Padding="4"
+            Padding="0"
             SnapsToDevicePixels="True">
         <Border.Effect>
             <DropShadowEffect Color="#000" BlurRadius="14" ShadowDepth="2" Opacity="0.45" />
@@ -39,11 +40,24 @@
                             ToolTip="{Binding Title}">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="{Binding IconKey, Converter={StaticResource IconConv}}"
-                                       FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                       FontFamily="{Binding IconKey, Converter={StaticResource IconFontConv}}"
                                        FontSize="14"
-                                       Margin="0,0,6,0"
-                                       VerticalAlignment="Center" />
-                            <TextBlock Text="{Binding Title}" VerticalAlignment="Center" />
+                                       VerticalAlignment="Center"
+                                       Visibility="{Binding DataContext.IsIconVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Margin" Value="0,0,6,0" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}}" Value="False">
+                                                <Setter Property="Margin" Value="0" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <TextBlock Text="{Binding Title}"
+                                       VerticalAlignment="Center"
+                                       Visibility="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
                         </StackPanel>
                     </Button>
                 </DataTemplate>

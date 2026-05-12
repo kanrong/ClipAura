@@ -31,6 +31,39 @@
                     <ListBox x:Name="ProcessList" Grid.Row="1" />
                 </Grid>
             </TabItem>
+            <TabItem Header="外观">
+                <StackPanel Margin="8">
+                    <TextBlock Text="浮窗按钮显示方式" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <RadioButton x:Name="DisplayIconAndText" GroupName="DisplayMode" Content="图标 + 文字（默认）" Margin="0,0,0,4" />
+                    <RadioButton x:Name="DisplayIconOnly"    GroupName="DisplayMode" Content="仅图标"            Margin="0,0,0,4" />
+                    <RadioButton x:Name="DisplayTextOnly"    GroupName="DisplayMode" Content="仅文字"            Margin="0,0,0,4" />
+                </StackPanel>
+            </TabItem>
+            <TabItem Header="搜索引擎">
+                <StackPanel Margin="8">
+                    <TextBlock Text="选择内置预设或自定义 URL 模板（{q} 会被替换为选中的文本）" Opacity="0.75" Margin="0,0,0,8" TextWrapping="Wrap" />
+                    <RadioButton x:Name="SearchGoogle" GroupName="SearchEngine" Content="Google"             Margin="0,0,0,4" Click="OnSearchPresetChanged" />
+                    <RadioButton x:Name="SearchBing"   GroupName="SearchEngine" Content="Bing"               Margin="0,0,0,4" Click="OnSearchPresetChanged" />
+                    <RadioButton x:Name="SearchBaidu"  GroupName="SearchEngine" Content="百度"               Margin="0,0,0,4" Click="OnSearchPresetChanged" />
+                    <RadioButton x:Name="SearchCustom" GroupName="SearchEngine" Content="自定义"             Margin="0,0,0,8" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="名称：" VerticalAlignment="Center" Margin="0,0,8,4" />
+                        <TextBox  Grid.Column="1" x:Name="SearchEngineName" Margin="0,0,0,4" />
+                    </Grid>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="URL：" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <TextBox  Grid.Column="1" x:Name="SearchUrlTemplate" />
+                    </Grid>
+                </StackPanel>
+            </TabItem>
             <TabItem Header="高级">
                 <StackPanel Margin="8">
                     <CheckBox x:Name="FullScreenSuppress" Content="全屏应用（游戏/演示）期间抑制弹出" />

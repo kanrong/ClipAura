@@ -46,10 +46,15 @@ public sealed class LowLevelMouseHook
             Volatile.Write(ref _lastEventTicks, now.Ticks);
             // WM_LBUTTONDBLCLK 是系统合成给目标窗口的消息，低级钩子收不到，
             // 双击需要在状态机里依据两次 down/up 的时间+距离自行识别
+            // mouse down/up 同步采样 Shift / Ctrl 状态：
+            //   Shift+原地点击 → 走正常工具条路径（与扩展选区配合）
+            //   Ctrl +原地点击 → 直接弹"粘贴"
+            var shift = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_SHIFT) & 0x8000) != 0;
+            var ctrl = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_CONTROL) & 0x8000) != 0;
             InputEvent? ev = msg switch
             {
-                NativeMethods.WM_LBUTTONDOWN => new MouseDownEvent(data.pt.X, data.pt.Y, now),
-                NativeMethods.WM_LBUTTONUP => new MouseUpEvent(data.pt.X, data.pt.Y, now),
+                NativeMethods.WM_LBUTTONDOWN => new MouseDownEvent(data.pt.X, data.pt.Y, shift, ctrl, now),
+                NativeMethods.WM_LBUTTONUP => new MouseUpEvent(data.pt.X, data.pt.Y, shift, ctrl, now),
                 NativeMethods.WM_MOUSEMOVE => new MouseMoveEvent(data.pt.X, data.pt.Y, IsLeftDown(), now),
                 _ => null,
             };

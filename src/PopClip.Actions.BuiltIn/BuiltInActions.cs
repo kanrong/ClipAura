@@ -10,7 +10,11 @@ namespace PopClip.Actions.BuiltIn;
 public static class BuiltInActionIds
 {
     public const string Copy = "builtin.copy";
+    /// <summary>统一搜索动作；具体引擎 URL 通过 ISettingsProvider 注入，运行时从设置读取</summary>
+    public const string Search = "builtin.search";
+    /// <summary>历史 ID，保留是为了兼容旧 actions.json；映射到 SearchAction 上</summary>
     public const string GoogleSearch = "builtin.search.google";
+    /// <summary>历史 ID，同上</summary>
     public const string BingSearch = "builtin.search.bing";
     public const string Translate = "builtin.translate.bing";
     public const string ToUpper = "builtin.case.upper";
@@ -43,29 +47,28 @@ internal sealed class CopyAction : BuiltInAction
     }
 }
 
-internal sealed class GoogleSearchAction : BuiltInAction
+/// <summary>统一搜索动作。Title/IconKey 与最终 URL 都来源于 ISettingsProvider，
+/// 用户可在设置中切换 Google / Bing / Baidu / 自定义模板</summary>
+internal sealed class SearchAction : BuiltInAction
 {
-    public override string Id => BuiltInActionIds.GoogleSearch;
-    public override string Title => "Google 搜索";
-    public override string IconKey => "Google";
+    public override string Id => BuiltInActionIds.Search;
+    public override string Title => "搜索";
+    public override string IconKey => "Search";
+
     public override Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
     {
-        host.UrlLauncher.Open("https://www.google.com/search?q=" + WebUtility.UrlEncode(context.Text));
+        var template = host.Settings.SearchUrlTemplate;
+        if (string.IsNullOrWhiteSpace(template))
+        {
+            host.Log.Warn("search url template empty, fallback to google");
+            template = "https://www.google.com/search?q={q}";
+        }
+        var url = template.Replace("{q}", WebUtility.UrlEncode(context.Text));
+        host.UrlLauncher.Open(url);
         return Task.CompletedTask;
     }
 }
 
-internal sealed class BingSearchAction : BuiltInAction
-{
-    public override string Id => BuiltInActionIds.BingSearch;
-    public override string Title => "Bing 搜索";
-    public override string IconKey => "Bing";
-    public override Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
-    {
-        host.UrlLauncher.Open("https://www.bing.com/search?q=" + WebUtility.UrlEncode(context.Text));
-        return Task.CompletedTask;
-    }
-}
 
 internal sealed class TranslateAction : BuiltInAction
 {

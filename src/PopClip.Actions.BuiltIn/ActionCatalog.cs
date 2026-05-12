@@ -15,11 +15,14 @@ public sealed class ActionCatalog
     public ActionCatalog(ILog log)
     {
         _log = log;
+        // 旧 GoogleSearch / BingSearch ID 全部别名到统一 SearchAction，兼容历史 actions.json
+        var search = new SearchAction();
         _registry = new Dictionary<string, IAction>(StringComparer.OrdinalIgnoreCase)
         {
             [BuiltInActionIds.Copy] = new CopyAction(),
-            [BuiltInActionIds.GoogleSearch] = new GoogleSearchAction(),
-            [BuiltInActionIds.BingSearch] = new BingSearchAction(),
+            [BuiltInActionIds.Search] = search,
+            [BuiltInActionIds.GoogleSearch] = search,
+            [BuiltInActionIds.BingSearch] = search,
             [BuiltInActionIds.Translate] = new TranslateAction(),
             [BuiltInActionIds.ToUpper] = new ToUpperAction(),
             [BuiltInActionIds.ToLower] = new ToLowerAction(),
@@ -70,8 +73,7 @@ public sealed class ActionCatalog
                 new() { Id = "copy", Type = "builtin", BuiltIn = BuiltInActionIds.Copy, Title = "复制" },
                 new() { Id = "open-url", Type = "builtin", BuiltIn = BuiltInActionIds.OpenUrl, Title = "打开链接" },
                 new() { Id = "mailto", Type = "builtin", BuiltIn = BuiltInActionIds.Mailto, Title = "发送邮件" },
-                new() { Id = "google", Type = "builtin", BuiltIn = BuiltInActionIds.GoogleSearch, Title = "Google" },
-                new() { Id = "bing", Type = "builtin", BuiltIn = BuiltInActionIds.BingSearch, Title = "Bing" },
+                new() { Id = "search", Type = "builtin", BuiltIn = BuiltInActionIds.Search, Title = "搜索" },
                 new() { Id = "translate", Type = "builtin", BuiltIn = BuiltInActionIds.Translate, Title = "翻译" },
                 new() { Id = "upper", Type = "builtin", BuiltIn = BuiltInActionIds.ToUpper, Title = "大写" },
                 new() { Id = "lower", Type = "builtin", BuiltIn = BuiltInActionIds.ToLower, Title = "小写" },

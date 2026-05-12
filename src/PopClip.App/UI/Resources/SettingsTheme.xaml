@@ -9,17 +9,17 @@
          ============================================================ -->
 
     <!-- 颜色 / 画刷（语义层）-->
-    <SolidColorBrush x:Key="Settings.Window.Background" Color="#F5F6F9" />
-    <SolidColorBrush x:Key="Settings.Sidebar.Background" Color="#ECEFF4" />
-    <SolidColorBrush x:Key="Settings.Sidebar.SelectedBackground" Color="#E1ECFE" />
-    <SolidColorBrush x:Key="Settings.Sidebar.HoverBackground" Color="#E4E7EE" />
+    <SolidColorBrush x:Key="Settings.Window.Background" Color="#F7F8FA" />
+    <SolidColorBrush x:Key="Settings.Sidebar.Background" Color="#EEF1F5" />
+    <SolidColorBrush x:Key="Settings.Sidebar.SelectedBackground" Color="#E4EEFF" />
+    <SolidColorBrush x:Key="Settings.Sidebar.HoverBackground" Color="#E6EAF0" />
     <SolidColorBrush x:Key="Settings.Card.Background" Color="#FFFFFF" />
-    <SolidColorBrush x:Key="Settings.Card.Border" Color="#E2E6ED" />
-    <SolidColorBrush x:Key="Settings.Card.SubtleBackground" Color="#F9FAFB" />
-    <SolidColorBrush x:Key="Settings.Foreground" Color="#1C2230" />
-    <SolidColorBrush x:Key="Settings.SubtleForeground" Color="#5B6577" />
-    <SolidColorBrush x:Key="Settings.Muted" Color="#9097A6" />
-    <SolidColorBrush x:Key="Settings.Stroke" Color="#D9DEE7" />
+    <SolidColorBrush x:Key="Settings.Card.Border" Color="#DDE3EB" />
+    <SolidColorBrush x:Key="Settings.Card.SubtleBackground" Color="#F2F4F7" />
+    <SolidColorBrush x:Key="Settings.Foreground" Color="#1E2329" />
+    <SolidColorBrush x:Key="Settings.SubtleForeground" Color="#626B76" />
+    <SolidColorBrush x:Key="Settings.Muted" Color="#8A94A1" />
+    <SolidColorBrush x:Key="Settings.Stroke" Color="#D9DEE6" />
     <SolidColorBrush x:Key="Settings.Accent" Color="#2563EB" />
     <SolidColorBrush x:Key="Settings.AccentHover" Color="#1D4ED8" />
     <SolidColorBrush x:Key="Settings.AccentForeground" Color="#FFFFFF" />

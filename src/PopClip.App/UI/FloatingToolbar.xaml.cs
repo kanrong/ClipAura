@@ -49,6 +49,8 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     private CancellationTokenSource? _toastCts;
     private string? _toastCopyText;
     private const int ShadowPaddingDip = 9;
+    private const double ToolbarButtonPaddingX = 12;
+    private const double ToolbarButtonPaddingY = 9;
     // 外圆角半径，与阴影底板/描边层的 CornerRadius 完全一致；
     // ContentClipHost 用它作 Clip 圆角，按钮 hover 颜色直接铺满到外圆角弧线，
     // 描边层（最上层）再把外圆角描边盖住 hover 边缘的抗锯齿过渡像素
@@ -144,11 +146,15 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             Resources["ToolbarButtonCornerRadius"] = new CornerRadius(0);
             _outerCornerRadius = radius + 1;
             // spacing 仅作用于按钮的左右 Margin；按钮 Padding 固定（仅决定按钮内容的内边距）。
-            // 上下 7px 让按钮整体更高，整个浮窗高度上抬 6px，视觉更稳重；
+            // 需要调整按钮高度时，改 ToolbarButtonPaddingY 即可。
             // 不再有 container padding：StackPanel 直接贴满 ContentClipHost，
             // ItemsPanel 通过负 Margin 抵消最外侧按钮的左右 Margin，最左/最右按钮的高亮区直接贴到外壳内边
             Resources["ToolbarButtonMargin"] = new Thickness(spacing, 0, spacing, 0);
-            Resources["ToolbarButtonPadding"] = new Thickness(12, 7, 12, 7);
+            Resources["ToolbarButtonPadding"] = new Thickness(
+                ToolbarButtonPaddingX,
+                ToolbarButtonPaddingY,
+                ToolbarButtonPaddingX,
+                ToolbarButtonPaddingY);
             Resources["ToolbarItemsPanelMargin"] = new Thickness(-spacing, 0, -spacing, 0);
             Resources["ToolbarButtonFontSize"] = fontSize;
             // 图标比正文大 4 号 + SemiBold 字重，让图标在按钮里成为视觉重心
@@ -246,7 +252,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     private static Color BlendAccent(Color accent, ToolbarThemeMode theme)
     {
         var factor = theme == ToolbarThemeMode.Dark ? 0.36 : 0.18;
-        var baseColor = theme == ToolbarThemeMode.Dark ? Color.FromRgb(0x20, 0x20, 0x20) : Color.FromRgb(0xFF, 0xFF, 0xFF);
+        var baseColor = theme == ToolbarThemeMode.Dark ? Color.FromRgb(0x2B, 0x30, 0x37) : Color.FromRgb(0xFF, 0xFF, 0xFF);
         byte Blend(byte a, byte b) => (byte)Math.Round(a * factor + b * (1 - factor));
         return Color.FromRgb(Blend(accent.R, baseColor.R), Blend(accent.G, baseColor.G), Blend(accent.B, baseColor.B));
     }

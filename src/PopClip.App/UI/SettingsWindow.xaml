@@ -627,13 +627,19 @@
 
                         <!-- ===================== 动作 ===================== -->
                         <StackPanel x:Name="ActionsPage" Visibility="Collapsed">
-                            <DockPanel Margin="0,0,0,6">
-                                <StackPanel DockPanel.Dock="Left">
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" MinWidth="240" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0"
+                                            Margin="0,0,16,0">
                                     <TextBlock Style="{StaticResource Settings.PageTitle}" Text="动作" />
                                     <TextBlock Style="{StaticResource Settings.PageDescription}"
-                                               Text="工具栏中显示的动作清单。可拖拽排序、按类型切换字段，并通过正则按上下文显示" />
+                                               Text="工具栏中显示的动作清单。可拖拽排序、按类型切换字段，并通过正则按上下文显示"
+                                               TextWrapping="Wrap" />
                                 </StackPanel>
-                                <StackPanel DockPanel.Dock="Right"
+                                <StackPanel Grid.Column="1"
                                             Orientation="Horizontal"
                                             VerticalAlignment="Top"
                                             HorizontalAlignment="Right">
@@ -652,7 +658,7 @@
                                                Content="添加脚本"
                                                Click="OnAddScriptAction" />
                                 </StackPanel>
-                            </DockPanel>
+                            </Grid>
 
                             <Border Style="{StaticResource Settings.SubCard}">
                                 <Grid>

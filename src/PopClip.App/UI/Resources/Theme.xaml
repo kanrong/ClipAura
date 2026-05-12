@@ -31,7 +31,9 @@
     <StaticResource x:Key="ToolbarToastBackground" ResourceKey="ToolbarLightToastBackground" />
     <StaticResource x:Key="ToolbarSeparator" ResourceKey="ToolbarLightSeparator" />
     <CornerRadius x:Key="ToolbarCornerRadius">4</CornerRadius>
-    <CornerRadius x:Key="ToolbarButtonCornerRadius">3</CornerRadius>
+    <!-- 按钮本身为矩形（0 圆角），左右两端按钮通过外层 ContentClipHost 的圆角 Clip
+         统一裁切到外壳内圆角弧线内，避免矩形角伸出外壳圆角外 -->
+    <CornerRadius x:Key="ToolbarButtonCornerRadius">0</CornerRadius>
     <Thickness x:Key="ToolbarBorderThickness">1</Thickness>
     <Thickness x:Key="ToolbarButtonPadding">10,4</Thickness>
     <Thickness x:Key="ToolbarButtonMargin">1</Thickness>
@@ -55,12 +57,14 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
+                    <!-- 不带 BorderThickness：按钮 hover Background 必须铺满按钮整个矩形，
+                         否则相邻按钮中间会因为透明描边占位出现 1~2px 空白，最外侧按钮
+                         也会与浮窗内边出现 1px 缝（被阴影底板的 ToolbarBackground 透出） -->
                     <Border x:Name="Bd"
                             Background="{TemplateBinding Background}"
-                            BorderBrush="Transparent"
-                            BorderThickness="1"
                             CornerRadius="{DynamicResource ToolbarButtonCornerRadius}"
-                            Padding="{TemplateBinding Padding}">
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>

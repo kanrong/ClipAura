@@ -67,14 +67,15 @@
             </Border.Effect>
         </Border>
 
-        <!-- 容器 Padding 固定，作为按钮与外边框的内边距；spacing 仅作用于按钮的 Margin，
-             ItemsPanel 通过负 Margin 抵消最外侧按钮的左右 Margin，做到"间距与边距解耦" -->
-        <Border Background="{DynamicResource ToolbarBackground}"
-                BorderBrush="{DynamicResource ToolbarBorder}"
-                BorderThickness="{DynamicResource ToolbarBorderThickness}"
-                CornerRadius="{DynamicResource ToolbarCornerRadius}"
-                Padding="{DynamicResource ToolbarContainerPadding}"
-                SnapsToDevicePixels="True">
+        <!-- 内容层：按钮区。三层结构（阴影底板 → ContentClipHost → 描边层）的关键中间层。
+             不再嵌在带 BorderBrush 的 Border 里，避免"Border.Background 圆角在 BorderBrush 内侧
+             留半像素抗锯齿过渡区"导致的"圆角处 1px 白边"。
+             ContentClipHost 直接占据整个 Grid（与阴影底板同尺寸），Clip 圆角 = 外圆角，
+             按钮 hover 高亮直接铺满到外圆角弧线，描边层在最上面把 hover 边缘的 0.5px 模糊咬住 -->
+        <Grid x:Name="ContentClipHost"
+              SizeChanged="OnContentClipHostSizeChanged"
+              UseLayoutRounding="True"
+              SnapsToDevicePixels="True">
             <StackPanel>
                 <ItemsControl x:Name="ItemsHost" ItemsSource="{Binding Items, RelativeSource={RelativeSource AncestorType=Window}}">
                     <ItemsControl.ItemsPanel>
@@ -135,6 +136,15 @@
                     </DockPanel>
                 </Border>
             </StackPanel>
-        </Border>
+        </Grid>
+
+        <!-- 描边层：仅画 1px 圆角描边，IsHitTestVisible=False 不拦点击；
+             叠在最上面把 ContentClipHost 内 hover 边缘的 0.5px 抗锯齿过渡区咬住，
+             视觉上 hover 颜色 ↔ 边框 ↔ 圆角弧线连成一体，圆角处不再有任何浅色透出 -->
+        <Border BorderBrush="{DynamicResource ToolbarBorder}"
+                BorderThickness="{DynamicResource ToolbarBorderThickness}"
+                CornerRadius="{DynamicResource ToolbarCornerRadius}"
+                IsHitTestVisible="False"
+                SnapsToDevicePixels="True" />
     </Grid>
 </Window>

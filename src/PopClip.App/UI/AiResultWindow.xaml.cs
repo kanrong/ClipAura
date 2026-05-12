@@ -38,8 +38,12 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         _sendAsync = sendAsync;
         InitializeComponent();
 
-        TitleText.Text = actionTitle;
+        var titleText = string.IsNullOrWhiteSpace(actionTitle) ? "ClipAura AI" : actionTitle;
+        Title = titleText;
+        AppTitleBar.Title = titleText;
+
         ReferenceText.Text = sourceText;
+        ReferenceExpander.Header = BuildReferenceHeader(sourceText);
         ReferencePanel.Visibility = string.IsNullOrWhiteSpace(sourceText) ? Visibility.Collapsed : Visibility.Visible;
         SetIdle(model, sourceText.Length);
         AddAssistantMessage("已准备好。你可以基于引用文本继续提问。");
@@ -204,10 +208,10 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
     {
         var border = new Border
         {
-            Padding = new Thickness(12),
-            Margin = isUser ? new Thickness(64, 0, 0, 10) : new Thickness(0, 0, 42, 10),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = isUser ? new Thickness(48, 0, 0, 8) : new Thickness(0, 0, 24, 8),
             HorizontalAlignment = isUser ? HorizontalAlignment.Right : HorizontalAlignment.Stretch,
-            MaxWidth = isUser ? 560 : double.PositiveInfinity,
+            MaxWidth = isUser ? 620 : double.PositiveInfinity,
         };
         border.SetResourceReference(Border.CornerRadiusProperty, "Settings.Radius.Md");
         border.SetResourceReference(Border.BorderBrushProperty, isError ? "Settings.Danger" : "Settings.Stroke");
@@ -220,7 +224,8 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         {
             Text = author,
             FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 0, 0, 6),
+            FontSize = 12,
+            Margin = new Thickness(0, 0, 0, 4),
         };
         header.SetResourceReference(TextBlock.ForegroundProperty, "Settings.SubtleForeground");
         stack.Children.Add(header);
@@ -286,4 +291,20 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         => string.IsNullOrWhiteSpace(_latestAssistantText)
             ? _streamingAssistantText
             : _latestAssistantText;
+
+    private static string BuildReferenceHeader(string sourceText)
+    {
+        if (string.IsNullOrWhiteSpace(sourceText))
+        {
+            return "原文";
+        }
+
+        // 用双引号 + 单行预览代替静态标签"引用文本"，使折叠状态下也能瞥到原文。
+        var collapsed = System.Text.RegularExpressions.Regex.Replace(sourceText, @"\s+", " ").Trim();
+        const int maxLen = 60;
+        var preview = collapsed.Length <= maxLen
+            ? collapsed
+            : collapsed[..maxLen] + "…";
+        return $"\u201C{preview}\u201D";
+    }
 }

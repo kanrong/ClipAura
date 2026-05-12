@@ -77,7 +77,7 @@ public sealed class AppSettings
 
     public bool FollowAccentColor { get; set; } = true;
     public double ToolbarCornerRadius { get; set; } = 5;
-    public double ToolbarButtonSpacing { get; set; } = 2;
+    public double ToolbarButtonSpacing { get; set; } = 0;
     public double ToolbarFontSize { get; set; } = 12;
     public int ToolbarMaxActionsPerRow { get; set; } = 6;
     public bool EnableToolbarKeyboardShortcuts { get; set; } = true;

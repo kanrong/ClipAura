@@ -188,9 +188,10 @@ internal sealed class SelectionSessionManager : IDisposable
         await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
         {
             _toolbar.ApplyDisplayMode(_settings.ToolbarDisplay);
+            _toolbar.ApplyThemeMode(_settings.ToolbarTheme);
             _toolbar.Items.Clear();
             foreach (var it in items) _toolbar.Items.Add(it);
-            _toolbar.ShowAt(outcome.Context.Rect, outcome.Context.Foreground);
+            _toolbar.ShowAt(mouseRect, outcome.Context.Foreground);
         });
     }
 
@@ -220,6 +221,7 @@ internal sealed class SelectionSessionManager : IDisposable
         await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
         {
             _toolbar.ApplyDisplayMode(_settings.ToolbarDisplay);
+            _toolbar.ApplyThemeMode(_settings.ToolbarTheme);
             _toolbar.Items.Clear();
             _toolbar.Items.Add(item);
             _toolbar.ShowAt(mouseRect, foreground);

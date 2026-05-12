@@ -8,6 +8,13 @@ public enum ToolbarDisplayMode
     TextOnly,
 }
 
+/// <summary>浮窗颜色主题</summary>
+public enum ToolbarThemeMode
+{
+    Light,
+    Dark,
+}
+
 /// <summary>整个应用的用户配置。MVP 仅落地 actions.json 与黑白名单</summary>
 public sealed class AppSettings
 {
@@ -32,6 +39,9 @@ public sealed class AppSettings
 
     /// <summary>浮窗按钮显示方式，默认图标+文字</summary>
     public ToolbarDisplayMode ToolbarDisplay { get; set; } = ToolbarDisplayMode.IconAndText;
+
+    /// <summary>浮窗颜色主题，默认浅色</summary>
+    public ToolbarThemeMode ToolbarTheme { get; set; } = ToolbarThemeMode.Light;
 
     /// <summary>搜索引擎名称，用作工具条按钮的显示文字（兼具用户可读性）</summary>
     public string SearchEngineName { get; set; } = "Google";

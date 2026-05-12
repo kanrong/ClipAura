@@ -34,6 +34,8 @@ public partial class SettingsWindow : Window
         DisplayIconAndText.IsChecked = _settings.ToolbarDisplay == ToolbarDisplayMode.IconAndText;
         DisplayIconOnly.IsChecked    = _settings.ToolbarDisplay == ToolbarDisplayMode.IconOnly;
         DisplayTextOnly.IsChecked    = _settings.ToolbarDisplay == ToolbarDisplayMode.TextOnly;
+        ThemeLight.IsChecked = _settings.ToolbarTheme == ToolbarThemeMode.Light;
+        ThemeDark.IsChecked = _settings.ToolbarTheme == ToolbarThemeMode.Dark;
 
         SearchEngineName.Text = _settings.SearchEngineName;
         SearchUrlTemplate.Text = _settings.SearchUrlTemplate;
@@ -81,6 +83,9 @@ public partial class SettingsWindow : Window
             : DisplayTextOnly.IsChecked == true
                 ? ToolbarDisplayMode.TextOnly
                 : ToolbarDisplayMode.IconAndText;
+        _settings.ToolbarTheme = ThemeDark.IsChecked == true
+            ? ToolbarThemeMode.Dark
+            : ToolbarThemeMode.Light;
 
         var name = SearchEngineName.Text?.Trim() ?? "";
         var url = SearchUrlTemplate.Text?.Trim() ?? "";

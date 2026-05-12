@@ -91,6 +91,20 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
         });
     }
 
+    /// <summary>由设置层调用，切换浮窗浅色/深色主题</summary>
+    public void ApplyThemeMode(ToolbarThemeMode mode)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            var prefix = mode == ToolbarThemeMode.Dark ? "ToolbarDark" : "ToolbarLight";
+            Resources["ToolbarBackground"] = FindResource($"{prefix}Background");
+            Resources["ToolbarShadow"] = FindResource($"{prefix}Shadow");
+            Resources["ToolbarForeground"] = FindResource($"{prefix}Foreground");
+            Resources["ToolbarHover"] = FindResource($"{prefix}Hover");
+            Resources["ToolbarSeparator"] = FindResource($"{prefix}Separator");
+        });
+    }
+
     private void OnPropertyChanged([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
@@ -182,8 +196,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
         _lastShownAtUtc = DateTime.UtcNow;
     }
 
-    /// <summary>把工具栏摆到 anchor 的右下方（左上角对齐 anchor 右下角 + Gap）。
-    /// 触底则上翻到 anchor 上方；触右则左翻到 anchor 左侧；最后按工作区做硬约束</summary>
+    /// <summary>把工具栏摆到 anchor 下方，左边缘贴近鼠标垂线；触底则上翻并按工作区约束</summary>
     private static (int X, int Y) ComputePositionPx(
         SelectionRect anchor,
         MonitorMetrics monitor,
@@ -192,16 +205,11 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
         int shadowPaddingPxX,
         int shadowPaddingPxY)
     {
-        const int HorizontalGap = 8;
+        const int HorizontalOffset = -6;
         const int VerticalGap = 14;
-        var x = anchor.Right + HorizontalGap - shadowPaddingPxX;
+        var x = anchor.Left + HorizontalOffset - shadowPaddingPxX;
         var y = anchor.Bottom + VerticalGap - shadowPaddingPxY;
 
-        if (x + widthPx > monitor.WorkRight - 4)
-        {
-            // 右侧放不下，回退到 anchor 左侧
-            x = anchor.Left - widthPx - HorizontalGap + shadowPaddingPxX;
-        }
         if (y + heightPx > monitor.WorkBottom - 4)
         {
             // 下方放不下，回退到 anchor 上方

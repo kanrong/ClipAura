@@ -88,6 +88,7 @@ internal sealed class AppHost : IDisposable
 
         // 启动时也把当前显示模式同步给浮窗，避免首屏使用默认模式
         _toolbar.ApplyDisplayMode(_settings.ToolbarDisplay);
+        _toolbar.ApplyThemeMode(_settings.ToolbarTheme);
 
         // toolbar 构造完成后才能注册依赖它的事件
         _tray.OnPauseChanged += paused =>

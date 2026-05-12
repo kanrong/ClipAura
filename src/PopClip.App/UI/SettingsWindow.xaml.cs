@@ -181,6 +181,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         ButtonSpacingBox.Value = _settings.ToolbarButtonSpacing;
         ToolbarFontSizeBox.Value = _settings.ToolbarFontSize;
         MaxActionsPerRowBox.Value = _settings.ToolbarMaxActionsPerRow;
+        EnableToolbarKeyboardShortcutsBox.IsChecked = _settings.EnableToolbarKeyboardShortcuts;
+        EnableToolbarTabNavigationBox.IsChecked = _settings.EnableToolbarTabNavigation;
+        EnableToolbarNumberShortcutsBox.IsChecked = _settings.EnableToolbarNumberShortcuts;
 
         SelectComboByTag(PopupModeBox, _settings.PopupMode.ToString());
         SelectComboByTag(RequiredModifierBox, _settings.RequiredModifier.ToString());
@@ -287,7 +290,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
     {
         var entries = new[]
         {
-            ("General", "通用 全屏 开机 自启 触发 延迟 悬停 修饰键"),
+            ("General", "通用 全屏 开机 自启 触发 延迟 悬停 修饰键 快捷键"),
             ("Appearance", "外观 主题 深色 浅色 自动 强调色 阴影 边框 圆角 间距 字号"),
             ("Actions", "动作 添加 内置 URL 脚本 正则 matchRegex 排序"),
             ("Processes", "进程 过滤 黑名单 白名单 最近活动窗口"),
@@ -591,6 +594,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         _settings.ToolbarButtonSpacing = NumberBoxDouble(ButtonSpacingBox, _settings.ToolbarButtonSpacing, 0, 10);
         _settings.ToolbarFontSize = NumberBoxDouble(ToolbarFontSizeBox, _settings.ToolbarFontSize, 10, 18);
         _settings.ToolbarMaxActionsPerRow = NumberBoxInt(MaxActionsPerRowBox, _settings.ToolbarMaxActionsPerRow, 3, 12);
+        _settings.EnableToolbarKeyboardShortcuts = EnableToolbarKeyboardShortcutsBox.IsChecked == true;
+        _settings.EnableToolbarTabNavigation = EnableToolbarTabNavigationBox.IsChecked == true;
+        _settings.EnableToolbarNumberShortcuts = EnableToolbarNumberShortcutsBox.IsChecked == true;
 
         _settings.PopupMode = Enum.TryParse<SelectionPopupMode>(SelectedTag(PopupModeBox), out var popupMode)
             ? popupMode

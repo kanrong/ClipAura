@@ -43,6 +43,9 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     private bool _dismissOnMouseLeave = true;
     private int _dismissMouseLeaveDelayMs = 800;
     private bool _dismissOnEscape = true;
+    private bool _keyboardShortcutsEnabled = true;
+    private bool _tabNavigationEnabled = true;
+    private bool _numberShortcutsEnabled = true;
     private CancellationTokenSource? _toastCts;
     private string? _toastCopyText;
     private const int ShadowPaddingDip = 9;
@@ -126,6 +129,9 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         _dismissOnMouseLeave = settings.DismissOnMouseLeave;
         _dismissMouseLeaveDelayMs = Math.Clamp(settings.DismissMouseLeaveDelayMs, 0, 5000);
         _dismissOnEscape = settings.DismissOnEscapeKey;
+        _keyboardShortcutsEnabled = settings.EnableToolbarKeyboardShortcuts;
+        _tabNavigationEnabled = settings.EnableToolbarTabNavigation;
+        _numberShortcutsEnabled = settings.EnableToolbarNumberShortcuts;
         Dispatcher.Invoke(() =>
         {
             var radius = Math.Clamp(settings.ToolbarCornerRadius, 0, 18);
@@ -315,7 +321,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     {
         PrewarmLayout();
         UpdateOverflowLayout();
-        SelectIndex(Items.Count > 0 ? 0 : -1);
+        SelectIndex(_keyboardShortcutsEnabled && Items.Count > 0 ? 0 : -1);
 
         // 关键：必须 base.Show() 一次让 SizeToContent="WidthAndHeight" 真正生效。
         // Hidden 状态下的 UpdateLayout 不会更新 Window 的 ActualWidth/Height。
@@ -378,9 +384,11 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             HideToolbar("keyboard-esc");
             return true;
         }
-        if (Items.Count == 0) return false;
 
-        if (key.VirtualKey is >= 0x31 and <= 0x39)
+        if (_keyboardShortcutsEnabled
+            && _numberShortcutsEnabled
+            && Items.Count > 0
+            && key.VirtualKey is >= 0x31 and <= 0x39)
         {
             var index = key.VirtualKey - 0x31;
             if (index < Items.Count)
@@ -391,22 +399,25 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             }
         }
 
-        if (key.VirtualKey is NativeMethods.VK_LEFT or NativeMethods.VK_UP)
+        if (_keyboardShortcutsEnabled && Items.Count > 0 && key.VirtualKey is NativeMethods.VK_LEFT or NativeMethods.VK_UP)
         {
             MoveSelection(-1);
             return true;
         }
-        if (key.VirtualKey is NativeMethods.VK_RIGHT or NativeMethods.VK_DOWN)
+        if (_keyboardShortcutsEnabled && Items.Count > 0 && key.VirtualKey is NativeMethods.VK_RIGHT or NativeMethods.VK_DOWN)
         {
             MoveSelection(1);
             return true;
         }
-        if (key.VirtualKey == NativeMethods.VK_TAB)
+        if (_keyboardShortcutsEnabled
+            && _tabNavigationEnabled
+            && Items.Count > 0
+            && key.VirtualKey == NativeMethods.VK_TAB)
         {
             MoveSelection(key.Shift ? -1 : 1);
             return true;
         }
-        if (key.VirtualKey is NativeMethods.VK_RETURN or NativeMethods.VK_SPACE)
+        if (_keyboardShortcutsEnabled && Items.Count > 0 && key.VirtualKey is NativeMethods.VK_RETURN or NativeMethods.VK_SPACE)
         {
             var index = _selectedIndex >= 0 ? _selectedIndex : 0;
             SelectIndex(index);
@@ -414,7 +425,32 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             return true;
         }
 
+        if (!IsModifierOnlyKey(key.VirtualKey))
+        {
+            HideToolbar("keyboard-input");
+        }
+
         return false;
+    }
+
+    private static bool IsModifierOnlyKey(int virtualKey)
+    {
+        const int VK_LMENU = 0xA4;
+        const int VK_RMENU = 0xA5;
+        const int VK_LWIN = 0x5B;
+        const int VK_RWIN = 0x5C;
+
+        return virtualKey is NativeMethods.VK_SHIFT
+            or NativeMethods.VK_LSHIFT
+            or NativeMethods.VK_RSHIFT
+            or NativeMethods.VK_CONTROL
+            or NativeMethods.VK_LCONTROL
+            or NativeMethods.VK_RCONTROL
+            or NativeMethods.VK_MENU
+            or VK_LMENU
+            or VK_RMENU
+            or VK_LWIN
+            or VK_RWIN;
     }
 
     private void MoveSelection(int delta)

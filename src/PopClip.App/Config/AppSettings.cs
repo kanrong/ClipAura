@@ -64,6 +64,9 @@ public sealed class AppSettings
     public double ToolbarButtonSpacing { get; set; } = 2;
     public double ToolbarFontSize { get; set; } = 12;
     public int ToolbarMaxActionsPerRow { get; set; } = 6;
+    public bool EnableToolbarKeyboardShortcuts { get; set; } = true;
+    public bool EnableToolbarTabNavigation { get; set; } = true;
+    public bool EnableToolbarNumberShortcuts { get; set; } = true;
 
     public SelectionPopupMode PopupMode { get; set; } = SelectionPopupMode.Immediate;
     public int PopupDelayMs { get; set; } = 200;

@@ -490,6 +490,21 @@
                                     <ui:ToggleSwitch x:Name="EnableSelectAllPopupBox"
                                                      Content="Ctrl+A 全选时弹出浮窗"
                                                      Margin="0,16,0,0" />
+                                    <ui:ToggleSwitch x:Name="EnableToolbarKeyboardShortcutsBox"
+                                                     Content="浮窗开启键盘快捷操作"
+                                                     Margin="0,8,0,0" />
+                                    <Grid Margin="24,4,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <ui:ToggleSwitch x:Name="EnableToolbarTabNavigationBox"
+                                                         Content="Tab 切换按钮"
+                                                         Margin="0,0,16,0" />
+                                        <ui:ToggleSwitch x:Name="EnableToolbarNumberShortcutsBox"
+                                                         Grid.Column="1"
+                                                         Content="数字键 1/2/3 执行动作" />
+                                    </Grid>
                                 </StackPanel>
                             </Border>
 

@@ -214,7 +214,9 @@ internal sealed class SelectionSessionManager : IDisposable
 
         _replacer.SetCurrentElement(outcome.Element);
 
-        var visible = _catalog.GetVisible(outcome.Context);
+        var visible = _catalog.GetVisible(outcome.Context)
+            .Where(v => !IsAiAction(v.Action.Id) || _actionHost.Ai.CanRun)
+            .ToList();
         _log.Info("visible actions", ("count", visible.Count));
         if (visible.Count == 0) return;
 
@@ -321,15 +323,26 @@ internal sealed class SelectionSessionManager : IDisposable
     private void RunAction(IAction action, SelectionContext context, string title)
     {
         var toastBefore = _toolbar.LastToastAtUtc;
+        var isAiAction = IsAiAction(action.Id);
         _ = Task.Run(async () =>
         {
             try
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                if (isAiAction)
+                {
+                    await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
+                    {
+                        _toolbar.ShowInlineToast($"{title} 处理中...", durationMs: 6000);
+                    });
+                }
+                var timeoutSeconds = isAiAction
+                    ? Math.Clamp(_settings.AiTimeoutSeconds + 15, 20, 240)
+                    : 15;
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
                 await action.RunAsync(context, _actionHost, cts.Token).ConfigureAwait(false);
                 await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
                 {
-                    if (_toolbar.LastToastAtUtc <= toastBefore)
+                    if (!isAiAction && _toolbar.LastToastAtUtc <= toastBefore)
                     {
                         var text = action.Id == BuiltInActionIds.Copy ? "已复制 ✓" : $"{title} ✓";
                         _toolbar.ShowInlineToast(text);
@@ -351,6 +364,9 @@ internal sealed class SelectionSessionManager : IDisposable
             }
         });
     }
+
+    private static bool IsAiAction(string id)
+        => id.StartsWith("builtin.ai.", StringComparison.OrdinalIgnoreCase);
 
     public void Dispose()
     {

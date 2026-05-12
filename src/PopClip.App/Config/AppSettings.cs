@@ -26,6 +26,22 @@ public enum ToolbarSurfaceStyle
     ShadowAndBorder,
 }
 
+public enum AiProviderPreset
+{
+    DeepSeekV4Flash,
+    DeepSeekV4Pro,
+    OpenAiFast,
+    OpenAiPro,
+    Custom,
+}
+
+public enum AiThinkingMode
+{
+    Auto,
+    Fast,
+    Deep,
+}
+
 /// <summary>整个应用的用户配置</summary>
 public sealed class AppSettings
 {
@@ -106,4 +122,16 @@ public sealed class AppSettings
     ///   Baidu  -> https://www.baidu.com/s?wd={q}
     /// 也允许用户填入任意自定义模板</summary>
     public string SearchUrlTemplate { get; set; } = "https://www.google.com/search?q={q}";
+
+    public bool AiEnabled { get; set; }
+    public AiProviderPreset AiProviderPreset { get; set; } = AiProviderPreset.DeepSeekV4Flash;
+    public string AiBaseUrl { get; set; } = "https://api.deepseek.com";
+    public string AiModel { get; set; } = "deepseek-v4-flash";
+    public int AiTimeoutSeconds { get; set; } = 30;
+    public string AiDefaultLanguage { get; set; } = "中文";
+    public AiThinkingMode AiThinkingMode { get; set; } = AiThinkingMode.Auto;
+
+    public string AiDeepSeekApiKeyProtected { get; set; } = "";
+    public string AiOpenAiApiKeyProtected { get; set; } = "";
+    public string AiCustomApiKeyProtected { get; set; } = "";
 }

@@ -87,7 +87,8 @@ internal sealed class AppHost : IDisposable
         _toolbar.PrewarmLayout();
 
         var settingsProvider = new SettingsProvider(_settings);
-        _actionHost = new ActionHost(_log, _replacer, urlLauncher, clipboardWriter, _toolbar, settingsProvider);
+        var aiTextService = new AiTextService(_log, _settings, _replacer, clipboardWriter);
+        _actionHost = new ActionHost(_log, _replacer, urlLauncher, clipboardWriter, _toolbar, settingsProvider, aiTextService);
 
         _gate = new SuppressionGate(_log, _settings);
 

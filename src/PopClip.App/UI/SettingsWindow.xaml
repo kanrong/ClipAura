@@ -807,18 +807,119 @@
                         <StackPanel x:Name="AIPage" Visibility="Collapsed">
                             <TextBlock Style="{StaticResource Settings.PageTitle}" Text="AI" />
                             <TextBlock Style="{StaticResource Settings.PageDescription}"
-                                       Text="预留 AI 动作配置入口" />
+                                       Text="选择模型服务并启用 AI 文本动作。选中文本会发送到当前配置的服务商。" />
 
                             <Border Style="{StaticResource Settings.Card}">
                                 <StackPanel>
                                     <ui:ToggleSwitch x:Name="AiEnabledBox"
-                                                     Content="启用 AI 动作入口" IsEnabled="False" />
-                                    <ui:InfoBar Title="规划中"
-                                                Message="AI 配置入口已预留，后续将支持配置模型、API Key 与提示词模板"
+                                                     Content="启用 AI 动作入口" />
+
+                                    <Grid Margin="0,16,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="320" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="Provider" />
+                                        <ComboBox Grid.Column="1"
+                                                  x:Name="AiProviderBox"
+                                                  SelectionChanged="OnAiProviderChanged" />
+                                        <TextBlock Grid.Column="2"
+                                                   x:Name="AiProviderDescription"
+                                                   Style="{StaticResource Settings.HintText}"
+                                                   VerticalAlignment="Center"
+                                                   Margin="12,0,0,0" />
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="Base URL" />
+                                        <ui:TextBox Grid.Column="1" x:Name="AiBaseUrlBox" />
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="Model" />
+                                        <ui:TextBox Grid.Column="1" x:Name="AiModelBox" />
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="API Key" />
+                                        <StackPanel Grid.Column="1">
+                                            <PasswordBox x:Name="AiApiKeyBox" />
+                                            <TextBlock x:Name="AiKeyStatus"
+                                                       Style="{StaticResource Settings.HintText}"
+                                                       Margin="0,5,0,0" />
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="160" />
+                                            <ColumnDefinition Width="24" />
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="220" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="超时 (秒)" />
+                                        <ui:NumberBox Grid.Column="1"
+                                                      x:Name="AiTimeoutBox"
+                                                      Minimum="5"
+                                                      Maximum="180"
+                                                      SmallChange="5"
+                                                      LargeChange="15" />
+                                        <TextBlock Grid.Column="3" Style="{StaticResource Settings.FieldLabel}" Text="默认输出语言" />
+                                        <ui:TextBox Grid.Column="4" x:Name="AiDefaultLanguageBox" />
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="220" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="思考模式" />
+                                        <ComboBox Grid.Column="1"
+                                                  x:Name="AiThinkingModeBox" />
+                                        <TextBlock Grid.Column="2"
+                                                   Style="{StaticResource Settings.HintText}"
+                                                   Text="自动保留服务商默认；快速降低延迟；深度优先推理质量。"
+                                                   VerticalAlignment="Center"
+                                                   Margin="12,0,0,0" />
+                                    </Grid>
+
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                        <ui:Button Appearance="Secondary"
+                                                   Icon="{ui:SymbolIcon PlugConnected24}"
+                                                   Content="测试连接"
+                                                   Click="OnAiTestConnection" />
+                                    </StackPanel>
+
+                                    <ui:InfoBar x:Name="AiTestInfo"
+                                                Title="连接状态"
+                                                Message=""
+                                                Severity="Informational"
+                                                IsClosable="False"
+                                                IsOpen="False"
+                                                Margin="0,12,0,0" />
+
+                                    <ui:InfoBar Title="隐私提示"
+                                                Message="启用后，AI 动作会把选中的文本发送到当前 Provider。API Key 将使用 Windows 当前用户加密保存。"
                                                 Severity="Informational"
                                                 IsClosable="False"
                                                 IsOpen="True"
-                                                Margin="0,12,0,0" />
+                                                Margin="0,10,0,0" />
                                 </StackPanel>
                             </Border>
                         </StackPanel>

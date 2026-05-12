@@ -24,6 +24,7 @@ internal sealed class IconKeyToGlyphConverter : IValueConverter
         ["Calc"] = "\uE8EF",
         ["Count"] = "\uE8FD",
         ["Script"] = "\uE756",
+        ["Ai"] = "\uF0E7",
     };
 
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)

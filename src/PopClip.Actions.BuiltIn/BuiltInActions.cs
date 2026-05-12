@@ -24,6 +24,11 @@ public static class BuiltInActionIds
     public const string Mailto = "builtin.open.mailto";
     public const string Calculate = "builtin.calculate";
     public const string WordCount = "builtin.wordcount";
+    public const string AiSummarize = "builtin.ai.summarize";
+    public const string AiRewrite = "builtin.ai.rewrite";
+    public const string AiTranslate = "builtin.ai.translate";
+    public const string AiExplain = "builtin.ai.explain";
+    public const string AiReply = "builtin.ai.reply";
 }
 
 internal abstract class BuiltInAction : IAction
@@ -213,4 +218,28 @@ internal sealed class WordCountAction : BuiltInAction
         host.Log.Info("wordcount", ("summary", summary));
         return Task.CompletedTask;
     }
+}
+
+internal sealed class AiTextAction : BuiltInAction
+{
+    private readonly AiTextActionKind _kind;
+    private readonly string _id;
+    private readonly string _title;
+
+    public AiTextAction(string id, string title, AiTextActionKind kind)
+    {
+        _id = id;
+        _title = title;
+        _kind = kind;
+    }
+
+    public override string Id => _id;
+    public override string Title => _title;
+    public override string IconKey => "Ai";
+
+    public override bool CanRun(SelectionContext context)
+        => !context.IsEmpty;
+
+    public override async Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
+        => await host.Ai.RunActionAsync(new AiTextActionRequest(_kind, _title), context, ct).ConfigureAwait(false);
 }

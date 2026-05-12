@@ -13,4 +13,20 @@ internal sealed class SettingsProvider : ISettingsProvider
     public string SearchEngineName => _settings.SearchEngineName;
 
     public string SearchUrlTemplate => _settings.SearchUrlTemplate;
+
+    public bool AiEnabled => _settings.AiEnabled;
+    public string AiProviderPreset => _settings.AiProviderPreset.ToString();
+    public string AiBaseUrl => _settings.AiBaseUrl;
+    public string AiModel => _settings.AiModel;
+    public int AiTimeoutSeconds => _settings.AiTimeoutSeconds;
+    public string AiDefaultLanguage => _settings.AiDefaultLanguage;
+    public string AiThinkingMode => _settings.AiThinkingMode.ToString();
+    public bool HasAiApiKey
+    {
+        get
+        {
+            var preset = AiProviderCatalog.Get(_settings.AiProviderPreset);
+            return !string.IsNullOrWhiteSpace(AiProviderCatalog.GetProtectedKey(_settings, preset.KeyBucket));
+        }
+    }
 }

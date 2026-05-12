@@ -24,6 +24,7 @@ public interface IActionHost
     IClipboardWriter Clipboard { get; }
     INotificationSink Notifier { get; }
     ISettingsProvider Settings { get; }
+    IAiTextService Ai { get; }
     Logging.ILog Log { get; }
 }
 
@@ -35,6 +36,32 @@ public interface ISettingsProvider
 
     /// <summary>当前搜索 URL 模板，必须包含 {q} 占位符；运行时会用 UrlEncode 后的选区文本替换</summary>
     string SearchUrlTemplate { get; }
+
+    bool AiEnabled { get; }
+    string AiProviderPreset { get; }
+    string AiBaseUrl { get; }
+    string AiModel { get; }
+    int AiTimeoutSeconds { get; }
+    string AiDefaultLanguage { get; }
+    string AiThinkingMode { get; }
+    bool HasAiApiKey { get; }
+}
+
+public enum AiTextActionKind
+{
+    Summarize,
+    Rewrite,
+    Translate,
+    Explain,
+    Reply,
+}
+
+public sealed record AiTextActionRequest(AiTextActionKind Kind, string Title);
+
+public interface IAiTextService
+{
+    bool CanRun { get; }
+    Task RunActionAsync(AiTextActionRequest request, SelectionContext context, CancellationToken ct);
 }
 
 /// <summary>向用户展示一次性短信息（如计算结果、字数统计）。

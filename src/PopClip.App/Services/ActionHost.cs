@@ -10,6 +10,7 @@ internal sealed class ActionHost : IActionHost
     public IClipboardWriter Clipboard { get; }
     public INotificationSink Notifier { get; }
     public ISettingsProvider Settings { get; }
+    public IAiTextService Ai { get; }
     public ILog Log { get; }
 
     public ActionHost(
@@ -18,7 +19,8 @@ internal sealed class ActionHost : IActionHost
         IUrlLauncher urlLauncher,
         IClipboardWriter clipboard,
         INotificationSink notifier,
-        ISettingsProvider settings)
+        ISettingsProvider settings,
+        IAiTextService ai)
     {
         Log = log;
         Replacer = replacer;
@@ -26,5 +28,6 @@ internal sealed class ActionHost : IActionHost
         Clipboard = clipboard;
         Notifier = notifier;
         Settings = settings;
+        Ai = ai;
     }
 }

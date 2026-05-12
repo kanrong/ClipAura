@@ -8,7 +8,9 @@ using System.Windows.Input;
 using System.Windows.Media;
 using PopClip.Actions.BuiltIn;
 using PopClip.App.Config;
+using PopClip.App.Services;
 using PopClip.Core.Actions;
+using PopClip.Core.Logging;
 using PopClip.Core.Session;
 using PopClip.Hooks;
 using WpfComboBox = System.Windows.Controls.ComboBox;
@@ -30,12 +32,23 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
 
     private readonly ConfigStore _store;
     private readonly AppSettings _settings;
+    private readonly ProtectedSecretStore _secretStore = new(ConsoleLog.Instance);
+    private readonly Dictionary<string, string> _pendingAiKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FrameworkElement> _pages;
     private WpfPoint _dragStartPoint;
     private ActionEditorItem? _dragItem;
+    private string _currentAiKeyBucket = AiProviderCatalog.DeepSeekKeyBucket;
+    private bool _syncingAiProvider;
 
     public ObservableCollection<string> ProcessFilters { get; } = new();
     public ObservableCollection<ActionEditorItem> ActionItems { get; } = new();
+    public IReadOnlyList<AiProviderPresetInfo> AiProviderChoices => AiProviderCatalog.All;
+    public IReadOnlyList<AiThinkingModeChoice> AiThinkingModeChoices { get; } = new[]
+    {
+        new AiThinkingModeChoice(AiThinkingMode.Auto, "自动", "使用当前服务商默认策略"),
+        new AiThinkingModeChoice(AiThinkingMode.Fast, "快速", "DeepSeek 关闭 thinking；OpenAI 使用 low reasoning"),
+        new AiThinkingModeChoice(AiThinkingMode.Deep, "深度", "DeepSeek 启用 thinking + max；OpenAI 使用 high reasoning"),
+    };
     public IReadOnlyList<ActionTypeChoice> ActionTypeChoices { get; } = new[]
     {
         new ActionTypeChoice("builtin", "内置"),
@@ -54,6 +67,11 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         new BuiltInChoice(BuiltInActionIds.ToTitle, "标题大小写"),
         new BuiltInChoice(BuiltInActionIds.Calculate, "计算"),
         new BuiltInChoice(BuiltInActionIds.WordCount, "字数统计"),
+        new BuiltInChoice(BuiltInActionIds.AiSummarize, "AI 总结"),
+        new BuiltInChoice(BuiltInActionIds.AiRewrite, "AI 改写"),
+        new BuiltInChoice(BuiltInActionIds.AiTranslate, "AI 翻译"),
+        new BuiltInChoice(BuiltInActionIds.AiExplain, "AI 解释"),
+        new BuiltInChoice(BuiltInActionIds.AiReply, "AI 回复"),
     };
 
     public event Action? Saved;
@@ -206,11 +224,35 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         PauseHotKeyBox.Text = _settings.PauseHotKey;
         ToolbarHotKeyBox.Text = _settings.ToolbarHotKey;
 
+        BindAiSettings();
+
         var actions = _store.LoadActions() ?? CreateDefaultActions();
         foreach (var action in actions.Actions)
         {
             ActionItems.Add(ActionEditorItem.FromDescriptor(action));
         }
+    }
+
+    private void BindAiSettings()
+    {
+        _syncingAiProvider = true;
+        AiEnabledBox.IsChecked = _settings.AiEnabled;
+        AiProviderBox.ItemsSource = AiProviderChoices;
+        AiProviderBox.DisplayMemberPath = nameof(AiProviderPresetInfo.Label);
+        AiProviderBox.SelectedValuePath = nameof(AiProviderPresetInfo.Preset);
+        AiProviderBox.SelectedValue = _settings.AiProviderPreset;
+        AiBaseUrlBox.Text = _settings.AiBaseUrl;
+        AiModelBox.Text = _settings.AiModel;
+        AiTimeoutBox.Value = _settings.AiTimeoutSeconds;
+        AiDefaultLanguageBox.Text = _settings.AiDefaultLanguage;
+        AiThinkingModeBox.ItemsSource = AiThinkingModeChoices;
+        AiThinkingModeBox.DisplayMemberPath = nameof(AiThinkingModeChoice.Label);
+        AiThinkingModeBox.SelectedValuePath = nameof(AiThinkingModeChoice.Value);
+        AiThinkingModeBox.SelectedValue = _settings.AiThinkingMode;
+        _currentAiKeyBucket = CurrentAiProvider().KeyBucket;
+        AiApiKeyBox.Password = "";
+        _syncingAiProvider = false;
+        RefreshAiProviderFields(overwritePresetValues: false);
     }
 
     private static ActionsConfig CreateDefaultActions()
@@ -296,7 +338,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             ("Processes", "进程 过滤 黑名单 白名单 最近活动窗口"),
             ("Search", "搜索 引擎 Google Bing 百度 URL 模板"),
             ("Hotkeys", "快捷键 热键 暂停 恢复 唤起 工具栏"),
-            ("AI", "AI 模型 提示词"),
+            ("AI", "AI 模型 Provider DeepSeek OpenAI API Key 自定义 测试连接"),
             ("About", "关于 版本 配置目录"),
         };
         return entries.FirstOrDefault(x => x.Item2.Contains(query, StringComparison.OrdinalIgnoreCase)) is var hit
@@ -329,6 +371,95 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
 
         SearchEngineName.Text = hit.Value.Name;
         SearchUrlTemplate.Text = hit.Value.Url;
+    }
+
+    private void OnAiProviderChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingAiProvider) return;
+        RememberPendingAiKey();
+        RefreshAiProviderFields(overwritePresetValues: true);
+    }
+
+    private void RefreshAiProviderFields(bool overwritePresetValues)
+    {
+        var provider = CurrentAiProvider();
+        _currentAiKeyBucket = provider.KeyBucket;
+        if (!provider.IsCustom && overwritePresetValues)
+        {
+            AiBaseUrlBox.Text = provider.BaseUrl;
+            AiModelBox.Text = provider.Model;
+        }
+
+        AiBaseUrlBox.IsReadOnly = !provider.IsCustom;
+        AiModelBox.IsReadOnly = !provider.IsCustom;
+        AiProviderDescription.Text = provider.Description;
+        AiKeyStatus.Text = HasAiKey(provider.KeyBucket)
+            ? "已保存 Key；留空表示继续使用已保存的 Key"
+            : "尚未保存 Key";
+        AiApiKeyBox.Password = "";
+        AiTestInfo.IsOpen = false;
+    }
+
+    private AiProviderPresetInfo CurrentAiProvider()
+    {
+        if (AiProviderBox.SelectedValue is AiProviderPreset preset)
+        {
+            return AiProviderCatalog.Get(preset);
+        }
+        return AiProviderCatalog.Get(_settings.AiProviderPreset);
+    }
+
+    private void RememberPendingAiKey()
+    {
+        var key = AiApiKeyBox.Password.Trim();
+        if (key.Length > 0)
+        {
+            _pendingAiKeys[_currentAiKeyBucket] = key;
+        }
+    }
+
+    private bool HasAiKey(string bucket)
+        => _pendingAiKeys.ContainsKey(bucket)
+           || !string.IsNullOrWhiteSpace(AiProviderCatalog.GetProtectedKey(_settings, bucket));
+
+    private string ResolveAiKey(string bucket)
+    {
+        if (_pendingAiKeys.TryGetValue(bucket, out var pending) && !string.IsNullOrWhiteSpace(pending))
+        {
+            return pending;
+        }
+        return _secretStore.Unprotect(AiProviderCatalog.GetProtectedKey(_settings, bucket));
+    }
+
+    private async void OnAiTestConnection(object sender, RoutedEventArgs e)
+    {
+        RememberPendingAiKey();
+        var provider = CurrentAiProvider();
+        var key = ResolveAiKey(provider.KeyBucket);
+        var options = new AiClientOptions(
+            AiBaseUrlBox.Text.Trim(),
+            AiModelBox.Text.Trim(),
+            key,
+            NumberBoxInt(AiTimeoutBox, 30, 5, 180),
+            provider.Preset.ToString(),
+            SelectedAiThinkingMode().ToString());
+        AiTestInfo.Severity = Wpf.Ui.Controls.InfoBarSeverity.Informational;
+        AiTestInfo.Title = "测试中";
+        AiTestInfo.Message = "正在连接当前模型服务...";
+        AiTestInfo.IsOpen = true;
+        try
+        {
+            var result = await new OpenAiCompatibleClient(ConsoleLog.Instance).TestAsync(options, CancellationToken.None);
+            AiTestInfo.Severity = Wpf.Ui.Controls.InfoBarSeverity.Success;
+            AiTestInfo.Title = "连接成功";
+            AiTestInfo.Message = $"{result.Model} · {result.Elapsed.TotalSeconds:0.0}s";
+        }
+        catch (Exception ex)
+        {
+            AiTestInfo.Severity = Wpf.Ui.Controls.InfoBarSeverity.Error;
+            AiTestInfo.Title = "连接失败";
+            AiTestInfo.Message = ex.Message;
+        }
     }
 
     private void OnProcessSelected(object sender, SelectionChangedEventArgs e)
@@ -482,6 +613,11 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         BuiltInActionIds.ToTitle => "Title",
         BuiltInActionIds.Calculate => "Calc",
         BuiltInActionIds.WordCount => "Count",
+        BuiltInActionIds.AiSummarize => "Ai",
+        BuiltInActionIds.AiRewrite => "Ai",
+        BuiltInActionIds.AiTranslate => "Ai",
+        BuiltInActionIds.AiExplain => "Ai",
+        BuiltInActionIds.AiReply => "Ai",
         _ => "Script",
     };
 
@@ -626,7 +762,13 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
 
         _settings.PauseHotKey = PauseHotKeyBox.Text.Trim();
         _settings.ToolbarHotKey = ToolbarHotKeyBox.Text.Trim();
+        SaveAiSettings();
         _settings.FirstRunCompleted = true;
+
+        if (_settings.AiEnabled)
+        {
+            EnsureDefaultAiActions();
+        }
 
         _store.SaveSettings(_settings);
         _store.SaveActions(new ActionsConfig
@@ -636,6 +778,50 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         });
         Saved?.Invoke();
         Close();
+    }
+
+    private void SaveAiSettings()
+    {
+        RememberPendingAiKey();
+        var provider = CurrentAiProvider();
+        _settings.AiEnabled = AiEnabledBox.IsChecked == true;
+        _settings.AiProviderPreset = provider.Preset;
+        _settings.AiBaseUrl = AiBaseUrlBox.Text.Trim();
+        _settings.AiModel = AiModelBox.Text.Trim();
+        _settings.AiTimeoutSeconds = NumberBoxInt(AiTimeoutBox, _settings.AiTimeoutSeconds, 5, 180);
+        var language = AiDefaultLanguageBox.Text.Trim();
+        _settings.AiDefaultLanguage = language.Length > 0 ? language : "中文";
+        _settings.AiThinkingMode = SelectedAiThinkingMode();
+
+        foreach (var (bucket, plain) in _pendingAiKeys)
+        {
+            if (string.IsNullOrWhiteSpace(plain)) continue;
+            AiProviderCatalog.SetProtectedKey(_settings, bucket, _secretStore.Protect(plain));
+        }
+    }
+
+    private void EnsureDefaultAiActions()
+    {
+        AddDefaultAiAction("ai-summary", BuiltInActionIds.AiSummarize, "AI 总结");
+        AddDefaultAiAction("ai-rewrite", BuiltInActionIds.AiRewrite, "AI 改写");
+        AddDefaultAiAction("ai-translate", BuiltInActionIds.AiTranslate, "AI 翻译");
+        AddDefaultAiAction("ai-explain", BuiltInActionIds.AiExplain, "AI 解释");
+        AddDefaultAiAction("ai-reply", BuiltInActionIds.AiReply, "AI 回复");
+    }
+
+    private void AddDefaultAiAction(string id, string builtIn, string title)
+    {
+        if (ActionItems.Any(x => string.Equals(x.BuiltIn, builtIn, StringComparison.OrdinalIgnoreCase))) return;
+        ActionItems.Add(new ActionEditorItem
+        {
+            Id = UniqueActionId(id),
+            Type = "builtin",
+            BuiltIn = builtIn,
+            Title = title,
+            Icon = "Ai",
+            Enabled = true,
+            RegexTestText = ActionGlobalTestText.Text,
+        });
     }
 
     private static int ParseInt(string text, int fallback, int min, int max)
@@ -667,12 +853,19 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
     private static string SelectedTag(WpfComboBox combo)
         => combo.SelectedItem is ComboBoxItem item && item.Tag is string tag ? tag : "";
 
+    private AiThinkingMode SelectedAiThinkingMode()
+        => AiThinkingModeBox.SelectedValue is AiThinkingMode mode
+            ? mode
+            : AiThinkingMode.Auto;
+
     private void OnCancel(object sender, RoutedEventArgs e) => Close();
 }
 
 public sealed record BuiltInChoice(string Id, string Title);
 
 public sealed record ActionTypeChoice(string Value, string Label);
+
+public sealed record AiThinkingModeChoice(AiThinkingMode Value, string Label, string Description);
 
 public sealed record RecentProcessItem(string ProcessName, string WindowTitle)
 {

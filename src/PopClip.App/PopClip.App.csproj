@@ -9,6 +9,7 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <RootNamespace>PopClip.App</RootNamespace>
     <AssemblyName>ClipAura</AssemblyName>
     <!-- WPF 通过 app.manifest 读 PerMonitorV2 是正确做法；WinForms 端这条提示无需理会 -->
@@ -31,6 +32,11 @@
     <None Update="actions.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Assets\AppIcon.ico" />
+    <Resource Include="Assets\AppIcon.ico" />
   </ItemGroup>
 
 </Project>

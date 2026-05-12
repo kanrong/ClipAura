@@ -90,24 +90,23 @@ internal sealed class TrayController : INotificationSink, IDisposable
         return menu;
     }
 
-    /// <summary>用 SystemIcons.Application 作为占位图标。
-    /// 后续替换为品牌 ico 时只需放到 Resources 并改这里的加载路径</summary>
+    /// <summary>优先加载内置品牌图标；资源异常时回退到系统图标</summary>
     private static Icon LoadTrayIcon()
     {
         try
         {
-            return SystemIcons.Application;
+            var resource = WpfApplication.GetResourceStream(new Uri("pack://application:,,,/Assets/AppIcon.ico"));
+            if (resource is not null)
+            {
+                using var stream = resource.Stream;
+                return new Icon(stream);
+            }
         }
         catch
         {
-            // 极少数环境拿不到系统图标时构造一个 16x16 单色占位
-            var bmp = new Bitmap(16, 16);
-            using (var g = Graphics.FromImage(bmp))
-            {
-                g.Clear(Color.SteelBlue);
-            }
-            return Icon.FromHandle(bmp.GetHicon());
         }
+
+        return SystemIcons.Application;
     }
 
     /// <summary>展示一次性提示。Windows 10+ 上 ShowBalloonTip 会被系统转为 toast 通知，

@@ -49,19 +49,29 @@
 
     <Grid Margin="9"
           SnapsToDevicePixels="True">
-        <!-- 阴影层 CornerRadius 必须与工具栏外壳一致，否则外形圆角变化时会露出阴影 Border 的旧圆角，
-             视觉上出现"内圆外方"的双圆角错觉 -->
-        <Border Background="{DynamicResource ToolbarShadow}"
-                CornerRadius="{DynamicResource ToolbarCornerRadius}">
+        <!-- 阴影底板：fill 必须与主体 ToolbarBackground 同色，主 Border 完全覆盖其填充区，
+             只露出 DropShadowEffect 投射出来的柔和阴影。
+             这样既不会在主体边缘形成"深色硬边"，也保留主 Border 内文本的 ClearType 渲染。
+             CornerRadius 与主 Border 严格一致，避免"内圆外方"双圆角；
+             Direction=270 让阴影自然向下沉，符合人眼对重力光源的预期 -->
+        <Border Background="{DynamicResource ToolbarBackground}"
+                CornerRadius="{DynamicResource ToolbarCornerRadius}"
+                SnapsToDevicePixels="True">
             <Border.Effect>
-                <DropShadowEffect Color="#000" BlurRadius="16" ShadowDepth="2" Opacity="0.32" />
+                <DropShadowEffect Color="#000"
+                                  Direction="270"
+                                  BlurRadius="{DynamicResource ToolbarShadowBlurRadius}"
+                                  ShadowDepth="{DynamicResource ToolbarShadowDepth}"
+                                  Opacity="{DynamicResource ToolbarShadowOpacity}"
+                                  RenderingBias="Performance" />
             </Border.Effect>
         </Border>
 
         <!-- 容器 Padding 固定，作为按钮与外边框的内边距；spacing 仅作用于按钮的 Margin，
              ItemsPanel 通过负 Margin 抵消最外侧按钮的左右 Margin，做到"间距与边距解耦" -->
         <Border Background="{DynamicResource ToolbarBackground}"
-                BorderThickness="0"
+                BorderBrush="{DynamicResource ToolbarBorder}"
+                BorderThickness="{DynamicResource ToolbarBorderThickness}"
                 CornerRadius="{DynamicResource ToolbarCornerRadius}"
                 Padding="{DynamicResource ToolbarContainerPadding}"
                 SnapsToDevicePixels="True">

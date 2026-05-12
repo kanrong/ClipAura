@@ -116,6 +116,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     {
         ApplyDisplayMode(settings.ToolbarDisplay);
         ApplyThemeMode(settings.ToolbarTheme, settings.FollowAccentColor);
+        ApplySurfaceStyle(settings.ToolbarSurface);
         _maxActionsPerRow = Math.Clamp(settings.ToolbarMaxActionsPerRow, 3, 12);
         _dismissOnMouseLeave = settings.DismissOnMouseLeave;
         _dismissMouseLeaveDelayMs = Math.Clamp(settings.DismissMouseLeaveDelayMs, 0, 5000);
@@ -150,6 +151,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             var prefix = resolved == ToolbarThemeMode.Dark ? "ToolbarDark" : "ToolbarLight";
             SetToolbarResource("ToolbarBackground", $"{prefix}Background");
             SetToolbarResource("ToolbarShadow", $"{prefix}Shadow");
+            SetToolbarResource("ToolbarBorder", $"{prefix}Border");
             SetToolbarResource("ToolbarForeground", $"{prefix}Foreground");
             SetToolbarResource("ToolbarHover", $"{prefix}Hover");
             SetToolbarResource("ToolbarAccentSoft", $"{prefix}AccentSoft");
@@ -157,6 +159,40 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             if (followAccentColor)
             {
                 Resources["ToolbarAccentSoft"] = new SolidColorBrush(BlendAccent(SystemThemeHelper.AccentColor(), resolved));
+            }
+        });
+    }
+
+    // 阴影参数总预算：BlurRadius + ShadowDepth 不超过 ShadowPaddingDip(=9)，
+    // 否则阴影会被 Window 的透明外缘裁切，出现"下边阴影被切平"的硬边
+    private void ApplySurfaceStyle(ToolbarSurfaceStyle style)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            switch (style)
+            {
+                case ToolbarSurfaceStyle.Shadow:
+                    // 纯阴影：阴影稍强、稍下沉，但仍控制在 padding 预算内
+                    Resources["ToolbarBorderThickness"] = new Thickness(0);
+                    Resources["ToolbarShadowBlurRadius"] = 16d;
+                    Resources["ToolbarShadowDepth"] = 3d;
+                    Resources["ToolbarShadowOpacity"] = 0.22d;
+                    break;
+                case ToolbarSurfaceStyle.Border:
+                    // 纯细边框：去掉阴影完全避免裁切；边框颜色由 ToolbarBorder 主题切换
+                    Resources["ToolbarBorderThickness"] = new Thickness(1);
+                    Resources["ToolbarShadowBlurRadius"] = 0d;
+                    Resources["ToolbarShadowDepth"] = 0d;
+                    Resources["ToolbarShadowOpacity"] = 0d;
+                    break;
+                default:
+                    // ShadowAndBorder：阴影更柔（低 Opacity + 适中模糊），细边框收住主体边缘，
+                    // 圆角处不会出现"边框 + 深阴影"的双层硬边
+                    Resources["ToolbarBorderThickness"] = new Thickness(1);
+                    Resources["ToolbarShadowBlurRadius"] = 14d;
+                    Resources["ToolbarShadowDepth"] = 2d;
+                    Resources["ToolbarShadowOpacity"] = 0.16d;
+                    break;
             }
         });
     }

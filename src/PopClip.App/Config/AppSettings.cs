@@ -18,6 +18,14 @@ public enum ToolbarThemeMode
     Dark,
 }
 
+/// <summary>浮窗外缘层次风格</summary>
+public enum ToolbarSurfaceStyle
+{
+    Shadow,
+    Border,
+    ShadowAndBorder,
+}
+
 /// <summary>整个应用的用户配置</summary>
 public sealed class AppSettings
 {
@@ -47,6 +55,9 @@ public sealed class AppSettings
 
     /// <summary>浮窗颜色主题，默认跟随系统</summary>
     public ToolbarThemeMode ToolbarTheme { get; set; } = ToolbarThemeMode.Auto;
+
+    /// <summary>浮窗外缘层次风格，默认阴影与细边框并用</summary>
+    public ToolbarSurfaceStyle ToolbarSurface { get; set; } = ToolbarSurfaceStyle.ShadowAndBorder;
 
     public bool FollowAccentColor { get; set; } = true;
     public double ToolbarCornerRadius { get; set; } = 5;

@@ -173,6 +173,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         ThemeAuto.IsChecked = _settings.ToolbarTheme == ToolbarThemeMode.Auto;
         ThemeLight.IsChecked = _settings.ToolbarTheme == ToolbarThemeMode.Light;
         ThemeDark.IsChecked = _settings.ToolbarTheme == ToolbarThemeMode.Dark;
+        SurfaceShadow.IsChecked = _settings.ToolbarSurface == ToolbarSurfaceStyle.Shadow;
+        SurfaceBorder.IsChecked = _settings.ToolbarSurface == ToolbarSurfaceStyle.Border;
+        SurfaceShadowAndBorder.IsChecked = _settings.ToolbarSurface == ToolbarSurfaceStyle.ShadowAndBorder;
         FollowAccentColor.IsChecked = _settings.FollowAccentColor;
         CornerRadiusBox.Value = _settings.ToolbarCornerRadius;
         ButtonSpacingBox.Value = _settings.ToolbarButtonSpacing;
@@ -284,7 +287,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         var entries = new[]
         {
             ("General", "通用 全屏 开机 自启 触发 延迟 悬停 修饰键"),
-            ("Appearance", "外观 主题 深色 浅色 自动 强调色 圆角 间距 字号"),
+            ("Appearance", "外观 主题 深色 浅色 自动 强调色 阴影 边框 圆角 间距 字号"),
             ("Actions", "动作 添加 内置 URL 脚本 正则 matchRegex 排序"),
             ("Processes", "进程 过滤 黑名单 白名单 最近活动窗口"),
             ("Search", "搜索 引擎 Google Bing 百度 URL 模板"),
@@ -577,6 +580,11 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             : ThemeLight.IsChecked == true
                 ? ToolbarThemeMode.Light
                 : ToolbarThemeMode.Auto;
+        _settings.ToolbarSurface = SurfaceShadow.IsChecked == true
+            ? ToolbarSurfaceStyle.Shadow
+            : SurfaceBorder.IsChecked == true
+                ? ToolbarSurfaceStyle.Border
+                : ToolbarSurfaceStyle.ShadowAndBorder;
         _settings.FollowAccentColor = FollowAccentColor.IsChecked == true;
         _settings.ToolbarCornerRadius = NumberBoxDouble(CornerRadiusBox, _settings.ToolbarCornerRadius, 0, 18);
         _settings.ToolbarButtonSpacing = NumberBoxDouble(ButtonSpacingBox, _settings.ToolbarButtonSpacing, 0, 10);

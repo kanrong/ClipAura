@@ -13,6 +13,7 @@ public sealed class LowLevelKeyboardHook
     private readonly ILog _log;
     private readonly Channel<InputEvent> _channel;
     private readonly NativeMethods.HookProc _proc;
+    private Func<KeyEvent, bool>? _interceptor;
 
     public LowLevelKeyboardHook(ILog log, Channel<InputEvent> channel)
     {
@@ -26,6 +27,8 @@ public sealed class LowLevelKeyboardHook
         var hMod = NativeMethods.GetModuleHandle(null);
         return NativeMethods.SetWindowsHookEx(NativeMethods.WH_KEYBOARD_LL, _proc, hMod, 0);
     }
+
+    public void SetInterceptor(Func<KeyEvent, bool>? interceptor) => _interceptor = interceptor;
 
     private nint HookCallback(int nCode, nint wParam, nint lParam)
     {
@@ -44,6 +47,10 @@ public sealed class LowLevelKeyboardHook
             var alt = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_MENU) & 0x8000) != 0;
 
             var ev = new KeyEvent((int)data.vkCode, isDown, shift, ctrl, alt, DateTime.UtcNow);
+            if (_interceptor?.Invoke(ev) == true)
+            {
+                return 1;
+            }
             _channel.Writer.TryWrite(ev);
         }
         catch (Exception ex)

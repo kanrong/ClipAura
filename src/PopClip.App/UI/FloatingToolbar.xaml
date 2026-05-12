@@ -11,63 +11,120 @@
         Focusable="False"
         ResizeMode="NoResize"
         SizeToContent="WidthAndHeight"
-        UseLayoutRounding="True">
+        UseLayoutRounding="True"
+        FontFamily="Microsoft YaHei UI, Microsoft YaHei, 微软雅黑, PingFang SC, Segoe UI"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType">
     <Window.Resources>
         <local:IconKeyToGlyphConverter x:Key="IconConv" />
         <local:IconKeyToFontFamilyConverter x:Key="IconFontConv" />
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
+        <!-- 浮窗内的"复制"小按钮：屏蔽全局 WPF-UI Fluent 默认样式，保持极简紧凑的外观 -->
+        <Style x:Key="ToolbarToastButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarForeground}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="3"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ToolbarHover}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid Margin="9"
           SnapsToDevicePixels="True">
+        <!-- 阴影层 CornerRadius 必须与工具栏外壳一致，否则外形圆角变化时会露出阴影 Border 的旧圆角，
+             视觉上出现"内圆外方"的双圆角错觉 -->
         <Border Background="{DynamicResource ToolbarShadow}"
-                CornerRadius="4">
+                CornerRadius="{DynamicResource ToolbarCornerRadius}">
             <Border.Effect>
                 <DropShadowEffect Color="#000" BlurRadius="16" ShadowDepth="2" Opacity="0.32" />
             </Border.Effect>
         </Border>
 
+        <!-- 容器 Padding 固定，作为按钮与外边框的内边距；spacing 仅作用于按钮的 Margin，
+             ItemsPanel 通过负 Margin 抵消最外侧按钮的左右 Margin，做到"间距与边距解耦" -->
         <Border Background="{DynamicResource ToolbarBackground}"
                 BorderThickness="0"
-                CornerRadius="4"
-                Padding="1"
+                CornerRadius="{DynamicResource ToolbarCornerRadius}"
+                Padding="{DynamicResource ToolbarContainerPadding}"
                 SnapsToDevicePixels="True">
-            <ItemsControl x:Name="ItemsHost" ItemsSource="{Binding Items, RelativeSource={RelativeSource AncestorType=Window}}">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal" />
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Button Style="{StaticResource ToolbarButtonStyle}"
-                                Command="{Binding Command}"
-                                ToolTip="{Binding Title}">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="{Binding IconKey, Converter={StaticResource IconConv}}"
-                                           FontFamily="{Binding IconKey, Converter={StaticResource IconFontConv}}"
-                                           FontSize="14"
-                                           VerticalAlignment="Center"
-                                           Visibility="{Binding DataContext.IsIconVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="Margin" Value="0,0,6,0" />
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}}" Value="False">
-                                                    <Setter Property="Margin" Value="0" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
-                                <TextBlock Text="{Binding Title}"
-                                           VerticalAlignment="Center"
-                                           Visibility="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
-                            </StackPanel>
-                        </Button>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+            <StackPanel>
+                <ItemsControl x:Name="ItemsHost" ItemsSource="{Binding Items, RelativeSource={RelativeSource AncestorType=Window}}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal"
+                                       Margin="{DynamicResource ToolbarItemsPanelMargin}" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Style="{StaticResource ToolbarButtonStyle}"
+                                    Command="{Binding Command}"
+                                    ToolTip="{Binding Title}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding IconKey, Converter={StaticResource IconConv}}"
+                                               FontFamily="{Binding IconKey, Converter={StaticResource IconFontConv}}"
+                                               FontSize="{DynamicResource ToolbarIconFontSize}"
+                                               VerticalAlignment="Center"
+                                               Visibility="{Binding DataContext.IsIconVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Margin" Value="0,0,6,0" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}}" Value="False">
+                                                        <Setter Property="Margin" Value="0" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding Title}"
+                                               VerticalAlignment="Center"
+                                               Visibility="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <Border x:Name="ToastHost"
+                        Background="{DynamicResource ToolbarToastBackground}"
+                        CornerRadius="3"
+                        Margin="3,2,3,3"
+                        Padding="8,5"
+                        Visibility="Collapsed">
+                    <DockPanel LastChildFill="True">
+                        <Button x:Name="ToastCopyButton"
+                                Style="{StaticResource ToolbarToastButtonStyle}"
+                                Content="复制"
+                                DockPanel.Dock="Right"
+                                Margin="8,0,0,0"
+                                Padding="6,2"
+                                Click="OnCopyToastClicked"
+                                Visibility="Collapsed" />
+                        <TextBlock x:Name="ToastText"
+                                   Foreground="{DynamicResource ToolbarForeground}"
+                                   TextWrapping="Wrap" />
+                    </DockPanel>
+                </Border>
+            </StackPanel>
         </Border>
     </Grid>
 </Window>

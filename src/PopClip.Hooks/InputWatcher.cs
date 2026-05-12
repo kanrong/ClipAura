@@ -19,6 +19,18 @@ public sealed class InputWatcher : IDisposable
 
     public ChannelReader<InputEvent> Events { get; }
 
+    public Func<KeyEvent, bool>? GlobalKeyHandler
+    {
+        get => _globalKeyHandler;
+        set
+        {
+            _globalKeyHandler = value;
+            _kbdHook.SetInterceptor(value);
+        }
+    }
+
+    private Func<KeyEvent, bool>? _globalKeyHandler;
+
     public InputWatcher(ILog log)
     {
         _log = log;

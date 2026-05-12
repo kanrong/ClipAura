@@ -72,4 +72,17 @@ public sealed class ConfigStore
             return null;
         }
     }
+
+    public void SaveActions(ActionsConfig config)
+    {
+        try
+        {
+            using var stream = File.Create(ConfigPaths.ActionsUserFile);
+            JsonSerializer.Serialize(stream, config, Json);
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("actions config save failed", ("err", ex.Message));
+        }
+    }
 }

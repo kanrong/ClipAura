@@ -1,14 +1,20 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 using PopClip.App.Config;
+using PopClip.Core.Actions;
 using PopClip.Core.Logging;
 using PopClip.Core.Model;
+using PopClip.Core.Session;
 using PopClip.Hooks.Interop;
 using PopClip.Hooks.Window;
+using Brush = System.Windows.Media.Brush;
+using Color = System.Windows.Media.Color;
+using SolidColorBrush = System.Windows.Media.SolidColorBrush;
 
 namespace PopClip.App.UI;
 
@@ -18,7 +24,7 @@ namespace PopClip.App.UI;
 /// - 重写 WndProc 处理 WM_MOUSEACTIVATE 返回 MA_NOACTIVATE
 /// - 用 SetWindowPos(SWP_NOACTIVATE) + ShowWindow(SW_SHOWNOACTIVATE) 显示，不走 Window.Show()
 /// - 定位使用 GetDpiForWindow 处理多显示器异构 DPI</summary>
-public partial class FloatingToolbar : Window, INotifyPropertyChanged
+public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotificationSink
 {
     public ObservableCollection<ToolbarItem> Items { get; } = new();
 
@@ -29,10 +35,20 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
     private bool _isShown;
     private bool _isIconVisible = true;
     private bool _isTextVisible = true;
+    private int _selectedIndex = -1;
+    private int _maxActionsPerRow = 6;
+    private ToolbarThemeMode _themeMode = ToolbarThemeMode.Auto;
+    private bool _followAccentColor = true;
+    private bool _dismissOnMouseLeave = true;
+    private int _dismissMouseLeaveDelayMs = 800;
+    private bool _dismissOnEscape = true;
+    private CancellationTokenSource? _toastCts;
+    private string? _toastCopyText;
     private const int ShadowPaddingDip = 9;
 
     public event Action? Dismissed;
     public event PropertyChangedEventHandler? PropertyChanged;
+    public DateTime LastToastAtUtc { get; private set; } = DateTime.MinValue;
 
     /// <summary>是否显示按钮的图标部分；与 IsTextVisible 联动构成三种显示模式</summary>
     public bool IsIconVisible
@@ -65,6 +81,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
         DataContext = this;
         SourceInitialized += OnSourceInitialized;
         MouseLeave += OnMouseLeave;
+        Items.CollectionChanged += OnItemsChanged;
     }
 
     /// <summary>由设置层调用，切换三种显示模式。
@@ -93,15 +110,63 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
 
     /// <summary>由设置层调用，切换浮窗浅色/深色主题</summary>
     public void ApplyThemeMode(ToolbarThemeMode mode)
+        => ApplyThemeMode(mode, _followAccentColor);
+
+    public void ApplyAppearance(AppSettings settings)
+    {
+        ApplyDisplayMode(settings.ToolbarDisplay);
+        ApplyThemeMode(settings.ToolbarTheme, settings.FollowAccentColor);
+        _maxActionsPerRow = Math.Clamp(settings.ToolbarMaxActionsPerRow, 3, 12);
+        _dismissOnMouseLeave = settings.DismissOnMouseLeave;
+        _dismissMouseLeaveDelayMs = Math.Clamp(settings.DismissMouseLeaveDelayMs, 0, 5000);
+        _dismissOnEscape = settings.DismissOnEscapeKey;
+        Dispatcher.Invoke(() =>
+        {
+            var radius = Math.Clamp(settings.ToolbarCornerRadius, 0, 18);
+            var spacing = Math.Clamp(settings.ToolbarButtonSpacing, 0, 10);
+            var fontSize = Math.Clamp(settings.ToolbarFontSize, 10, 18);
+            Resources["ToolbarCornerRadius"] = new CornerRadius(radius + 1);
+            Resources["ToolbarButtonCornerRadius"] = new CornerRadius(radius);
+            // spacing 仅作用于按钮的左右 Margin；padding（按钮内部）和 container padding（按钮到边框）都保持固定，
+            // 通过 ItemsPanel 的负 Margin 抵消最外侧按钮的 spacing，做到"按钮间距/边距完全解耦"
+            Resources["ToolbarButtonMargin"] = new Thickness(spacing, 0, spacing, 0);
+            Resources["ToolbarButtonPadding"] = new Thickness(10, 4, 10, 4);
+            Resources["ToolbarContainerPadding"] = new Thickness(3);
+            Resources["ToolbarItemsPanelMargin"] = new Thickness(-spacing, 0, -spacing, 0);
+            Resources["ToolbarButtonFontSize"] = fontSize;
+            Resources["ToolbarIconFontSize"] = fontSize + 2;
+        });
+    }
+
+    private void ApplyThemeMode(ToolbarThemeMode mode, bool followAccentColor)
     {
         Dispatcher.Invoke(() =>
         {
-            var prefix = mode == ToolbarThemeMode.Dark ? "ToolbarDark" : "ToolbarLight";
+            _themeMode = mode;
+            _followAccentColor = followAccentColor;
+            var resolved = mode == ToolbarThemeMode.Auto
+                ? (SystemThemeHelper.IsSystemDark() ? ToolbarThemeMode.Dark : ToolbarThemeMode.Light)
+                : mode;
+            var prefix = resolved == ToolbarThemeMode.Dark ? "ToolbarDark" : "ToolbarLight";
             SetToolbarResource("ToolbarBackground", $"{prefix}Background");
             SetToolbarResource("ToolbarShadow", $"{prefix}Shadow");
             SetToolbarResource("ToolbarForeground", $"{prefix}Foreground");
             SetToolbarResource("ToolbarHover", $"{prefix}Hover");
+            SetToolbarResource("ToolbarAccentSoft", $"{prefix}AccentSoft");
+            SetToolbarResource("ToolbarToastBackground", $"{prefix}ToastBackground");
+            if (followAccentColor)
+            {
+                Resources["ToolbarAccentSoft"] = new SolidColorBrush(BlendAccent(SystemThemeHelper.AccentColor(), resolved));
+            }
         });
+    }
+
+    private static Color BlendAccent(Color accent, ToolbarThemeMode theme)
+    {
+        var factor = theme == ToolbarThemeMode.Dark ? 0.36 : 0.18;
+        var baseColor = theme == ToolbarThemeMode.Dark ? Color.FromRgb(0x20, 0x20, 0x20) : Color.FromRgb(0xFF, 0xFF, 0xFF);
+        byte Blend(byte a, byte b) => (byte)Math.Round(a * factor + b * (1 - factor));
+        return Color.FromRgb(Blend(accent.R, baseColor.R), Blend(accent.G, baseColor.G), Blend(accent.B, baseColor.B));
     }
 
     private void SetToolbarResource(string targetKey, string sourceKey)
@@ -157,6 +222,12 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
             handled = true;
             return NativeMethods.MA_NOACTIVATE;
         }
+        if (msg is NativeMethods.WM_SETTINGCHANGE
+            or NativeMethods.WM_THEMECHANGED
+            or NativeMethods.WM_DWMCOLORIZATIONCOLORCHANGED)
+        {
+            ApplyThemeMode(_themeMode, _followAccentColor);
+        }
         return 0;
     }
 
@@ -167,6 +238,8 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
     public void ShowAt(SelectionRect anchorRect, ForegroundWindowInfo foreground)
     {
         PrewarmLayout();
+        UpdateOverflowLayout();
+        SelectIndex(Items.Count > 0 ? 0 : -1);
 
         // 关键：必须 base.Show() 一次让 SizeToContent="WidthAndHeight" 真正生效。
         // Hidden 状态下的 UpdateLayout 不会更新 Window 的 ActualWidth/Height。
@@ -206,6 +279,106 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
         _lastShownAtUtc = DateTime.UtcNow;
     }
 
+    public bool TryHandleGlobalKey(KeyEvent key)
+    {
+        if (!_isShown || !key.IsDown) return false;
+        try
+        {
+            return Dispatcher.Invoke(() => HandleGlobalKeyCore(key));
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("toolbar key handling failed", ("err", ex.Message));
+            return false;
+        }
+    }
+
+    private bool HandleGlobalKeyCore(KeyEvent key)
+    {
+        if (!_isShown) return false;
+        if (key.VirtualKey == NativeMethods.VK_ESCAPE)
+        {
+            if (!_dismissOnEscape) return false;
+            HideToolbar("keyboard-esc");
+            return true;
+        }
+        if (Items.Count == 0) return false;
+
+        if (key.VirtualKey is >= 0x31 and <= 0x39)
+        {
+            var index = key.VirtualKey - 0x31;
+            if (index < Items.Count)
+            {
+                SelectIndex(index);
+                Items[index].Invoke();
+                return true;
+            }
+        }
+
+        if (key.VirtualKey is NativeMethods.VK_LEFT or NativeMethods.VK_UP)
+        {
+            MoveSelection(-1);
+            return true;
+        }
+        if (key.VirtualKey is NativeMethods.VK_RIGHT or NativeMethods.VK_DOWN)
+        {
+            MoveSelection(1);
+            return true;
+        }
+        if (key.VirtualKey == NativeMethods.VK_TAB)
+        {
+            MoveSelection(key.Shift ? -1 : 1);
+            return true;
+        }
+        if (key.VirtualKey is NativeMethods.VK_RETURN or NativeMethods.VK_SPACE)
+        {
+            var index = _selectedIndex >= 0 ? _selectedIndex : 0;
+            SelectIndex(index);
+            Items[index].Invoke();
+            return true;
+        }
+
+        return false;
+    }
+
+    private void MoveSelection(int delta)
+    {
+        if (Items.Count == 0) return;
+        var current = _selectedIndex < 0 ? 0 : _selectedIndex;
+        var next = (current + delta + Items.Count) % Items.Count;
+        SelectIndex(next);
+    }
+
+    private void SelectIndex(int index)
+    {
+        _selectedIndex = index;
+        for (var i = 0; i < Items.Count; i++)
+        {
+            Items[i].IsKeyboardSelected = i == index;
+        }
+    }
+
+    private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            UpdateOverflowLayout();
+            SelectIndex(Items.Count > 0 ? Math.Clamp(_selectedIndex, 0, Items.Count - 1) : -1);
+        });
+    }
+
+    private void UpdateOverflowLayout()
+    {
+        if (Items.Count > _maxActionsPerRow)
+        {
+            ItemsHost.MaxWidth = _maxActionsPerRow * 112;
+        }
+        else
+        {
+            ItemsHost.ClearValue(MaxWidthProperty);
+        }
+    }
+
     /// <summary>把工具栏摆到 anchor 下方，左边缘贴近鼠标垂线；触底则上翻并按工作区约束</summary>
     private static (int X, int Y) ComputePositionPx(
         SelectionRect anchor,
@@ -235,9 +408,10 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
 
     private void OnMouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
     {
-        // 鼠标离开后延迟自动消失，避免用户在边缘抖动时误关
-        var leftAt = DateTime.UtcNow;
-        Task.Delay(800).ContinueWith(_ =>
+        // 鼠标离开后延迟自动消失，避免用户在边缘抖动时误关；用户也可在设置中关闭此触发
+        if (!_dismissOnMouseLeave) return;
+        var delay = _dismissMouseLeaveDelayMs > 0 ? _dismissMouseLeaveDelayMs : 1;
+        Task.Delay(delay).ContinueWith(_ =>
         {
             Dispatcher.Invoke(() =>
             {
@@ -256,10 +430,72 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged
         // 否则下次 base.Show() 会因为 Visibility 仍是 Visible 而 no-op，SizeToContent 不再触发
         base.Hide();
         _isShown = false;
+        HideToast();
         Dismissed?.Invoke();
         _log.Debug("toolbar dismissed", ("reason", reason));
     }
 
     /// <summary>外部代码触发关闭（前台窗口变化、Esc、新选区等）</summary>
     public void DismissExternal(string reason) => Dispatcher.Invoke(() => HideToolbar(reason));
+
+    public void Notify(string text) => ShowInlineToast(text);
+
+    public void ShowInlineToast(string text, bool isError = false, string? copyText = null, int durationMs = 1800)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            LastToastAtUtc = DateTime.UtcNow;
+            _toastCts?.Cancel();
+            _toastCts = new CancellationTokenSource();
+            _toastCopyText = copyText;
+            ToastText.Text = text;
+            ToastCopyButton.Visibility = string.IsNullOrEmpty(copyText) ? Visibility.Collapsed : Visibility.Visible;
+            ToastHost.Visibility = Visibility.Visible;
+            if (isError)
+            {
+                ToastHost.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x5A, 0x1E, 0x1E));
+            }
+            else
+            {
+                if (TryFindResource("ToolbarToastBackground") is Brush brush) ToastHost.Background = brush;
+            }
+
+            var cts = _toastCts;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(durationMs, cts.Token).ConfigureAwait(false);
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (cts.IsCancellationRequested) return;
+                        ToastHost.Visibility = Visibility.Collapsed;
+                    });
+                }
+                catch (OperationCanceledException) { }
+            });
+        });
+    }
+
+    private void HideToast()
+    {
+        _toastCts?.Cancel();
+        ToastHost.Visibility = Visibility.Collapsed;
+        _toastCopyText = null;
+    }
+
+    private void OnCopyToastClicked(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_toastCopyText)) return;
+        try
+        {
+            System.Windows.Clipboard.SetText(_toastCopyText);
+            ToastText.Text = "错误信息已复制";
+            ToastCopyButton.Visibility = Visibility.Collapsed;
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("copy toast failed", ("err", ex.Message));
+        }
+    }
 }

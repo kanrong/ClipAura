@@ -16,8 +16,11 @@ public sealed class UiaTextAcquirer
 
     public UiaTextAcquirer(ILog log) => _log = log;
 
+    public bool LastFocusedElementWasPassword { get; private set; }
+
     public AcquisitionResult? TryAcquire()
     {
+        LastFocusedElementWasPassword = false;
         AutomationElement? focused = null;
         try
         {
@@ -29,6 +32,12 @@ public sealed class UiaTextAcquirer
             return null;
         }
         if (focused is null) return null;
+        LastFocusedElementWasPassword = IsPasswordElement(focused);
+        if (LastFocusedElementWasPassword)
+        {
+            _log.Info("acquisition skipped: focused element is password");
+            return null;
+        }
 
         // MVP 阶段仅启用 TextPattern。LegacyIAccessiblePattern 仅在 COM 客户端可用，
         // 后续如需扩展可在此分支后追加 COM Interop 路径
@@ -102,6 +111,19 @@ public sealed class UiaTextAcquirer
             return false;
         }
         catch { return false; }
+    }
+
+    private static bool IsPasswordElement(AutomationElement element)
+    {
+        try
+        {
+            if (element.Current.IsPassword) return true;
+            return element.Current.ControlType == ControlType.Edit && element.Current.IsPassword;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
 

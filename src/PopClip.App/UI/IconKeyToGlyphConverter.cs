@@ -23,6 +23,7 @@ internal sealed class IconKeyToGlyphConverter : IValueConverter
         ["Mail"] = "\uE715",
         ["Calc"] = "\uE8EF",
         ["Count"] = "\uE8FD",
+        ["Script"] = "\uE756",
     };
 
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
@@ -47,7 +48,8 @@ internal sealed class IconKeyToGlyphConverter : IValueConverter
 internal sealed class IconKeyToFontFamilyConverter : IValueConverter
 {
     private static readonly FontFamily Symbol = new("Segoe Fluent Icons, Segoe MDL2 Assets");
-    private static readonly FontFamily Text = new("Segoe UI, Microsoft YaHei UI");
+    // 中文优先：避免中英混排时按钮文字字号/笔画粗细出现错配
+    private static readonly FontFamily Text = new("Microsoft YaHei UI, Microsoft YaHei, 微软雅黑, PingFang SC, Segoe UI");
 
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {

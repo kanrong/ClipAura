@@ -12,6 +12,10 @@ namespace PopClip.Hooks;
 /// 同时提供同步的 Snapshot() 接口供 SessionManager 在文本获取时定格上下文</summary>
 public sealed class ForegroundWatcher : IDisposable
 {
+    private const int RecentLimit = 50;
+    private static readonly object RecentLock = new();
+    private static readonly List<ForegroundWindowInfo> RecentWindows = new();
+
     private readonly ILog _log;
     private readonly Channel<InputEvent> _channel;
     private nint _hook;
@@ -41,12 +45,30 @@ public sealed class ForegroundWatcher : IDisposable
         int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
     {
         if (hwnd == 0) return;
+        Remember(BuildSnapshot(hwnd));
         _channel.Writer.TryWrite(new ForegroundChangedEvent(hwnd, DateTime.UtcNow));
     }
 
     public static ForegroundWindowInfo Snapshot()
     {
-        var hwnd = NativeMethods.GetForegroundWindow();
+        var snapshot = BuildSnapshot(NativeMethods.GetForegroundWindow());
+        if (snapshot.Hwnd != 0)
+        {
+            Remember(snapshot);
+        }
+        return snapshot;
+    }
+
+    public static IReadOnlyList<ForegroundWindowInfo> RecentProcesses()
+    {
+        lock (RecentLock)
+        {
+            return RecentWindows.ToList();
+        }
+    }
+
+    private static ForegroundWindowInfo BuildSnapshot(nint hwnd)
+    {
         if (hwnd == 0)
         {
             return new ForegroundWindowInfo(0, 0, "", "", "");
@@ -63,6 +85,22 @@ public sealed class ForegroundWatcher : IDisposable
 
         var processName = GetProcessName((int)pid);
         return new ForegroundWindowInfo(hwnd, (int)pid, processName, clsBuf.ToString(), titleBuf.ToString());
+    }
+
+    private static void Remember(ForegroundWindowInfo info)
+    {
+        if (info.Hwnd == 0 || string.IsNullOrWhiteSpace(info.ProcessName)) return;
+        lock (RecentLock)
+        {
+            var existing = RecentWindows.FindIndex(x =>
+                string.Equals(x.ProcessName, info.ProcessName, StringComparison.OrdinalIgnoreCase));
+            if (existing >= 0) RecentWindows.RemoveAt(existing);
+            RecentWindows.Insert(0, info);
+            if (RecentWindows.Count > RecentLimit)
+            {
+                RecentWindows.RemoveRange(RecentLimit, RecentWindows.Count - RecentLimit);
+            }
+        }
     }
 
     private static string GetProcessName(int pid)

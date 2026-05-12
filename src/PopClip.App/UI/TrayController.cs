@@ -1,125 +1,121 @@
-using System.Drawing;
-using PopClip.App.Config;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Interop;
 using PopClip.App.Hosting;
 using PopClip.Core.Actions;
 using PopClip.Core.Logging;
-using WinFormsApp = System.Windows.Forms.Application;
-using WinFormsContextMenu = System.Windows.Forms.ContextMenuStrip;
-using WinFormsMenuItem = System.Windows.Forms.ToolStripMenuItem;
-using WinFormsNotifyIcon = System.Windows.Forms.NotifyIcon;
-using WinFormsSeparator = System.Windows.Forms.ToolStripSeparator;
-using WinFormsToolTipIcon = System.Windows.Forms.ToolTipIcon;
-using WpfApplication = System.Windows.Application;
+using PopClip.Hooks.Interop;
 
 namespace PopClip.App.UI;
 
-/// <summary>托盘图标 + 菜单。
-/// 直接使用 System.Windows.Forms.NotifyIcon 而非第三方 wrapper，避免 wrapper 在 .NET 8 WPF
-/// 下偶发的"创建成功但不可见"问题——NotifyIcon 走的是几十年稳定的 Shell_NotifyIcon Win32 API</summary>
+/// <summary>托盘图标 + 右键菜单。
+/// 底层使用 <see cref="Win32TrayIcon"/> 直接调用 Shell_NotifyIcon，避免 WinForms 依赖。
+/// 菜单走原生 WPF <see cref="ContextMenu"/>，自动复用窗口主题样式。
+///
+/// 焦点处理：因为我们的进程平时无前台窗口，弹菜单前要把一个隐形宿主窗口
+/// 设为前台，否则会出现"菜单点旁边不消失"的经典 Win32 行为（参见 MS KB135788）</summary>
 internal sealed class TrayController : INotificationSink, IDisposable
 {
     private readonly ILog _log;
-    private readonly ConfigStore _store;
-    private readonly AppSettings _settings;
     private readonly PauseState _pause;
-    private WinFormsNotifyIcon? _icon;
-    private WinFormsContextMenu? _menu;
-    private WinFormsMenuItem? _pauseItem;
+    private readonly Win32TrayIcon _trayIcon;
+    private ContextMenu? _menu;
+    private MenuItem? _pauseItem;
+    private ContextMenuHostWindow? _menuHost;
 
     public event Action<bool>? OnPauseChanged;
+    /// <summary>请求显示设置窗口。参数为初始页 tag，传 null 表示打开默认页</summary>
+    public event Action<string?>? OnSettingsRequested;
+    public event Action? OnDiagnosticsRequested;
     public event Action? OnExitRequested;
 
-    public TrayController(ILog log, ConfigStore store, AppSettings settings, PauseState pause)
+    public TrayController(ILog log, PauseState pause)
     {
         _log = log;
-        _store = store;
-        _settings = settings;
         _pause = pause;
+        _trayIcon = new Win32TrayIcon(log, "ClipAura");
     }
 
     public void Show()
     {
-        // EnableVisualStyles 保证 ContextMenuStrip 在 WPF 进程内也使用现代主题字体/边距
-        WinFormsApp.EnableVisualStyles();
-        WinFormsApp.SetCompatibleTextRenderingDefault(false);
-
+        _menuHost = new ContextMenuHostWindow();
+        _menuHost.EnsureCreated();
         _menu = BuildMenu();
 
-        _icon = new WinFormsNotifyIcon
-        {
-            Icon = LoadTrayIcon(),
-            Text = "ClipAura",
-            ContextMenuStrip = _menu,
-            Visible = true,
-        };
-        _log.Info("tray icon created");
+        _trayIcon.RightClicked += OnTrayRightClicked;
+        _trayIcon.LeftClicked += OnTrayLeftClicked;
+        _trayIcon.DoubleClicked += () => OnSettingsRequested?.Invoke(null);
+        _trayIcon.Install();
     }
 
-    private WinFormsContextMenu BuildMenu()
+    private ContextMenu BuildMenu()
     {
-        var menu = new WinFormsContextMenu();
+        var menu = new ContextMenu();
 
-        _pauseItem = new WinFormsMenuItem(_pause.IsPaused ? "继续" : "暂停");
+        _pauseItem = new MenuItem { Header = _pause.IsPaused ? "继续" : "暂停" };
         _pauseItem.Click += (_, _) =>
         {
             var paused = _pause.Toggle();
-            _pauseItem!.Text = paused ? "继续" : "暂停";
+            _pauseItem!.Header = paused ? "继续" : "暂停";
             OnPauseChanged?.Invoke(paused);
         };
         menu.Items.Add(_pauseItem);
-        menu.Items.Add(new WinFormsSeparator());
+        menu.Items.Add(new Separator());
 
-        var settingsItem = new WinFormsMenuItem("设置...");
-        settingsItem.Click += (_, _) =>
-        {
-            // 设置窗口是 WPF Window，必须在 WPF Dispatcher 上构造与展示
-            WpfApplication.Current?.Dispatcher.Invoke(() =>
-            {
-                var w = new SettingsWindow(_store, _settings);
-                w.ShowDialog();
-            });
-        };
+        // 设置 / 外观 / 动作 三项平铺常用入口，其他面板（进程过滤、搜索引擎、快捷键、AI、关于）从"设置"进入
+        var settingsItem = new MenuItem { Header = "设置..." };
+        settingsItem.Click += (_, _) => OnSettingsRequested?.Invoke(null);
         menu.Items.Add(settingsItem);
 
-        menu.Items.Add(new WinFormsSeparator());
+        var appearanceItem = new MenuItem { Header = "外观..." };
+        appearanceItem.Click += (_, _) => OnSettingsRequested?.Invoke("Appearance");
+        menu.Items.Add(appearanceItem);
 
-        var exitItem = new WinFormsMenuItem("退出 ClipAura");
+        var actionsItem = new MenuItem { Header = "动作..." };
+        actionsItem.Click += (_, _) => OnSettingsRequested?.Invoke("Actions");
+        menu.Items.Add(actionsItem);
+
+        var diagnosticsItem = new MenuItem { Header = "诊断..." };
+        diagnosticsItem.Click += (_, _) => OnDiagnosticsRequested?.Invoke();
+        menu.Items.Add(diagnosticsItem);
+
+        menu.Items.Add(new Separator());
+
+        var exitItem = new MenuItem { Header = "退出 ClipAura" };
         exitItem.Click += (_, _) => OnExitRequested?.Invoke();
         menu.Items.Add(exitItem);
 
+        // 菜单关闭后立刻把宿主窗口藏起来，避免遗留可激活元素
+        menu.Closed += (_, _) => _menuHost?.HideQuiet();
         return menu;
     }
 
-    /// <summary>优先加载内置品牌图标；资源异常时回退到系统图标</summary>
-    private static Icon LoadTrayIcon()
-    {
-        try
-        {
-            var resource = WpfApplication.GetResourceStream(new Uri("pack://application:,,,/Assets/AppIcon.ico"));
-            if (resource is not null)
-            {
-                using var stream = resource.Stream;
-                return new Icon(stream);
-            }
-        }
-        catch
-        {
-        }
+    private void OnTrayLeftClicked()
+        => OnSettingsRequested?.Invoke(null);
 
-        return SystemIcons.Application;
+    private void OnTrayRightClicked(int screenX, int screenY)
+    {
+        if (_menu is null || _menuHost is null) return;
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        {
+            _menuHost.ShowForActivation();
+            _menu.PlacementTarget = _menuHost;
+            _menu.Placement = PlacementMode.MousePoint;
+            _menu.IsOpen = true;
+        });
     }
 
-    /// <summary>展示一次性提示。Windows 10+ 上 ShowBalloonTip 会被系统转为 toast 通知，
-    /// 即便用户禁用了 toast 也至少能在通知中心看到记录</summary>
+    public void SetPausedLabel(bool paused)
+    {
+        if (_pauseItem is not null) _pauseItem.Header = paused ? "继续" : "暂停";
+    }
+
     void INotificationSink.Notify(string text)
     {
-        if (_icon is null) return;
         try
         {
-            _icon.BalloonTipTitle = "ClipAura";
-            _icon.BalloonTipText = text;
-            _icon.BalloonTipIcon = WinFormsToolTipIcon.Info;
-            _icon.ShowBalloonTip(2500);
+            _trayIcon.ShowBalloon("ClipAura", text);
         }
         catch (Exception ex)
         {
@@ -129,12 +125,45 @@ internal sealed class TrayController : INotificationSink, IDisposable
 
     public void Dispose()
     {
-        if (_icon is not null)
-        {
-            _icon.Visible = false;
-            _icon.Dispose();
-            _icon = null;
-        }
-        _menu?.Dispose();
+        _trayIcon.Dispose();
+        _menuHost?.Close();
+        _menuHost = null;
     }
+}
+
+/// <summary>不可见的 1x1 宿主窗口，作为托盘 ContextMenu 的 PlacementTarget + 前台焦点持有者。
+/// AllowsTransparency + Opacity=0 + 屏幕外坐标，肉眼不可见</summary>
+internal sealed class ContextMenuHostWindow : Window
+{
+    private nint _hwnd;
+
+    public ContextMenuHostWindow()
+    {
+        ShowInTaskbar = false;
+        Width = 1;
+        Height = 1;
+        WindowStyle = WindowStyle.None;
+        AllowsTransparency = true;
+        Background = System.Windows.Media.Brushes.Transparent;
+        Opacity = 0;
+        Topmost = true;
+        Left = -32000;
+        Top = -32000;
+        SourceInitialized += (_, _) => _hwnd = new WindowInteropHelper(this).Handle;
+    }
+
+    public void EnsureCreated()
+    {
+        Show();
+        Hide();
+    }
+
+    public void ShowForActivation()
+    {
+        Show();
+        Activate();
+        if (_hwnd != 0) NativeMethods.SetForegroundWindow(_hwnd);
+    }
+
+    public void HideQuiet() => Hide();
 }

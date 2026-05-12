@@ -8,6 +8,7 @@ using PopClip.Core.Logging;
 using PopClip.Core.Model;
 using PopClip.Core.Session;
 using PopClip.Hooks;
+using PopClip.Hooks.Interop;
 using PopClip.Uia;
 using PopClip.Uia.Clipboard;
 using WpfApplication = System.Windows.Application;
@@ -65,7 +66,7 @@ internal sealed class SelectionSessionManager : IDisposable
             SingleReader = true,
             SingleWriter = false,
         });
-        _machine = new SelectionStateMachine(log, c => _candidateChannel.Writer.TryWrite(c));
+        _machine = new SelectionStateMachine(log, c => _candidateChannel.Writer.TryWrite(c), CreateSelectionOptions);
     }
 
     public void Start()
@@ -84,12 +85,15 @@ internal sealed class SelectionSessionManager : IDisposable
             {
                 if (ev is ForegroundChangedEvent)
                 {
-                    _toolbar.DismissExternal("foreground-changed");
+                    if (_settings.DismissOnForegroundChanged)
+                    {
+                        _toolbar.DismissExternal("foreground-changed");
+                    }
                 }
                 else if (ev is MouseDownEvent md && _toolbar.IsShown)
                 {
                     // 浮窗显示期间用户在浮窗外按下鼠标即关闭。命中浮窗内部留给 WPF 路由
-                    if (!_toolbar.ContainsScreenPoint(md.X, md.Y))
+                    if (_settings.DismissOnClickOutside && !_toolbar.ContainsScreenPoint(md.X, md.Y))
                     {
                         _toolbar.DismissExternal("click-outside");
                     }
@@ -130,6 +134,12 @@ internal sealed class SelectionSessionManager : IDisposable
             return;
         }
 
+        // 出现新候选即关闭旧浮窗：成功时新浮窗会立即替换，失败时也不会留下"过时"的旧工具栏
+        if (_toolbar.IsShown && _settings.DismissOnNewSelection)
+        {
+            _toolbar.DismissExternal("new-selection");
+        }
+
         var foreground = ForegroundWatcher.Snapshot();
         _log.Info("foreground", ("proc", foreground.ProcessName), ("class", foreground.WindowClassName));
 
@@ -159,6 +169,14 @@ internal sealed class SelectionSessionManager : IDisposable
             _log.Info("acquisition empty text", ("source", outcome.Context.Source));
             return;
         }
+        if (outcome.Context.Text.Length < _settings.MinTextLength || outcome.Context.Text.Length > _settings.MaxTextLength)
+        {
+            _log.Info("acquisition dropped by length",
+                ("len", outcome.Context.Text.Length),
+                ("min", _settings.MinTextLength),
+                ("max", _settings.MaxTextLength));
+            return;
+        }
 
         var preview = outcome.Context.Text.Length > 40
             ? outcome.Context.Text.Substring(0, 40) + "..."
@@ -181,14 +199,13 @@ internal sealed class SelectionSessionManager : IDisposable
                 ? _settings.SearchEngineName
                 : v.Descriptor.Title.Length > 0 ? v.Descriptor.Title : v.Action.Title;
             var icon = !string.IsNullOrEmpty(v.Descriptor.Icon) ? v.Descriptor.Icon : v.Action.IconKey;
-            return new ToolbarItem(title, icon, new DelegateCommand(() => RunAction(v.Action, outcome.Context)));
+            return new ToolbarItem(title, icon, new DelegateCommand(() => RunAction(v.Action, outcome.Context, title)));
         }).ToList();
 
         // UI 线程上更新 ItemsControl + 显示窗口
         await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
         {
-            _toolbar.ApplyDisplayMode(_settings.ToolbarDisplay);
-            _toolbar.ApplyThemeMode(_settings.ToolbarTheme);
+            _toolbar.ApplyAppearance(_settings);
             _toolbar.Items.Clear();
             foreach (var it in items) _toolbar.Items.Add(it);
             _toolbar.ShowAt(mouseRect, outcome.Context.Foreground);
@@ -220,27 +237,65 @@ internal sealed class SelectionSessionManager : IDisposable
 
         await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
         {
-            _toolbar.ApplyDisplayMode(_settings.ToolbarDisplay);
-            _toolbar.ApplyThemeMode(_settings.ToolbarTheme);
+            _toolbar.ApplyAppearance(_settings);
             _toolbar.Items.Clear();
             _toolbar.Items.Add(item);
             _toolbar.ShowAt(mouseRect, foreground);
         });
     }
 
-    private void RunAction(IAction action, SelectionContext context)
+    public void ShowLauncherAtCursor()
     {
-        _toolbar.DismissExternal("action-invoked");
+        if (_pause.IsPaused) return;
+        var foreground = ForegroundWatcher.Snapshot();
+        if (!NativeMethods.GetCursorPos(out var pt))
+        {
+            pt = new NativeMethods.POINT { X = 0, Y = 0 };
+        }
+        _ = ShowPasteOnlyAsync(foreground, SelectionRect.FromPoint(pt.X, pt.Y));
+    }
+
+    private SelectionStateOptions CreateSelectionOptions()
+    {
+        return new SelectionStateOptions
+        {
+            PopupMode = _settings.PopupMode,
+            PopupDelayMs = _settings.PopupDelayMs,
+            HoverDelayMs = _settings.HoverDelayMs,
+            RequiredModifier = _settings.RequiredModifier,
+        };
+    }
+
+    private void RunAction(IAction action, SelectionContext context, string title)
+    {
+        var toastBefore = _toolbar.LastToastAtUtc;
         _ = Task.Run(async () =>
         {
             try
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
                 await action.RunAsync(context, _actionHost, cts.Token).ConfigureAwait(false);
+                await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    if (_toolbar.LastToastAtUtc <= toastBefore)
+                    {
+                        var text = action.Id == BuiltInActionIds.Copy ? "已复制 ✓" : $"{title} ✓";
+                        _toolbar.ShowInlineToast(text);
+                    }
+                });
+                await Task.Delay(700).ConfigureAwait(false);
+                if (_settings.DismissOnActionInvoked)
+                {
+                    _toolbar.DismissExternal("action-completed");
+                }
             }
             catch (Exception ex)
             {
                 _log.Error("action run failed", ex, ("id", action.Id));
+                await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    _toolbar.ShowInlineToast("失败：" + ex.Message, isError: true, copyText: ex.ToString(), durationMs: 5000);
+                });
             }
         });
     }

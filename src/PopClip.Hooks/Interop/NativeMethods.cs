@@ -31,6 +31,9 @@ public static class NativeMethods
     public const int WM_MOUSEACTIVATE = 0x0021;
     public const int WM_CLIPBOARDUPDATE = 0x031D;
     public const int WM_HOTKEY = 0x0312;
+    public const int WM_SETTINGCHANGE = 0x001A;
+    public const int WM_THEMECHANGED = 0x031A;
+    public const int WM_DWMCOLORIZATIONCOLORCHANGED = 0x0320;
 
     public const int MA_NOACTIVATE = 3;
     public const int MA_NOACTIVATEANDEAT = 4;
@@ -57,6 +60,14 @@ public static class NativeMethods
     public const int VK_RSHIFT = 0xA1;
     public const int VK_LCONTROL = 0xA2;
     public const int VK_RCONTROL = 0xA3;
+    public const int VK_RETURN = 0x0D;
+    public const int VK_ESCAPE = 0x1B;
+    public const int VK_SPACE = 0x20;
+    public const int VK_TAB = 0x09;
+    public const int VK_LEFT = 0x25;
+    public const int VK_UP = 0x26;
+    public const int VK_RIGHT = 0x27;
+    public const int VK_DOWN = 0x28;
 
     // === SendInput ===
     public const int INPUT_KEYBOARD = 1;
@@ -187,6 +198,21 @@ public static class NativeMethods
 
     public const uint WM_QUIT = 0x0012;
 
+    // === Hotkeys ===
+    public const uint MOD_ALT = 0x0001;
+    public const uint MOD_CONTROL = 0x0002;
+    public const uint MOD_SHIFT = 0x0004;
+    public const uint MOD_WIN = 0x0008;
+    public const uint MOD_NOREPEAT = 0x4000;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool RegisterHotKey(nint hWnd, int id, uint fsModifiers, uint vk);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool UnregisterHotKey(nint hWnd, int id);
+
     // === Window queries ===
     [DllImport("user32.dll")]
     public static extern nint GetForegroundWindow();
@@ -224,6 +250,30 @@ public static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GetWindowRect(nint hWnd, out RECT lpRect);
+
+    // === DWM ===
+    public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    public const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
+    public const int DWMSBT_MAINWINDOW = 2;
+    public const int DWMSBT_TRANSIENTWINDOW = 3;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MARGINS
+    {
+        public int cxLeftWidth;
+        public int cxRightWidth;
+        public int cyTopHeight;
+        public int cyBottomHeight;
+    }
+
+    [DllImport("dwmapi.dll", PreserveSig = true)]
+    public static extern int DwmSetWindowAttribute(nint hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
+
+    [DllImport("dwmapi.dll", PreserveSig = true)]
+    public static extern int DwmExtendFrameIntoClientArea(nint hWnd, ref MARGINS pMarInset);
+
+    [DllImport("dwmapi.dll", PreserveSig = true)]
+    public static extern int DwmGetColorizationColor(out uint pcrColorization, out bool pfOpaqueBlend);
 
     // === Process ===
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -344,4 +394,124 @@ public static class NativeMethods
 
     [DllImport("Shcore.dll")]
     public static extern int GetDpiForMonitor(nint hmonitor, MonitorDpiType dpiType, out uint dpiX, out uint dpiY);
+
+    // === Shell_NotifyIcon (托盘) ===
+    // NotifyIconData 字段位标志
+    public const uint NIF_MESSAGE = 0x00000001;
+    public const uint NIF_ICON = 0x00000002;
+    public const uint NIF_TIP = 0x00000004;
+    public const uint NIF_INFO = 0x00000010;
+    public const uint NIF_GUID = 0x00000020;
+    public const uint NIF_SHOWTIP = 0x00000080;
+
+    // Shell_NotifyIcon 第一个参数
+    public const uint NIM_ADD = 0x00000000;
+    public const uint NIM_MODIFY = 0x00000001;
+    public const uint NIM_DELETE = 0x00000002;
+    public const uint NIM_SETVERSION = 0x00000004;
+
+    public const uint NOTIFYICON_VERSION_4 = 4;
+
+    // dwInfoFlags
+    public const uint NIIF_NONE = 0x00000000;
+    public const uint NIIF_INFO = 0x00000001;
+    public const uint NIIF_WARNING = 0x00000002;
+    public const uint NIIF_ERROR = 0x00000003;
+    public const uint NIIF_NOSOUND = 0x00000010;
+
+    // 鼠标消息（托盘回调里复用）
+    public const int WM_LBUTTONUP_TRAY = 0x0202;
+    public const int WM_RBUTTONUP_TRAY = 0x0205;
+    public const int WM_CONTEXTMENU = 0x007B;
+    public const uint NIN_SELECT = 0x0400;
+    public const uint NIN_KEYSELECT = 0x0401;
+    public const uint NIN_POPUPOPEN = 0x0406;
+    public const uint NIN_POPUPCLOSE = 0x0407;
+    public const uint NIN_BALLOONUSERCLICK = 0x0405;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct NOTIFYICONDATAW
+    {
+        public int cbSize;
+        public nint hWnd;
+        public uint uID;
+        public uint uFlags;
+        public uint uCallbackMessage;
+        public nint hIcon;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string szTip;
+        public uint dwState;
+        public uint dwStateMask;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+        public string szInfo;
+        public uint uVersionOrTimeout;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+        public string szInfoTitle;
+        public uint dwInfoFlags;
+        public Guid guidItem;
+        public nint hBalloonIcon;
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool Shell_NotifyIcon(uint dwMessage, ref NOTIFYICONDATAW lpData);
+
+    // === Icon ===
+    public const uint IMAGE_ICON = 1;
+    public const uint LR_LOADFROMFILE = 0x00000010;
+    public const uint LR_DEFAULTSIZE = 0x00000040;
+    public const uint LR_SHARED = 0x00008000;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern nint LoadImage(nint hInst, string name, uint type, int cx, int cy, uint fuLoad);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool DestroyIcon(nint hIcon);
+
+    // === Message-only window ===
+    public const int HWND_MESSAGE = -3;
+    public const uint WM_USER = 0x0400;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct WNDCLASSEX
+    {
+        public int cbSize;
+        public uint style;
+        [MarshalAs(UnmanagedType.FunctionPtr)]
+        public WndProcDelegate lpfnWndProc;
+        public int cbClsExtra;
+        public int cbWndExtra;
+        public nint hInstance;
+        public nint hIcon;
+        public nint hCursor;
+        public nint hbrBackground;
+        public string lpszMenuName;
+        public string lpszClassName;
+        public nint hIconSm;
+    }
+
+    public delegate nint WndProcDelegate(nint hwnd, uint msg, nint wParam, nint lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern ushort RegisterClassEx(ref WNDCLASSEX lpwcx);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern nint CreateWindowEx(
+        uint dwExStyle,
+        string lpClassName,
+        string? lpWindowName,
+        uint dwStyle,
+        int x, int y, int nWidth, int nHeight,
+        nint hWndParent,
+        nint hMenu,
+        nint hInstance,
+        nint lpParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool DestroyWindow(nint hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern nint DefWindowProc(nint hWnd, uint msg, nint wParam, nint lParam);
 }

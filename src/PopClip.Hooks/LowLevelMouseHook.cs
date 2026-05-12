@@ -51,10 +51,11 @@ public sealed class LowLevelMouseHook
             //   Ctrl +原地点击 → 直接弹"粘贴"
             var shift = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_SHIFT) & 0x8000) != 0;
             var ctrl = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_CONTROL) & 0x8000) != 0;
+            var alt = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_MENU) & 0x8000) != 0;
             InputEvent? ev = msg switch
             {
-                NativeMethods.WM_LBUTTONDOWN => new MouseDownEvent(data.pt.X, data.pt.Y, shift, ctrl, now),
-                NativeMethods.WM_LBUTTONUP => new MouseUpEvent(data.pt.X, data.pt.Y, shift, ctrl, now),
+                NativeMethods.WM_LBUTTONDOWN => new MouseDownEvent(data.pt.X, data.pt.Y, shift, ctrl, alt, now),
+                NativeMethods.WM_LBUTTONUP => new MouseUpEvent(data.pt.X, data.pt.Y, shift, ctrl, alt, now),
                 NativeMethods.WM_MOUSEMOVE => new MouseMoveEvent(data.pt.X, data.pt.Y, IsLeftDown(), now),
                 _ => null,
             };

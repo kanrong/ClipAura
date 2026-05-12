@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Net;
 using System.Text.RegularExpressions;
 using PopClip.Core.Actions;
 using PopClip.Core.Logging;
@@ -40,16 +42,8 @@ public sealed class ActionCatalog
         foreach (var d in config.Actions)
         {
             if (!d.Enabled) continue;
-            if (!string.Equals(d.Type, "builtin", StringComparison.OrdinalIgnoreCase))
-            {
-                _log.Warn("unknown action type, skipped", ("id", d.Id), ("type", d.Type));
-                continue;
-            }
-            if (d.BuiltIn is null || !_registry.TryGetValue(d.BuiltIn, out var action))
-            {
-                _log.Warn("builtin not found", ("id", d.Id), ("ref", d.BuiltIn ?? "(null)"));
-                continue;
-            }
+            var action = ResolveAction(d);
+            if (action is null) continue;
 
             Regex? matcher = null;
             if (!string.IsNullOrEmpty(d.MatchRegex))
@@ -61,6 +55,42 @@ public sealed class ActionCatalog
         }
         _ordered = ordered;
         _log.Info("actions loaded", ("count", _ordered.Count));
+    }
+
+    private IAction? ResolveAction(ActionDescriptor descriptor)
+    {
+        if (string.Equals(descriptor.Type, "builtin", StringComparison.OrdinalIgnoreCase))
+        {
+            if (descriptor.BuiltIn is null || !_registry.TryGetValue(descriptor.BuiltIn, out var action))
+            {
+                _log.Warn("builtin not found", ("id", descriptor.Id), ("ref", descriptor.BuiltIn ?? "(null)"));
+                return null;
+            }
+            return action;
+        }
+
+        if (string.Equals(descriptor.Type, "url-template", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(descriptor.UrlTemplate))
+            {
+                _log.Warn("url-template action missing template", ("id", descriptor.Id));
+                return null;
+            }
+            return new UrlTemplateAction(descriptor);
+        }
+
+        if (string.Equals(descriptor.Type, "script", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(descriptor.ScriptPath))
+            {
+                _log.Warn("script action missing path", ("id", descriptor.Id));
+                return null;
+            }
+            return new ScriptAction(descriptor);
+        }
+
+        _log.Warn("unknown action type, skipped", ("id", descriptor.Id), ("type", descriptor.Type));
+        return null;
     }
 
     /// <summary>未提供配置时使用的默认动作顺序，等价于"全部启用且无 matchRegex"</summary>
@@ -99,3 +129,78 @@ public sealed class ActionCatalog
 }
 
 public sealed record ResolvedAction(ActionDescriptor Descriptor, IAction Action, Regex? Matcher);
+
+internal sealed class UrlTemplateAction : IAction
+{
+    private readonly ActionDescriptor _descriptor;
+
+    public UrlTemplateAction(ActionDescriptor descriptor) => _descriptor = descriptor;
+
+    public string Id => _descriptor.Id;
+    public string Title => string.IsNullOrWhiteSpace(_descriptor.Title) ? "打开 URL" : _descriptor.Title;
+    public string IconKey => string.IsNullOrWhiteSpace(_descriptor.Icon) ? "Url" : _descriptor.Icon;
+    public bool CanRun(SelectionContext context) => !context.IsEmpty;
+
+    public Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
+    {
+        var url = Expand(_descriptor.UrlTemplate ?? "", context.Text);
+        host.UrlLauncher.Open(url);
+        return Task.CompletedTask;
+    }
+
+    private static string Expand(string template, string text)
+    {
+        var encoded = WebUtility.UrlEncode(text);
+        return template
+            .Replace("{text}", text, StringComparison.Ordinal)
+            .Replace("{q}", encoded, StringComparison.Ordinal)
+            .Replace("{urlencoded}", encoded, StringComparison.Ordinal);
+    }
+}
+
+internal sealed class ScriptAction : IAction
+{
+    private readonly ActionDescriptor _descriptor;
+
+    public ScriptAction(ActionDescriptor descriptor) => _descriptor = descriptor;
+
+    public string Id => _descriptor.Id;
+    public string Title => string.IsNullOrWhiteSpace(_descriptor.Title) ? "脚本" : _descriptor.Title;
+    public string IconKey => string.IsNullOrWhiteSpace(_descriptor.Icon) ? "Script" : _descriptor.Icon;
+    public bool CanRun(SelectionContext context) => !context.IsEmpty;
+
+    public async Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
+    {
+        var path = Environment.ExpandEnvironmentVariables(_descriptor.ScriptPath ?? "");
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException("脚本文件不存在", path);
+        }
+
+        var start = new ProcessStartInfo
+        {
+            FileName = path,
+            Arguments = Expand(_descriptor.Arguments ?? "{text}", context.Text),
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        start.Environment["CLIPAURA_TEXT"] = context.Text;
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("脚本进程启动失败");
+        await process.WaitForExitAsync(ct).ConfigureAwait(false);
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"脚本退出码 {process.ExitCode}");
+        }
+    }
+
+    private static string Expand(string template, string text)
+    {
+        var encoded = WebUtility.UrlEncode(text);
+        return template
+            .Replace("{text}", Quote(text), StringComparison.Ordinal)
+            .Replace("{q}", Quote(encoded), StringComparison.Ordinal)
+            .Replace("{urlencoded}", Quote(encoded), StringComparison.Ordinal);
+    }
+
+    private static string Quote(string value) => "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+}

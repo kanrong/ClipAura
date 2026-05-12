@@ -5,26 +5,39 @@
     <SolidColorBrush x:Key="ToolbarLightShadow" Color="#111827" Opacity="0.10" />
     <SolidColorBrush x:Key="ToolbarLightForeground" Color="#242424" />
     <SolidColorBrush x:Key="ToolbarLightHover" Color="#EDEDED" />
+    <SolidColorBrush x:Key="ToolbarLightAccentSoft" Color="#DCEBFF" />
+    <SolidColorBrush x:Key="ToolbarLightToastBackground" Color="#EFF6FF" />
     <SolidColorBrush x:Key="ToolbarLightSeparator" Color="#D8D8D8" />
 
     <SolidColorBrush x:Key="ToolbarDarkBackground" Color="#262626" Opacity="0.96" />
     <SolidColorBrush x:Key="ToolbarDarkShadow" Color="#262626" Opacity="0.18" />
     <SolidColorBrush x:Key="ToolbarDarkForeground" Color="#F5F5F5" />
     <SolidColorBrush x:Key="ToolbarDarkHover" Color="#3A3A3A" />
+    <SolidColorBrush x:Key="ToolbarDarkAccentSoft" Color="#253B56" />
+    <SolidColorBrush x:Key="ToolbarDarkToastBackground" Color="#30363D" />
     <SolidColorBrush x:Key="ToolbarDarkSeparator" Color="#555555" />
 
     <StaticResource x:Key="ToolbarBackground" ResourceKey="ToolbarLightBackground" />
     <StaticResource x:Key="ToolbarShadow" ResourceKey="ToolbarLightShadow" />
     <StaticResource x:Key="ToolbarForeground" ResourceKey="ToolbarLightForeground" />
     <StaticResource x:Key="ToolbarHover" ResourceKey="ToolbarLightHover" />
+    <StaticResource x:Key="ToolbarAccentSoft" ResourceKey="ToolbarLightAccentSoft" />
+    <StaticResource x:Key="ToolbarToastBackground" ResourceKey="ToolbarLightToastBackground" />
     <StaticResource x:Key="ToolbarSeparator" ResourceKey="ToolbarLightSeparator" />
+    <CornerRadius x:Key="ToolbarCornerRadius">4</CornerRadius>
+    <CornerRadius x:Key="ToolbarButtonCornerRadius">3</CornerRadius>
+    <Thickness x:Key="ToolbarButtonPadding">10,4</Thickness>
+    <Thickness x:Key="ToolbarButtonMargin">1</Thickness>
+    <sys:Double x:Key="ToolbarButtonFontSize" xmlns:sys="clr-namespace:System;assembly=mscorlib">12</sys:Double>
+    <sys:Double x:Key="ToolbarIconFontSize" xmlns:sys="clr-namespace:System;assembly=mscorlib">14</sys:Double>
 
     <Style x:Key="ToolbarButtonStyle" TargetType="Button">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{DynamicResource ToolbarForeground}" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="Padding" Value="10,4" />
-        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Padding" Value="{DynamicResource ToolbarButtonPadding}" />
+        <Setter Property="Margin" Value="{DynamicResource ToolbarButtonMargin}" />
+        <Setter Property="FontSize" Value="{DynamicResource ToolbarButtonFontSize}" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Focusable" Value="False" />
         <Setter Property="Template">
@@ -32,7 +45,9 @@
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="Bd"
                             Background="{TemplateBinding Background}"
-                            CornerRadius="3"
+                            BorderBrush="Transparent"
+                            BorderThickness="1"
+                            CornerRadius="{DynamicResource ToolbarButtonCornerRadius}"
                             Padding="{TemplateBinding Padding}">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
@@ -40,6 +55,9 @@
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ToolbarHover}" />
                         </Trigger>
+                        <DataTrigger Binding="{Binding IsKeyboardSelected}" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ToolbarAccentSoft}" />
+                        </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>

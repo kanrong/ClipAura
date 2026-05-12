@@ -17,6 +17,9 @@ public sealed class ActionDescriptor
     /// <summary>v2 占位：URL 模板，{text}/{urlencoded} 占位</summary>
     public string? UrlTemplate { get; set; }
 
+    public string? ScriptPath { get; set; }
+    public string? Arguments { get; set; }
+
     public bool Enabled { get; set; } = true;
 }
 

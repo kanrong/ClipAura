@@ -8,20 +8,18 @@ public sealed class SelectionStateMachine
 {
     private const int MouseDragThresholdPx = 4;
     private const int DoubleClickDistancePx = 5;
-    // 0 延迟：候选事件下一刻就投递。仍走异步是为了不在钩子线程里直接触发 UI 路径，
-    // 而是回到工作线程消费，避免拉慢钩子返回触发系统 LowLevelHooksTimeout
-    private static readonly TimeSpan MouseDebounce = TimeSpan.Zero;
-    private static readonly TimeSpan KeyboardDebounce = TimeSpan.Zero;
     private static readonly TimeSpan DoubleClickWindow = TimeSpan.FromMilliseconds(500);
 
     private readonly ILog _log;
     private readonly Action<SelectionCandidate> _onCandidate;
+    private readonly Func<SelectionStateOptions> _optionsProvider;
 
     private int _mouseDownX, _mouseDownY;
     private bool _leftDown;
     private bool _movedFarEnough;
     private bool _downWithCtrl;
     private bool _downWithShift;
+    private bool _downWithAlt;
 
     // 双击识别状态：记录上一次 mouse-up 的时间与位置
     private DateTime _lastUpAtUtc = DateTime.MinValue;
@@ -29,10 +27,14 @@ public sealed class SelectionStateMachine
 
     private CancellationTokenSource? _debounceCts;
 
-    public SelectionStateMachine(ILog log, Action<SelectionCandidate> onCandidate)
+    public SelectionStateMachine(
+        ILog log,
+        Action<SelectionCandidate> onCandidate,
+        Func<SelectionStateOptions>? optionsProvider = null)
     {
         _log = log;
         _onCandidate = onCandidate;
+        _optionsProvider = optionsProvider ?? (() => new SelectionStateOptions());
     }
 
     public void Process(InputEvent ev)
@@ -46,10 +48,15 @@ public sealed class SelectionStateMachine
                 _movedFarEnough = false;
                 _downWithCtrl = md.Ctrl;
                 _downWithShift = md.Shift;
+                _downWithAlt = md.Alt;
                 CancelPending();
                 break;
 
             case MouseMoveEvent mm:
+                if (!_leftDown && GetOptions().PopupMode == SelectionPopupMode.HoverStill)
+                {
+                    CancelPending();
+                }
                 if (_leftDown && !_movedFarEnough)
                 {
                     var dx = mm.X - _mouseDownX;
@@ -66,24 +73,24 @@ public sealed class SelectionStateMachine
                 // Ctrl+原地点击优先级最高：直接当作"粘贴意图"，不参与拖选/双击识别
                 if (!_movedFarEnough && (_downWithCtrl || mu.Ctrl))
                 {
-                    SchedulePending(new SelectionCandidate(SelectionTrigger.MouseCtrlClick, mu.X, mu.Y, mu.TimestampUtc), MouseDebounce);
+                    SchedulePending(new SelectionCandidate(SelectionTrigger.MouseCtrlClick, mu.X, mu.Y, mu.TimestampUtc), GetDelay(mu));
                     _lastUpAtUtc = DateTime.MinValue;
                 }
                 else if (_movedFarEnough)
                 {
                     // Shift+拖动也归入此分支（扩展选区是用户的主要意图）
-                    SchedulePending(new SelectionCandidate(SelectionTrigger.MouseDrag, mu.X, mu.Y, mu.TimestampUtc), MouseDebounce);
+                    TryScheduleSelection(new SelectionCandidate(SelectionTrigger.MouseDrag, mu.X, mu.Y, mu.TimestampUtc), mu);
                     _lastUpAtUtc = DateTime.MinValue;
                 }
                 else if (_downWithShift || mu.Shift)
                 {
                     // Shift+原地点击：编辑器中通常表示"从光标延伸到此位置"，按拖选语义走文本采集
-                    SchedulePending(new SelectionCandidate(SelectionTrigger.MouseDrag, mu.X, mu.Y, mu.TimestampUtc), MouseDebounce);
+                    TryScheduleSelection(new SelectionCandidate(SelectionTrigger.MouseDrag, mu.X, mu.Y, mu.TimestampUtc), mu);
                     _lastUpAtUtc = DateTime.MinValue;
                 }
                 else if (IsDoubleClick(mu))
                 {
-                    SchedulePending(new SelectionCandidate(SelectionTrigger.MouseDoubleClick, mu.X, mu.Y, mu.TimestampUtc), MouseDebounce);
+                    TryScheduleSelection(new SelectionCandidate(SelectionTrigger.MouseDoubleClick, mu.X, mu.Y, mu.TimestampUtc), mu);
                     _lastUpAtUtc = DateTime.MinValue; // 防止三连击退化为二次双击
                 }
                 else
@@ -95,6 +102,7 @@ public sealed class SelectionStateMachine
                 _movedFarEnough = false;
                 _downWithCtrl = false;
                 _downWithShift = false;
+                _downWithAlt = false;
                 break;
 
             case KeyEvent k:
@@ -118,17 +126,17 @@ public sealed class SelectionStateMachine
 
         if (k.IsDown && k.Shift && IsArrowOrNavKey(k.VirtualKey))
         {
-            SchedulePending(
+            TryScheduleSelection(
                 new SelectionCandidate(SelectionTrigger.KeyboardSelection, -1, -1, k.TimestampUtc),
-                KeyboardDebounce);
+                k);
             return;
         }
 
         if (k.IsDown && k.Ctrl && k.VirtualKey == 0x41)
         {
-            SchedulePending(
+            TryScheduleSelection(
                 new SelectionCandidate(SelectionTrigger.KeyboardSelection, -1, -1, k.TimestampUtc),
-                KeyboardDebounce);
+                k);
             return;
         }
 
@@ -146,6 +154,54 @@ public sealed class SelectionStateMachine
         var dx = mu.X - _lastUpX;
         var dy = mu.Y - _lastUpY;
         return dx * dx + dy * dy <= DoubleClickDistancePx * DoubleClickDistancePx;
+    }
+
+    private void TryScheduleSelection(SelectionCandidate candidate, MouseUpEvent ev)
+    {
+        if (!PassesModifierPolicy(_downWithShift || ev.Shift, _downWithCtrl || ev.Ctrl, _downWithAlt || ev.Alt)) return;
+        SchedulePending(candidate, GetDelay(ev));
+    }
+
+    private void TryScheduleSelection(SelectionCandidate candidate, KeyEvent ev)
+    {
+        if (!PassesModifierPolicy(ev.Shift, ev.Ctrl, ev.Alt)) return;
+        SchedulePending(candidate, GetDelay(ev));
+    }
+
+    private TimeSpan GetDelay(InputEvent ev)
+    {
+        var options = GetOptions();
+        return options.PopupMode switch
+        {
+            SelectionPopupMode.Delayed => TimeSpan.FromMilliseconds(Math.Max(0, options.PopupDelayMs)),
+            SelectionPopupMode.HoverStill => TimeSpan.FromMilliseconds(Math.Max(0, options.HoverDelayMs)),
+            _ => TimeSpan.Zero,
+        };
+    }
+
+    private bool PassesModifierPolicy(bool shift, bool ctrl, bool alt)
+    {
+        var options = GetOptions();
+        if (options.PopupMode != SelectionPopupMode.ModifierRequired) return true;
+        return options.RequiredModifier switch
+        {
+            SelectionModifierKey.Ctrl => ctrl,
+            SelectionModifierKey.Shift => shift,
+            _ => alt,
+        };
+    }
+
+    private SelectionStateOptions GetOptions()
+    {
+        try
+        {
+            return _optionsProvider() ?? new SelectionStateOptions();
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("selection options unavailable", ("err", ex.Message));
+            return new SelectionStateOptions();
+        }
     }
 
     private static bool IsArrowOrNavKey(int vk) => vk switch

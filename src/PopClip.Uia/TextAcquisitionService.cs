@@ -33,6 +33,11 @@ public sealed class TextAcquisitionService
                 DateTime.UtcNow);
             return new AcquisitionOutcome(ctx, uiaResult.Element);
         }
+        if (_uia.LastFocusedElementWasPassword)
+        {
+            _log.Info("clipboard fallback skipped: password element");
+            return null;
+        }
 
         // 剪贴板兜底
         var text = _clipboard.CopySelectionViaCtrlC(TimeSpan.FromMilliseconds(220));

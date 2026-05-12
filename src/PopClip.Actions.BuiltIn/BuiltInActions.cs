@@ -24,6 +24,7 @@ public static class BuiltInActionIds
     public const string Mailto = "builtin.open.mailto";
     public const string Calculate = "builtin.calculate";
     public const string WordCount = "builtin.wordcount";
+    public const string AiChat = "builtin.ai.chat";
     public const string AiSummarize = "builtin.ai.summarize";
     public const string AiRewrite = "builtin.ai.rewrite";
     public const string AiTranslate = "builtin.ai.translate";

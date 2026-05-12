@@ -3,10 +3,10 @@
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  Title="ClipAura AI"
-                 Width="720"
-                 Height="560"
-                 MinWidth="560"
-                 MinHeight="420"
+                 Width="760"
+                 Height="660"
+                 MinWidth="620"
+                 MinHeight="520"
                  WindowStartupLocation="CenterScreen"
                  WindowBackdropType="Mica"
                  ExtendsContentIntoTitleBar="True"
@@ -28,12 +28,14 @@
             </ui:TitleBar.Icon>
         </ui:TitleBar>
 
-        <Grid Grid.Row="1" Margin="28,18,28,18">
+        <Grid Grid.Row="1" Margin="28,16,28,16">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <TextBlock x:Name="TitleText"
@@ -43,30 +45,71 @@
                        Grid.Row="1"
                        Style="{StaticResource Settings.PageDescription}" />
 
+            <Border x:Name="ReferencePanel"
+                    Grid.Row="2"
+                    Background="{DynamicResource Settings.Card.SubtleBackground}"
+                    BorderBrush="{DynamicResource Settings.Stroke}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource Settings.Radius.Md}"
+                    Padding="12"
+                    Margin="0,8,0,10">
+                <Expander x:Name="ReferenceExpander"
+                          Header="引用文本"
+                          IsExpanded="False">
+                    <ScrollViewer MaxHeight="116"
+                                  VerticalScrollBarVisibility="Auto"
+                                  Margin="0,8,0,0">
+                        <TextBlock x:Name="ReferenceText"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Settings.SubtleForeground}" />
+                    </ScrollViewer>
+                </Expander>
+            </Border>
+
             <ProgressBar x:Name="LoadingBar"
-                         Grid.Row="2"
+                         Grid.Row="3"
                          Height="4"
                          IsIndeterminate="True"
-                         Margin="0,0,0,12" />
+                         Visibility="Collapsed"
+                         Margin="0,0,0,10" />
 
-            <Grid Grid.Row="3">
-                <ui:TextBox x:Name="ResultBox"
+            <Border Grid.Row="4"
+                    Background="{DynamicResource Settings.Card.Background}"
+                    BorderBrush="{DynamicResource Settings.Stroke}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource Settings.Radius.Md}"
+                    Padding="10">
+                <ScrollViewer x:Name="MessagesScrollViewer"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="MessagesPanel" />
+                </ScrollViewer>
+            </Border>
+
+            <Grid Grid.Row="5" Margin="0,12,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ui:TextBox x:Name="QuestionBox"
+                            Grid.Column="0"
                             AcceptsReturn="True"
                             TextWrapping="Wrap"
                             VerticalScrollBarVisibility="Auto"
-                            HorizontalScrollBarVisibility="Disabled"
-                            FontSize="13"
-                            Padding="12" />
-                <Border x:Name="MarkdownHost"
-                        Background="{DynamicResource Settings.Card.Background}"
-                        BorderBrush="{DynamicResource Settings.Stroke}"
-                        BorderThickness="1"
-                        CornerRadius="{StaticResource Settings.Radius.Md}"
-                        Padding="12"
-                        Visibility="Collapsed">
-                    <FlowDocumentScrollViewer x:Name="MarkdownViewer"
-                                              VerticalScrollBarVisibility="Auto" />
-                </Border>
+                            MinHeight="78"
+                            MaxHeight="132"
+                            Padding="12"
+                            PlaceholderText="输入问题，按 Ctrl+Enter 发送"
+                            KeyDown="OnQuestionKeyDown" />
+                <ui:Button x:Name="SendButton"
+                           Grid.Column="1"
+                           Appearance="Primary"
+                           Icon="{ui:SymbolIcon Send24}"
+                           Content="发送"
+                           Width="98"
+                           Margin="10,0,0,0"
+                           VerticalAlignment="Stretch"
+                           Click="OnSendClicked" />
             </Grid>
         </Grid>
 
@@ -84,8 +127,8 @@
                 <ui:Button Appearance="Secondary"
                            x:Name="CopyButton"
                            Icon="{ui:SymbolIcon Copy24}"
-                           Content="复制"
-                           Width="100"
+                           Content="复制最新回复"
+                           Width="132"
                            Margin="0,0,10,0"
                            Click="OnCopyClicked" />
                 <ui:Button Appearance="Primary"

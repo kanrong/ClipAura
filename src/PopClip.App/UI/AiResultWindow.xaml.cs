@@ -1,4 +1,9 @@
+using System.Collections.Generic;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Input;
+using PopClip.App.Services;
 using PopClip.Core.Actions;
 
 namespace PopClip.App.UI;
@@ -7,96 +12,261 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
 {
     private readonly IClipboardWriter _clipboard;
     private readonly Func<string, Task> _replaceAsync;
-    private string _rawResult = "";
+    private readonly Func<IReadOnlyList<(string Role, string Content)>, Func<string, Task>, CancellationToken, Task<AiCompletionResult>> _sendAsync;
+    private readonly bool _canReplace;
+    private readonly List<(string Role, string Content)> _history = new();
+    private readonly CancellationTokenSource _windowCts = new();
+    private TextBox? _streamingTextBox;
+    private StackPanel? _streamingMessageStack;
+    private CancellationTokenSource? _sendCts;
+    private string _latestAssistantText = "";
+    private string _streamingAssistantText = "";
+    private bool _isSending;
 
     public AiResultWindow(
         string actionTitle,
         string sourceText,
         string model,
         IClipboardWriter clipboard,
-        Func<string, Task> replaceAsync)
+        Func<string, Task> replaceAsync,
+        bool canReplace,
+        Func<IReadOnlyList<(string Role, string Content)>, Func<string, Task>, CancellationToken, Task<AiCompletionResult>> sendAsync)
     {
         _clipboard = clipboard;
         _replaceAsync = replaceAsync;
+        _canReplace = canReplace;
+        _sendAsync = sendAsync;
         InitializeComponent();
+
         TitleText.Text = actionTitle;
-        SetLoading(model, sourceText.Length);
-    }
-
-    public void SetLoading(string model, int sourceLength)
-    {
-        MetaText.Text = $"{model} · 正在处理 · 原文 {sourceLength} 字符";
-        _rawResult = "";
-        MarkdownHost.Visibility = Visibility.Collapsed;
-        ResultBox.Visibility = Visibility.Visible;
-        ResultBox.Text = "正在请求模型服务，请稍候...";
-        ResultBox.IsReadOnly = true;
-        LoadingBar.Visibility = Visibility.Visible;
-        CopyButton.IsEnabled = false;
-        ReplaceButton.IsEnabled = false;
-    }
-
-    public void BeginStreaming(string model, int sourceLength)
-    {
-        MetaText.Text = $"{model} · 正在生成 · 原文 {sourceLength} 字符";
-        _rawResult = "";
-        MarkdownHost.Visibility = Visibility.Collapsed;
-        ResultBox.Visibility = Visibility.Visible;
-        ResultBox.Text = "";
-        ResultBox.IsReadOnly = true;
-        LoadingBar.Visibility = Visibility.Visible;
-        CopyButton.IsEnabled = false;
-        ReplaceButton.IsEnabled = false;
-    }
-
-    public void AppendDelta(string delta)
-    {
-        if (string.IsNullOrEmpty(delta)) return;
-        _rawResult += delta;
-        ResultBox.AppendText(delta);
-        ResultBox.ScrollToEnd();
-    }
-
-    public void SetResult(string resultText, string model, TimeSpan elapsed, int sourceLength)
-    {
-        _rawResult = resultText;
-        var isMarkdown = MarkdownPreviewRenderer.LooksLikeMarkdown(resultText);
-        MetaText.Text = isMarkdown
-            ? $"{model} · {elapsed.TotalSeconds:0.0}s · Markdown 预览 · 原文 {sourceLength} 字符"
-            : $"{model} · {elapsed.TotalSeconds:0.0}s · 原文 {sourceLength} 字符";
-
-        if (isMarkdown)
+        ReferenceText.Text = sourceText;
+        ReferencePanel.Visibility = string.IsNullOrWhiteSpace(sourceText) ? Visibility.Collapsed : Visibility.Visible;
+        SetIdle(model, sourceText.Length);
+        AddAssistantMessage("已准备好。你可以基于引用文本继续提问。");
+        Loaded += (_, _) => FocusQuestionBox();
+        Closed += (_, _) =>
         {
-            MarkdownViewer.Document = MarkdownPreviewRenderer.Render(resultText);
-            MarkdownHost.Visibility = Visibility.Visible;
-            ResultBox.Visibility = Visibility.Collapsed;
+            _sendCts?.Cancel();
+            _windowCts.Cancel();
+            _windowCts.Dispose();
+        };
+    }
+
+    public void StartInitialPrompt(string prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt)) return;
+        _ = SubmitPromptAsync(prompt, clearInput: false);
+    }
+
+    public void FocusQuestionBox()
+    {
+        QuestionBox.Focus();
+        Keyboard.Focus(QuestionBox);
+    }
+
+    private void SetIdle(string model, int sourceLength)
+    {
+        MetaText.Text = $"{model} · 会话就绪 · 引用 {sourceLength} 字符";
+        LoadingBar.Visibility = Visibility.Collapsed;
+        CopyButton.IsEnabled = false;
+        ReplaceButton.IsEnabled = false;
+    }
+
+    private void SetSending(bool sending)
+    {
+        _isSending = sending;
+        LoadingBar.Visibility = sending ? Visibility.Visible : Visibility.Collapsed;
+        SendButton.IsEnabled = !sending;
+        QuestionBox.IsEnabled = !sending;
+        if (!sending)
+        {
+            FocusQuestionBox();
         }
-        else
+    }
+
+    private async Task SubmitPromptAsync(string prompt, bool clearInput = true)
+    {
+        var trimmed = prompt.Trim();
+        if (_isSending || trimmed.Length == 0) return;
+
+        if (clearInput)
         {
-            MarkdownHost.Visibility = Visibility.Collapsed;
-            ResultBox.Visibility = Visibility.Visible;
-            if (!string.Equals(ResultBox.Text, resultText, StringComparison.Ordinal))
+            QuestionBox.Text = "";
+        }
+
+        AddUserMessage(trimmed);
+        _history.Add(("user", trimmed));
+        StartAssistantStreamingMessage();
+        SetSending(true);
+        MetaText.Text = "正在请求模型服务...";
+
+        _sendCts?.Cancel();
+        _sendCts?.Dispose();
+        _sendCts = CancellationTokenSource.CreateLinkedTokenSource(_windowCts.Token);
+
+        try
+        {
+            var snapshot = _history.ToArray();
+            var result = await _sendAsync(
+                snapshot,
+                delta => Dispatcher.InvokeAsync(() => AppendAssistantDelta(delta)).Task,
+                _sendCts.Token).ConfigureAwait(true);
+
+            _latestAssistantText = result.Text;
+            _history.Add(("assistant", result.Text));
+            FinishAssistantMessage(result.Text);
+            var markdown = MarkdownPreviewRenderer.LooksLikeMarkdown(result.Text) ? " · Markdown" : "";
+            MetaText.Text = $"{result.Model} · {result.Elapsed.TotalSeconds:0.0}s{markdown}";
+            CopyButton.IsEnabled = true;
+            ReplaceButton.IsEnabled = _canReplace;
+        }
+        catch (OperationCanceledException) when (_windowCts.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            var message = "AI 请求失败：\r\n" + ex.Message;
+            _latestAssistantText = message;
+            FinishAssistantMessage(message, isError: true);
+            MetaText.Text = "请求失败";
+            CopyButton.IsEnabled = true;
+            ReplaceButton.IsEnabled = false;
+        }
+        finally
+        {
+            if (!_windowCts.IsCancellationRequested)
             {
-                ResultBox.Text = resultText;
+                SetSending(false);
             }
-            ResultBox.IsReadOnly = false;
         }
-        LoadingBar.Visibility = Visibility.Collapsed;
-        CopyButton.IsEnabled = true;
-        ReplaceButton.IsEnabled = true;
     }
 
-    public void SetError(string message, string model, int sourceLength)
+    private void AddUserMessage(string text)
+        => AddMessage("你", text, isUser: true, isError: false);
+
+    private void AddAssistantMessage(string text)
+        => AddMessage("ClipAura AI", text, isUser: false, isError: false);
+
+    private void StartAssistantStreamingMessage()
     {
-        MetaText.Text = $"{model} · 请求失败 · 原文 {sourceLength} 字符";
-        _rawResult = "AI 请求失败：\r\n" + message;
-        MarkdownHost.Visibility = Visibility.Collapsed;
-        ResultBox.Visibility = Visibility.Visible;
-        ResultBox.Text = _rawResult;
-        ResultBox.IsReadOnly = true;
-        LoadingBar.Visibility = Visibility.Collapsed;
-        CopyButton.IsEnabled = true;
-        ReplaceButton.IsEnabled = false;
+        _streamingAssistantText = "";
+        _streamingMessageStack = CreateMessageShell("ClipAura AI", isUser: false, isError: false);
+        _streamingTextBox = new TextBox
+        {
+            IsReadOnly = true,
+            TextWrapping = TextWrapping.Wrap,
+            BorderThickness = new Thickness(0),
+            Background = System.Windows.Media.Brushes.Transparent,
+            Padding = new Thickness(0),
+            Margin = new Thickness(0),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
+        _streamingTextBox.SetResourceReference(TextBox.ForegroundProperty, "Settings.Foreground");
+        _streamingMessageStack.Children.Add(_streamingTextBox);
+        ScrollToEnd();
+    }
+
+    private void AppendAssistantDelta(string delta)
+    {
+        if (_streamingTextBox is null || string.IsNullOrEmpty(delta)) return;
+        _streamingAssistantText += delta;
+        _streamingTextBox.AppendText(delta);
+        _streamingTextBox.ScrollToEnd();
+        ScrollToEnd();
+    }
+
+    private void FinishAssistantMessage(string text, bool isError = false)
+    {
+        if (_streamingMessageStack is null)
+        {
+            AddMessage("ClipAura AI", text, isUser: false, isError: isError);
+            return;
+        }
+
+        if (_streamingTextBox is not null)
+        {
+            _streamingMessageStack.Children.Remove(_streamingTextBox);
+        }
+        AddMessageContent(_streamingMessageStack, text, isAssistant: true, isError: isError);
+        _streamingTextBox = null;
+        _streamingMessageStack = null;
+        ScrollToEnd();
+    }
+
+    private void AddMessage(string author, string text, bool isUser, bool isError)
+    {
+        var stack = CreateMessageShell(author, isUser, isError);
+        AddMessageContent(stack, text, isAssistant: !isUser, isError);
+        ScrollToEnd();
+    }
+
+    private StackPanel CreateMessageShell(string author, bool isUser, bool isError)
+    {
+        var border = new Border
+        {
+            Padding = new Thickness(12),
+            Margin = isUser ? new Thickness(64, 0, 0, 10) : new Thickness(0, 0, 42, 10),
+            HorizontalAlignment = isUser ? HorizontalAlignment.Right : HorizontalAlignment.Stretch,
+            MaxWidth = isUser ? 560 : double.PositiveInfinity,
+        };
+        border.SetResourceReference(Border.CornerRadiusProperty, "Settings.Radius.Md");
+        border.SetResourceReference(Border.BorderBrushProperty, isError ? "Settings.Danger" : "Settings.Stroke");
+        border.BorderThickness = new Thickness(1);
+        border.SetResourceReference(Border.BackgroundProperty,
+            isError ? "Settings.DangerSoft" : isUser ? "Settings.AccentSoft" : "Settings.Card.SubtleBackground");
+
+        var stack = new StackPanel();
+        var header = new TextBlock
+        {
+            Text = author,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        header.SetResourceReference(TextBlock.ForegroundProperty, "Settings.SubtleForeground");
+        stack.Children.Add(header);
+        border.Child = stack;
+        MessagesPanel.Children.Add(border);
+        return stack;
+    }
+
+    private void AddMessageContent(StackPanel stack, string text, bool isAssistant, bool isError)
+    {
+        if (isAssistant && !isError && MarkdownPreviewRenderer.LooksLikeMarkdown(text))
+        {
+            var viewer = new FlowDocumentScrollViewer
+            {
+                Document = MarkdownPreviewRenderer.Render(text),
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                MaxHeight = 420,
+                Margin = new Thickness(0),
+            };
+            stack.Children.Add(viewer);
+            return;
+        }
+
+        var body = new TextBlock
+        {
+            Text = text,
+            TextWrapping = TextWrapping.Wrap,
+            LineHeight = 20,
+        };
+        body.SetResourceReference(TextBlock.ForegroundProperty, "Settings.Foreground");
+        stack.Children.Add(body);
+    }
+
+    private void ScrollToEnd()
+        => Dispatcher.BeginInvoke(() => MessagesScrollViewer.ScrollToEnd());
+
+    private async void OnSendClicked(object sender, RoutedEventArgs e)
+        => await SubmitPromptAsync(QuestionBox.Text).ConfigureAwait(true);
+
+    private async void OnQuestionKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            e.Handled = true;
+            await SubmitPromptAsync(QuestionBox.Text).ConfigureAwait(true);
+        }
     }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
@@ -104,15 +274,16 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
     private void OnCopyClicked(object sender, RoutedEventArgs e)
     {
         _clipboard.SetText(CurrentRawText());
-        Close();
     }
 
     private async void OnReplaceClicked(object sender, RoutedEventArgs e)
     {
+        if (!_canReplace) return;
         await _replaceAsync(CurrentRawText()).ConfigureAwait(true);
-        Close();
     }
 
     private string CurrentRawText()
-        => string.IsNullOrEmpty(_rawResult) ? ResultBox.Text : _rawResult;
+        => string.IsNullOrWhiteSpace(_latestAssistantText)
+            ? _streamingAssistantText
+            : _latestAssistantText;
 }

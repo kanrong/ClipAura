@@ -67,6 +67,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         new BuiltInChoice(BuiltInActionIds.ToTitle, "标题大小写"),
         new BuiltInChoice(BuiltInActionIds.Calculate, "计算"),
         new BuiltInChoice(BuiltInActionIds.WordCount, "字数统计"),
+        new BuiltInChoice(BuiltInActionIds.AiChat, "AI 对话"),
         new BuiltInChoice(BuiltInActionIds.AiSummarize, "AI 总结"),
         new BuiltInChoice(BuiltInActionIds.AiRewrite, "AI 改写"),
         new BuiltInChoice(BuiltInActionIds.AiTranslate, "AI 翻译"),
@@ -613,6 +614,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         BuiltInActionIds.ToTitle => "Title",
         BuiltInActionIds.Calculate => "Calc",
         BuiltInActionIds.WordCount => "Count",
+        BuiltInActionIds.AiChat => "AiChat",
         BuiltInActionIds.AiSummarize => "AiSummary",
         BuiltInActionIds.AiRewrite => "AiRewrite",
         BuiltInActionIds.AiTranslate => "AiTranslate",
@@ -802,6 +804,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
 
     private void EnsureDefaultAiActions()
     {
+        AddDefaultAiAction("ai-chat", BuiltInActionIds.AiChat, "AI 对话");
         AddDefaultAiAction("ai-summary", BuiltInActionIds.AiSummarize, "AI 总结");
         AddDefaultAiAction("ai-rewrite", BuiltInActionIds.AiRewrite, "AI 改写");
         AddDefaultAiAction("ai-translate", BuiltInActionIds.AiTranslate, "AI 翻译");

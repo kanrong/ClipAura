@@ -33,6 +33,7 @@ public sealed class ActionCatalog
             [BuiltInActionIds.Mailto] = new MailtoAction(),
             [BuiltInActionIds.Calculate] = new CalculateAction(),
             [BuiltInActionIds.WordCount] = new WordCountAction(),
+            [BuiltInActionIds.AiChat] = new AiTextAction(BuiltInActionIds.AiChat, "AI 对话", "AiChat", AiTextActionKind.Chat),
             [BuiltInActionIds.AiSummarize] = new AiTextAction(BuiltInActionIds.AiSummarize, "AI 总结", "AiSummary", AiTextActionKind.Summarize),
             [BuiltInActionIds.AiRewrite] = new AiTextAction(BuiltInActionIds.AiRewrite, "AI 改写", "AiRewrite", AiTextActionKind.Rewrite),
             [BuiltInActionIds.AiTranslate] = new AiTextAction(BuiltInActionIds.AiTranslate, "AI 翻译", "AiTranslate", AiTextActionKind.Translate),

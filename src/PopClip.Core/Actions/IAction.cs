@@ -49,6 +49,7 @@ public interface ISettingsProvider
 
 public enum AiTextActionKind
 {
+    Chat,
     Summarize,
     Rewrite,
     Translate,
@@ -58,9 +59,12 @@ public enum AiTextActionKind
 
 public sealed record AiTextActionRequest(AiTextActionKind Kind, string Title);
 
+public sealed record AiConversationRequest(string Title, string ReferenceText, AiTextActionRequest? InitialAction = null);
+
 public interface IAiTextService
 {
     bool CanRun { get; }
+    Task OpenConversationAsync(AiConversationRequest request, CancellationToken ct);
     Task RunActionAsync(AiTextActionRequest request, SelectionContext context, CancellationToken ct);
 }
 

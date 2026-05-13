@@ -101,6 +101,9 @@ public sealed class AppSettings
     // 鼠标离开浮窗一段时间后自动关闭
     public bool DismissOnMouseLeave { get; set; } = true;
     public int DismissMouseLeaveDelayMs { get; set; } = 800;
+    // 浮窗显示一段时间后自动关闭（毫秒）
+    public bool DismissOnTimeout { get; set; } = false;
+    public int DismissTimeoutMs { get; set; } = 5000;
     // 前台窗口切换时关闭
     public bool DismissOnForegroundChanged { get; set; } = true;
     // 在浮窗外部按下鼠标时关闭

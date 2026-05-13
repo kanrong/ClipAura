@@ -217,6 +217,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         DismissOnNewSelectionBox.IsChecked = _settings.DismissOnNewSelection;
         DismissOnActionInvokedBox.IsChecked = _settings.DismissOnActionInvoked;
         DismissMouseLeaveDelayBox.Value = _settings.DismissMouseLeaveDelayMs;
+        DismissOnTimeoutBox.IsChecked = _settings.DismissOnTimeout;
+        DismissTimeoutMsBox.Value = _settings.DismissTimeoutMs;
 
         SearchEngineName.Text = _settings.SearchEngineName;
         SearchUrlTemplate.Text = _settings.SearchUrlTemplate;
@@ -753,6 +755,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         _settings.DismissOnNewSelection = DismissOnNewSelectionBox.IsChecked == true;
         _settings.DismissOnActionInvoked = DismissOnActionInvokedBox.IsChecked == true;
         _settings.DismissMouseLeaveDelayMs = NumberBoxInt(DismissMouseLeaveDelayBox, _settings.DismissMouseLeaveDelayMs, 0, 5000);
+        _settings.DismissOnTimeout = DismissOnTimeoutBox.IsChecked == true;
+        _settings.DismissTimeoutMs = NumberBoxInt(DismissTimeoutMsBox, _settings.DismissTimeoutMs, 100, 120000);
 
         var name = SearchEngineName.Text?.Trim() ?? "";
         var url = SearchUrlTemplate.Text?.Trim() ?? "";

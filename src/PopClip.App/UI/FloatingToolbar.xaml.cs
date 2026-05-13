@@ -42,11 +42,14 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     private bool _followAccentColor = true;
     private bool _dismissOnMouseLeave = true;
     private int _dismissMouseLeaveDelayMs = 800;
+    private bool _dismissOnTimeout;
+    private int _dismissTimeoutMs = 5000;
     private bool _dismissOnEscape = true;
     private bool _keyboardShortcutsEnabled = true;
     private bool _tabNavigationEnabled = true;
     private bool _numberShortcutsEnabled = true;
     private CancellationTokenSource? _toastCts;
+    private CancellationTokenSource? _dismissTimeoutCts;
     private string? _toastCopyText;
     private const int ShadowPaddingDip = 9;
     private const double ToolbarButtonPaddingX = 12;
@@ -130,6 +133,8 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         _maxActionsPerRow = Math.Clamp(settings.ToolbarMaxActionsPerRow, 3, 12);
         _dismissOnMouseLeave = settings.DismissOnMouseLeave;
         _dismissMouseLeaveDelayMs = Math.Clamp(settings.DismissMouseLeaveDelayMs, 0, 5000);
+        _dismissOnTimeout = settings.DismissOnTimeout;
+        _dismissTimeoutMs = Math.Clamp(settings.DismissTimeoutMs, 100, 120000);
         _dismissOnEscape = settings.DismissOnEscapeKey;
         _keyboardShortcutsEnabled = settings.EnableToolbarKeyboardShortcuts;
         _tabNavigationEnabled = settings.EnableToolbarTabNavigation;
@@ -365,6 +370,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         WindowStyleHelper.ShowNoActivate(_hwnd, x, y);
         _isShown = true;
         _lastShownAtUtc = DateTime.UtcNow;
+        ScheduleTimeoutDismiss();
     }
 
     public bool TryHandleGlobalKey(KeyEvent key)
@@ -558,6 +564,8 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     {
         if (!_isShown) return;
         if (_hwnd == 0) return;
+        _dismissTimeoutCts?.Cancel();
+        _dismissTimeoutCts = null;
         // 用 WPF Hide() 而非 Win32 ShowWindow(SW_HIDE)，保证 Visibility 属性同步翻成 Hidden。
         // 否则下次 base.Show() 会因为 Visibility 仍是 Visible 而 no-op，SizeToContent 不再触发
         base.Hide();
@@ -614,6 +622,30 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         _toastCts?.Cancel();
         ToastHost.Visibility = Visibility.Collapsed;
         _toastCopyText = null;
+    }
+
+    private void ScheduleTimeoutDismiss()
+    {
+        _dismissTimeoutCts?.Cancel();
+        _dismissTimeoutCts = null;
+        if (!_dismissOnTimeout) return;
+
+        var delayMs = _dismissTimeoutMs > 0 ? _dismissTimeoutMs : 3000;
+        var cts = new CancellationTokenSource();
+        _dismissTimeoutCts = cts;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(delayMs, cts.Token).ConfigureAwait(false);
+                Dispatcher.Invoke(() =>
+                {
+                    if (cts.IsCancellationRequested || !_isShown) return;
+                    HideToolbar("timeout");
+                });
+            }
+            catch (OperationCanceledException) { }
+        });
     }
 
     private void OnCopyToastClicked(object sender, RoutedEventArgs e)

@@ -524,8 +524,6 @@
                                             <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0" Margin="0,0,16,0">
-                                            <ui:ToggleSwitch x:Name="DismissOnMouseLeaveBox"
-                                                             Content="鼠标离开浮窗一段时间后" Margin="0,0,0,4" />
                                             <ui:ToggleSwitch x:Name="DismissOnForegroundChangedBox"
                                                              Content="前台窗口切换时" Margin="0,0,0,4" />
                                             <ui:ToggleSwitch x:Name="DismissOnClickOutsideBox"
@@ -541,18 +539,64 @@
                                         </StackPanel>
                                     </Grid>
 
-                                    <Grid Margin="0,12,0,0">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Grid.Column="0">
-                                            <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="鼠标离开后延迟 (ms)" />
-                                            <ui:NumberBox x:Name="DismissMouseLeaveDelayBox"
-                                                          Width="180" HorizontalAlignment="Left"
-                                                          Minimum="0" Maximum="5000" SmallChange="100" LargeChange="500" />
-                                        </StackPanel>
-                                    </Grid>
+                                    <StackPanel Margin="0,12,0,0">
+                                        <Border BorderBrush="{DynamicResource Settings.Stroke}"
+                                                BorderThickness="1"
+                                                CornerRadius="{StaticResource Settings.Radius.Sm}"
+                                                Padding="12"
+                                                Background="{DynamicResource Settings.Card.SubtleBackground}">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="180" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <ui:ToggleSwitch x:Name="DismissOnMouseLeaveBox"
+                                                                 Content="鼠标离开浮窗后自动消失"
+                                                                 VerticalAlignment="Center" />
+                                                <ui:NumberBox x:Name="DismissMouseLeaveDelayBox"
+                                                              Grid.Column="1"
+                                                              Margin="12,0,0,0"
+                                                              ClearButtonEnabled="False"
+                                                              SpinButtonPlacementMode="Hidden"
+                                                              Minimum="0" Maximum="5000" SmallChange="100" LargeChange="500" />
+                                                <TextBlock Grid.Column="2"
+                                                           Margin="8,0,0,0"
+                                                           VerticalAlignment="Center"
+                                                           Style="{StaticResource Settings.HintText}"
+                                                           Text="ms" />
+                                            </Grid>
+                                        </Border>
+
+                                        <Border Margin="0,10,0,0"
+                                                BorderBrush="{DynamicResource Settings.Stroke}"
+                                                BorderThickness="1"
+                                                CornerRadius="{StaticResource Settings.Radius.Sm}"
+                                                Padding="12"
+                                                Background="{DynamicResource Settings.Card.SubtleBackground}">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="180" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <ui:ToggleSwitch x:Name="DismissOnTimeoutBox"
+                                                                 Content="浮窗超时后自动消失"
+                                                                 VerticalAlignment="Center" />
+                                                <ui:NumberBox x:Name="DismissTimeoutMsBox"
+                                                              Grid.Column="1"
+                                                              Margin="12,0,0,0"
+                                                              ClearButtonEnabled="False"
+                                                              SpinButtonPlacementMode="Hidden"
+                                                              Minimum="100" Maximum="120000" SmallChange="100" LargeChange="1000" />
+                                                <TextBlock Grid.Column="2"
+                                                           Margin="8,0,0,0"
+                                                           VerticalAlignment="Center"
+                                                           Style="{StaticResource Settings.HintText}"
+                                                           Text="ms" />
+                                            </Grid>
+                                        </Border>
+                                    </StackPanel>
                                 </StackPanel>
                             </Border>
                         </StackPanel>

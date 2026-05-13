@@ -33,6 +33,7 @@ public sealed class ActionCatalog
             [BuiltInActionIds.Mailto] = new MailtoAction(),
             [BuiltInActionIds.Calculate] = new CalculateAction(),
             [BuiltInActionIds.WordCount] = new WordCountAction(),
+            [BuiltInActionIds.ClipboardHistory] = new ClipboardHistoryAction(),
             [BuiltInActionIds.AiChat] = new AiTextAction(BuiltInActionIds.AiChat, "AI 对话", "AiChat", AiTextActionKind.Chat),
             [BuiltInActionIds.AiSummarize] = new AiTextAction(BuiltInActionIds.AiSummarize, "AI 总结", "AiSummary", AiTextActionKind.Summarize),
             [BuiltInActionIds.AiRewrite] = new AiTextAction(BuiltInActionIds.AiRewrite, "AI 改写", "AiRewrite", AiTextActionKind.Rewrite),
@@ -93,6 +94,16 @@ public sealed class ActionCatalog
                 return null;
             }
             return new ScriptAction(descriptor);
+        }
+
+        if (string.Equals(descriptor.Type, "ai", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(descriptor.Prompt))
+            {
+                _log.Warn("ai action missing prompt", ("id", descriptor.Id));
+                return null;
+            }
+            return new AiPromptAction(descriptor);
         }
 
         _log.Warn("unknown action type, skipped", ("id", descriptor.Id), ("type", descriptor.Type));

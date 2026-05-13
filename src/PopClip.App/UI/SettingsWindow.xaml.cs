@@ -35,6 +35,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
     private readonly ProtectedSecretStore _secretStore = new(ConsoleLog.Instance);
     private readonly Dictionary<string, string> _pendingAiKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FrameworkElement> _pages;
+    private readonly IConversationStore? _historyStore;
+    private readonly IUsageRecorder? _usage;
+    private readonly Action<string>? _onOpenConversation;
     private WpfPoint _dragStartPoint;
     private ActionEditorItem? _dragItem;
     private string _currentAiKeyBucket = AiProviderCatalog.DeepSeekKeyBucket;
@@ -54,7 +57,18 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         new ActionTypeChoice("builtin", "内置"),
         new ActionTypeChoice("url-template", "URL 模板"),
         new ActionTypeChoice("script", "脚本"),
+        new ActionTypeChoice("ai", "AI Prompt"),
     };
+
+    public IReadOnlyList<AiOutputModeChoice> AiOutputModeChoices { get; } = new[]
+    {
+        new AiOutputModeChoice("chat", "进入对话窗口"),
+        new AiOutputModeChoice("replace", "原地替换选区"),
+        new AiOutputModeChoice("clipboard", "写入剪贴板"),
+        new AiOutputModeChoice("inlineToast", "浮窗显示结果"),
+    };
+
+    public IReadOnlyList<PromptTemplateDefinition> BuiltinPromptTemplates => PromptTemplateLibrary.Builtin;
     public IReadOnlyList<BuiltInChoice> BuiltInChoices { get; } = new[]
     {
         new BuiltInChoice(BuiltInActionIds.Copy, "复制"),
@@ -77,10 +91,19 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
 
     public event Action? Saved;
 
-    public SettingsWindow(ConfigStore store, AppSettings settings, string? initialPage = null)
+    public SettingsWindow(
+        ConfigStore store,
+        AppSettings settings,
+        string? initialPage = null,
+        IConversationStore? historyStore = null,
+        IUsageRecorder? usage = null,
+        Action<string>? onOpenConversation = null)
     {
         _store = store;
         _settings = settings;
+        _historyStore = historyStore;
+        _usage = usage;
+        _onOpenConversation = onOpenConversation;
         // FluentWindow 自己会按 WindowBackdropType 处理 Mica，再走 ApplicationThemeManager 切深浅色
         ApplyWpfUiTheme();
         InitializeComponent();
@@ -107,6 +130,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             ["Search"] = SearchPage,
             ["Hotkeys"] = HotkeysPage,
             ["AI"] = AIPage,
+            ["Templates"] = TemplatesPage,
+            ["History"] = HistoryPage,
+            ["Usage"] = UsagePage,
             ["About"] = AboutPage,
         };
         Bind();
@@ -302,7 +328,84 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
                 break;
             }
         }
+
+        // 数据型页面在切到时再加载，避免每次打开设置都查 SQLite
+        if (tag.Equals("History", StringComparison.OrdinalIgnoreCase)) RefreshHistoryList();
+        else if (tag.Equals("Usage", StringComparison.OrdinalIgnoreCase)) RefreshUsageList();
     }
+
+    // ============= 对话历史页 =============
+    public ObservableCollection<ConversationListItem> HistoryItems { get; } = new();
+    public ObservableCollection<UsageRow> UsageItems { get; } = new();
+
+    private void OnHistorySearchChanged(object sender, TextChangedEventArgs e) => RefreshHistoryList();
+
+    private void OnHistoryRefresh(object sender, RoutedEventArgs e) => RefreshHistoryList();
+
+    private void RefreshHistoryList()
+    {
+        HistoryItems.Clear();
+        if (_historyStore is null)
+        {
+            HistoryListBox.ItemsSource = HistoryItems;
+            return;
+        }
+        var query = HistorySearchBox?.Text?.Trim();
+        var list = string.IsNullOrWhiteSpace(query)
+            ? _historyStore.Recent(120)
+            : _historyStore.Search(query, 120);
+        foreach (var s in list)
+        {
+            HistoryItems.Add(ConversationListItem.From(s));
+        }
+        HistoryListBox.ItemsSource = HistoryItems;
+    }
+
+    private void OnHistoryDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (HistoryListBox.SelectedItem is not ConversationListItem item) return;
+        _onOpenConversation?.Invoke(item.Id);
+    }
+
+    private void OnHistoryDeleteClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement fe || fe.Tag is not string id) return;
+        if (_historyStore?.Delete(id) == true)
+        {
+            var existing = HistoryItems.FirstOrDefault(x => x.Id == id);
+            if (existing is not null) HistoryItems.Remove(existing);
+        }
+    }
+
+    // ============= 用量页 =============
+    private void RefreshUsageList()
+    {
+        UsageItems.Clear();
+        UsageList.ItemsSource = UsageItems;
+        if (_usage is null)
+        {
+            UsageTotalCalls.Text = UsageTotalPrompt.Text = UsageTotalCompletion.Text = UsageTotalElapsed.Text = "-";
+            return;
+        }
+        var totals = _usage.Totals();
+        UsageTotalCalls.Text = totals.Calls.ToString();
+        UsageTotalPrompt.Text = FormatTokens(totals.PromptTokens);
+        UsageTotalCompletion.Text = FormatTokens(totals.CompletionTokens);
+        UsageTotalElapsed.Text = totals.TotalElapsed.TotalSeconds < 60
+            ? $"{totals.TotalElapsed.TotalSeconds:0.0}s"
+            : $"{totals.TotalElapsed.TotalMinutes:0.0}min";
+        foreach (var d in _usage.Daily(30))
+        {
+            UsageItems.Add(new UsageRow(
+                d.Date.ToString("yyyy-MM-dd"),
+                $"{d.Calls} 次",
+                $"提示 {FormatTokens(d.PromptTokens)}",
+                $"补全 {FormatTokens(d.CompletionTokens)}"));
+        }
+    }
+
+    private static string FormatTokens(int v)
+        => v < 10_000 ? v.ToString() : (v / 1000.0).ToString("0.0") + "k";
 
     private void OnSettingsSearchChanged(object sender, TextChangedEventArgs e)
     {
@@ -342,6 +445,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             ("Search", "搜索 引擎 Google Bing 百度 URL 模板"),
             ("Hotkeys", "快捷键 热键 暂停 恢复 唤起 工具栏"),
             ("AI", "AI 模型 Provider DeepSeek OpenAI API Key 自定义 测试连接"),
+            ("Templates", "模板 Prompt template 改写 翻译 修语法 commit"),
+            ("History", "历史 对话 history 会话 记录"),
+            ("Usage", "用量 usage token 调用 统计"),
             ("About", "关于 版本 配置目录"),
         };
         return entries.FirstOrDefault(x => x.Item2.Contains(query, StringComparison.OrdinalIgnoreCase)) is var hit
@@ -583,6 +689,39 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         });
     }
 
+    private void OnAddAiPromptAction(object sender, RoutedEventArgs e)
+    {
+        AddAction(new ActionEditorItem
+        {
+            Id = UniqueActionId("ai"),
+            Type = "ai",
+            Title = "AI 自定义",
+            Icon = "Ai",
+            Prompt = "请用{language}处理下面的文本：\n\n{text}",
+            OutputMode = "chat",
+            Enabled = true,
+            RegexTestText = ActionGlobalTestText.Text,
+        });
+    }
+
+    /// <summary>从内置模板生成一个 ai 类型动作</summary>
+    private void OnAddFromTemplate(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement fe || fe.Tag is not PromptTemplateDefinition tpl) return;
+        AddAction(new ActionEditorItem
+        {
+            Id = UniqueActionId(tpl.Id.Replace("tpl.", "ai-", StringComparison.OrdinalIgnoreCase)),
+            Type = "ai",
+            Title = tpl.Title,
+            Icon = string.IsNullOrWhiteSpace(tpl.Icon) ? "Ai" : tpl.Icon,
+            Prompt = tpl.Prompt,
+            SystemPrompt = tpl.SystemPrompt,
+            OutputMode = string.IsNullOrWhiteSpace(tpl.OutputMode) ? "chat" : tpl.OutputMode,
+            Enabled = true,
+            RegexTestText = ActionGlobalTestText.Text,
+        });
+    }
+
     private void AddAction(ActionEditorItem item)
     {
         // 新建动作默认展开，方便用户立刻填字段
@@ -814,6 +953,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         AddDefaultAiAction("ai-translate", BuiltInActionIds.AiTranslate, "AI 翻译");
         AddDefaultAiAction("ai-explain", BuiltInActionIds.AiExplain, "AI 解释");
         AddDefaultAiAction("ai-reply", BuiltInActionIds.AiReply, "AI 回复");
+        AddDefaultAiPromptAction("ai-fix-grammar", "修语法", "AiRewrite",
+            "只修正下面文本中的语法、标点和明显拼写错误，不要改写表达、不要解释、保留原语言：\n\n{text}",
+            "replace");
     }
 
     private void AddDefaultAiAction(string id, string builtIn, string title)
@@ -826,6 +968,22 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             BuiltIn = builtIn,
             Title = title,
             Icon = SuggestIcon(builtIn),
+            Enabled = true,
+            RegexTestText = ActionGlobalTestText.Text,
+        });
+    }
+
+    private void AddDefaultAiPromptAction(string id, string title, string icon, string prompt, string outputMode)
+    {
+        if (ActionItems.Any(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase))) return;
+        ActionItems.Add(new ActionEditorItem
+        {
+            Id = UniqueActionId(id),
+            Type = "ai",
+            Title = title,
+            Icon = icon,
+            Prompt = prompt,
+            OutputMode = outputMode,
             Enabled = true,
             RegexTestText = ActionGlobalTestText.Text,
         });
@@ -872,6 +1030,20 @@ public sealed record BuiltInChoice(string Id, string Title);
 
 public sealed record ActionTypeChoice(string Value, string Label);
 
+public sealed record AiOutputModeChoice(string Value, string Label);
+
+public sealed record ConversationListItem(string Id, string Title, string MetaText)
+{
+    public static ConversationListItem From(ConversationSummary s)
+    {
+        var local = s.CreatedAtUtc.ToLocalTime();
+        var meta = $"{local:yyyy-MM-dd HH:mm} · {s.Model} · {s.MessageCount} 条消息";
+        return new ConversationListItem(s.Id, string.IsNullOrWhiteSpace(s.Title) ? "未命名" : s.Title, meta);
+    }
+}
+
+public sealed record UsageRow(string DateLabel, string CallsLabel, string PromptLabel, string CompletionLabel);
+
 public sealed record AiThinkingModeChoice(AiThinkingMode Value, string Label, string Description);
 
 public sealed record RecentProcessItem(string ProcessName, string WindowTitle)
@@ -892,6 +1064,9 @@ public sealed class ActionEditorItem : INotifyPropertyChanged
     private string? _urlTemplate;
     private string? _scriptPath;
     private string? _arguments;
+    private string? _prompt;
+    private string? _systemPrompt;
+    private string _outputMode = "chat";
     private string _regexTestText = "";
     private string _regexResult = "始终显示";
     private bool _enabled = true;
@@ -917,6 +1092,9 @@ public sealed class ActionEditorItem : INotifyPropertyChanged
     public string? UrlTemplate { get => _urlTemplate; set => Set(ref _urlTemplate, value); }
     public string? ScriptPath { get => _scriptPath; set => Set(ref _scriptPath, value); }
     public string? Arguments { get => _arguments; set => Set(ref _arguments, value); }
+    public string? Prompt { get => _prompt; set => Set(ref _prompt, value); }
+    public string? SystemPrompt { get => _systemPrompt; set => Set(ref _systemPrompt, value); }
+    public string OutputMode { get => _outputMode; set => Set(ref _outputMode, value); }
     public bool Enabled { get => _enabled; set => Set(ref _enabled, value); }
     public bool IsExpanded { get => _isExpanded; set => Set(ref _isExpanded, value); }
 
@@ -948,6 +1126,9 @@ public sealed class ActionEditorItem : INotifyPropertyChanged
             UrlTemplate = descriptor.UrlTemplate,
             ScriptPath = descriptor.ScriptPath,
             Arguments = descriptor.Arguments,
+            Prompt = descriptor.Prompt,
+            SystemPrompt = descriptor.SystemPrompt,
+            OutputMode = string.IsNullOrWhiteSpace(descriptor.OutputMode) ? "chat" : descriptor.OutputMode,
             Enabled = descriptor.Enabled,
         };
         item.RefreshRegexResult();
@@ -967,6 +1148,11 @@ public sealed class ActionEditorItem : INotifyPropertyChanged
             UrlTemplate = string.IsNullOrWhiteSpace(UrlTemplate) ? null : UrlTemplate,
             ScriptPath = string.IsNullOrWhiteSpace(ScriptPath) ? null : ScriptPath,
             Arguments = string.IsNullOrWhiteSpace(Arguments) ? null : Arguments,
+            Prompt = string.IsNullOrWhiteSpace(Prompt) ? null : Prompt,
+            SystemPrompt = string.IsNullOrWhiteSpace(SystemPrompt) ? null : SystemPrompt,
+            OutputMode = string.Equals(Type, "ai", StringComparison.OrdinalIgnoreCase)
+                ? (string.IsNullOrWhiteSpace(OutputMode) ? "chat" : OutputMode)
+                : null,
             Enabled = Enabled,
         };
     }

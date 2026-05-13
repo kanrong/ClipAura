@@ -215,7 +215,7 @@ internal sealed class SelectionSessionManager : IDisposable
         _replacer.SetCurrentElement(outcome.Element);
 
         var visible = _catalog.GetVisible(outcome.Context)
-            .Where(v => !IsAiAction(v.Action.Id) || _actionHost.Ai.CanRun)
+            .Where(v => !IsAiAction(v.Action) || _actionHost.Ai.CanRun)
             .ToList();
         _log.Info("visible actions", ("count", visible.Count));
         if (visible.Count == 0) return;
@@ -323,7 +323,7 @@ internal sealed class SelectionSessionManager : IDisposable
     private void RunAction(IAction action, SelectionContext context, string title)
     {
         var toastBefore = _toolbar.LastToastAtUtc;
-        var isAiAction = IsAiAction(action.Id);
+        var isAiAction = IsAiAction(action);
         _ = Task.Run(async () =>
         {
             try
@@ -365,8 +365,9 @@ internal sealed class SelectionSessionManager : IDisposable
         });
     }
 
-    private static bool IsAiAction(string id)
-        => id.StartsWith("builtin.ai.", StringComparison.OrdinalIgnoreCase);
+    private static bool IsAiAction(IAction action)
+        => action is AiPromptAction
+           || action.Id.StartsWith("builtin.ai.", StringComparison.OrdinalIgnoreCase);
 
     public void Dispose()
     {

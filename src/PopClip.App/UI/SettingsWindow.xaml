@@ -254,6 +254,50 @@
                                        Text="参数中 {text} 会被替换为选区文本；脚本通过 stdin 也可以接收文本（v2 支持）" />
                         </StackPanel>
 
+                        <!-- 类型相关字段：ai -->
+                        <StackPanel Margin="0,0,0,12">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Type}" Value="ai">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="240" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                    <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="结果落点" />
+                                    <ComboBox ItemsSource="{Binding DataContext.AiOutputModeChoices, RelativeSource={RelativeSource AncestorType=Window}}"
+                                              DisplayMemberPath="Label"
+                                              SelectedValuePath="Value"
+                                              SelectedValue="{Binding OutputMode, UpdateSourceTrigger=PropertyChanged}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="System Prompt（可选）" />
+                                    <ui:TextBox Text="{Binding SystemPrompt, UpdateSourceTrigger=PropertyChanged}"
+                                                PlaceholderText="留空使用 ClipAura 默认助手 system prompt" />
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="Prompt 模板" />
+                            <ui:TextBox Text="{Binding Prompt, UpdateSourceTrigger=PropertyChanged}"
+                                        AcceptsReturn="True"
+                                        TextWrapping="Wrap"
+                                        MinHeight="80"
+                                        MaxHeight="220"
+                                        VerticalScrollBarVisibility="Auto"
+                                        PlaceholderText="例如：只输出修正语法后的{language}文本：&#x0a;&#x0a;{text}" />
+                            <TextBlock Style="{StaticResource Settings.HintText}"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="Wrap"
+                                       Text="可用变量：{text} {language} {clipboard} {foreground_proc} {selection_len} {date} {time}。&#x0a;若 prompt 中不含 {text}，运行时会自动把选区追加到末尾。" />
+                        </StackPanel>
+
                         <!-- 共用：图标键 + 触发正则 -->
                         <Grid Margin="0,4,0,0">
                             <Grid.ColumnDefinitions>
@@ -315,6 +359,7 @@
         <!-- 自定义标题栏（ExtendsContentIntoTitleBar=True 时需要） -->
         <ui:TitleBar Grid.Row="0"
                      Title="ClipAura 设置"
+                     Style="{StaticResource Settings.CompactTitleBar}"
                      ShowMaximize="True"
                      ShowMinimize="True">
             <ui:TitleBar.Icon>
@@ -391,6 +436,24 @@
                             <StackPanel Orientation="Horizontal">
                                 <ui:SymbolIcon Symbol="Bot24" FontSize="14" Width="20" Margin="0,0,8,0" VerticalAlignment="Center" />
                                 <TextBlock Text="AI" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ListBoxItem>
+                        <ListBoxItem Tag="Templates">
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="Sparkle24" FontSize="14" Width="20" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                <TextBlock Text="Prompt 模板" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ListBoxItem>
+                        <ListBoxItem Tag="History">
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="History24" FontSize="14" Width="20" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                <TextBlock Text="对话历史" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ListBoxItem>
+                        <ListBoxItem Tag="Usage">
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="DataUsage24" FontSize="14" Width="20" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                <TextBlock Text="用量" VerticalAlignment="Center" />
                             </StackPanel>
                         </ListBoxItem>
                         <ListBoxItem Tag="About">
@@ -689,20 +752,70 @@
                                             HorizontalAlignment="Right">
                                     <ui:Button Appearance="Secondary"
                                                Icon="{ui:SymbolIcon Add24}"
-                                               Content="添加内置"
-                                               Margin="0,0,8,0"
+                                               Content="内置"
+                                               Margin="0,0,6,0"
                                                Click="OnAddBuiltInAction" />
                                     <ui:Button Appearance="Secondary"
                                                Icon="{ui:SymbolIcon Link24}"
-                                               Content="添加 URL"
-                                               Margin="0,0,8,0"
+                                               Content="URL"
+                                               Margin="0,0,6,0"
                                                Click="OnAddUrlAction" />
-                                    <ui:Button Appearance="Primary"
+                                    <ui:Button Appearance="Secondary"
                                                Icon="{ui:SymbolIcon Code24}"
-                                               Content="添加脚本"
+                                               Content="脚本"
+                                               Margin="0,0,6,0"
                                                Click="OnAddScriptAction" />
+                                    <ui:Button Appearance="Primary"
+                                               Icon="{ui:SymbolIcon Sparkle24}"
+                                               Content="AI Prompt"
+                                               Click="OnAddAiPromptAction" />
                                 </StackPanel>
                             </Grid>
+
+                            <!-- 模板速搭：从内置 Prompt 模板一键创建 ai 动作 -->
+                            <Border Style="{StaticResource Settings.SubCard}" Margin="0,0,0,12">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource Settings.FieldLabel}"
+                                               Text="从内置 Prompt 模板快速添加为动作："
+                                               Margin="0,0,0,6" />
+                                    <ItemsControl ItemsSource="{Binding BuiltinPromptTemplates}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Button Tag="{Binding}"
+                                                        Click="OnAddFromTemplate"
+                                                        Margin="0,0,6,6"
+                                                        Padding="10,4"
+                                                        Background="{DynamicResource Settings.Card.SubtleBackground}"
+                                                        BorderBrush="{DynamicResource Settings.Stroke}"
+                                                        BorderThickness="1"
+                                                        Foreground="{DynamicResource Settings.SubtleForeground}"
+                                                        FontSize="12"
+                                                        ToolTip="{Binding Description}">
+                                                    <Button.Template>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <Border Background="{TemplateBinding Background}"
+                                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                                    CornerRadius="11"
+                                                                    Padding="{TemplateBinding Padding}">
+                                                                <StackPanel Orientation="Horizontal">
+                                                                    <TextBlock Text="＋" Margin="0,0,4,0" Opacity="0.7" />
+                                                                    <TextBlock Text="{Binding Title}" />
+                                                                </StackPanel>
+                                                            </Border>
+                                                        </ControlTemplate>
+                                                    </Button.Template>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
 
                             <Border Style="{StaticResource Settings.SubCard}">
                                 <Grid>
@@ -973,6 +1086,211 @@
                                                 IsClosable="False"
                                                 IsOpen="True"
                                                 Margin="0,10,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- ===================== Prompt 模板 ===================== -->
+                        <StackPanel x:Name="TemplatesPage" Visibility="Collapsed">
+                            <TextBlock Style="{StaticResource Settings.PageTitle}" Text="Prompt 模板" />
+                            <TextBlock Style="{StaticResource Settings.PageDescription}"
+                                       Text="内置的高质量 Prompt 模板。点击右侧按钮即可一键提升为浮窗动作。" />
+
+                            <Border Style="{StaticResource Settings.Card}">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource Settings.SectionTitle}" Text="内置模板" />
+                                    <ItemsControl ItemsSource="{Binding BuiltinPromptTemplates}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="{DynamicResource Settings.Card.SubtleBackground}"
+                                                        BorderBrush="{DynamicResource Settings.Stroke}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="{StaticResource Settings.Radius.Md}"
+                                                        Padding="14"
+                                                        Margin="0,0,0,8">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Grid.Column="0">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <TextBlock Text="{Binding Title}"
+                                                                           FontWeight="SemiBold"
+                                                                           FontSize="14"
+                                                                           Foreground="{DynamicResource Settings.Foreground}" />
+                                                                <Border Margin="8,0,0,0"
+                                                                        Background="{DynamicResource Settings.AccentSoft}"
+                                                                        CornerRadius="8"
+                                                                        Padding="6,1"
+                                                                        VerticalAlignment="Center">
+                                                                    <TextBlock Text="{Binding OutputMode}"
+                                                                               FontSize="10.5"
+                                                                               Foreground="{DynamicResource Settings.Accent}" />
+                                                                </Border>
+                                                            </StackPanel>
+                                                            <TextBlock Text="{Binding Description}"
+                                                                       Margin="0,4,0,4"
+                                                                       FontSize="12"
+                                                                       Foreground="{DynamicResource Settings.SubtleForeground}"
+                                                                       TextWrapping="Wrap" />
+                                                            <TextBlock Text="{Binding Prompt}"
+                                                                       FontSize="11.5"
+                                                                       Foreground="{DynamicResource Settings.Muted}"
+                                                                       TextWrapping="Wrap"
+                                                                       MaxHeight="60"
+                                                                       TextTrimming="CharacterEllipsis" />
+                                                        </StackPanel>
+                                                        <ui:Button Grid.Column="1"
+                                                                   VerticalAlignment="Top"
+                                                                   Appearance="Primary"
+                                                                   Icon="{ui:SymbolIcon Add24}"
+                                                                   Content="加为动作"
+                                                                   Tag="{Binding}"
+                                                                   Click="OnAddFromTemplate" />
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- ===================== 对话历史 ===================== -->
+                        <StackPanel x:Name="HistoryPage" Visibility="Collapsed">
+                            <TextBlock Style="{StaticResource Settings.PageTitle}" Text="对话历史" />
+                            <TextBlock Style="{StaticResource Settings.PageDescription}"
+                                       Text="最近的 AI 对话。点击条目可重新打开窗口继续追问。" />
+
+                            <Border Style="{StaticResource Settings.Card}">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <ui:TextBox Grid.Column="0"
+                                                    x:Name="HistorySearchBox"
+                                                    PlaceholderText="搜索标题 / 引用文本 / 消息正文"
+                                                    Icon="{ui:SymbolIcon Search24}"
+                                                    TextChanged="OnHistorySearchChanged" />
+                                        <ui:Button Grid.Column="1"
+                                                   Margin="8,0,0,0"
+                                                   Appearance="Secondary"
+                                                   Icon="{ui:SymbolIcon ArrowSync24}"
+                                                   Content="刷新"
+                                                   Click="OnHistoryRefresh" />
+                                    </Grid>
+                                    <ListBox x:Name="HistoryListBox"
+                                             BorderThickness="0"
+                                             Background="Transparent"
+                                             MaxHeight="420"
+                                             MouseDoubleClick="OnHistoryDoubleClick">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="0,4">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0">
+                                                        <TextBlock Text="{Binding Title}"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{DynamicResource Settings.Foreground}" />
+                                                        <TextBlock Text="{Binding MetaText}"
+                                                                   FontSize="11.5"
+                                                                   Foreground="{DynamicResource Settings.Muted}"
+                                                                   Margin="0,2,0,0" />
+                                                    </StackPanel>
+                                                    <ui:Button Grid.Column="1"
+                                                               Appearance="Transparent"
+                                                               Icon="{ui:SymbolIcon Delete24}"
+                                                               Tag="{Binding Id}"
+                                                               Click="OnHistoryDeleteClicked"
+                                                               Foreground="{DynamicResource Settings.Danger}"
+                                                               ToolTip="删除此对话" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- ===================== 用量 ===================== -->
+                        <StackPanel x:Name="UsagePage" Visibility="Collapsed">
+                            <TextBlock Style="{StaticResource Settings.PageTitle}" Text="AI 用量" />
+                            <TextBlock Style="{StaticResource Settings.PageDescription}"
+                                       Text="每次 AI 调用都会按日聚合到本地数据库，不上传外部服务。" />
+
+                            <Border Style="{StaticResource Settings.Card}">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource Settings.SectionTitle}" Text="累计" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock x:Name="UsageTotalCalls" FontSize="22" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource Settings.Foreground}" />
+                                            <TextBlock Text="次调用" FontSize="11.5"
+                                                       Foreground="{DynamicResource Settings.Muted}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock x:Name="UsageTotalPrompt" FontSize="22" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource Settings.Foreground}" />
+                                            <TextBlock Text="提示 token" FontSize="11.5"
+                                                       Foreground="{DynamicResource Settings.Muted}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock x:Name="UsageTotalCompletion" FontSize="22" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource Settings.Foreground}" />
+                                            <TextBlock Text="补全 token" FontSize="11.5"
+                                                       Foreground="{DynamicResource Settings.Muted}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="3">
+                                            <TextBlock x:Name="UsageTotalElapsed" FontSize="22" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource Settings.Foreground}" />
+                                            <TextBlock Text="累计耗时" FontSize="11.5"
+                                                       Foreground="{DynamicResource Settings.Muted}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource Settings.Card}">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource Settings.SectionTitle}" Text="近 30 天每日明细" />
+                                    <ListBox x:Name="UsageList"
+                                             BorderThickness="0"
+                                             Background="Transparent"
+                                             MaxHeight="420">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="0,4">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="120" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="{Binding DateLabel}"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource Settings.Foreground}" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding CallsLabel}"
+                                                               Foreground="{DynamicResource Settings.SubtleForeground}" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding PromptLabel}"
+                                                               Foreground="{DynamicResource Settings.SubtleForeground}" />
+                                                    <TextBlock Grid.Column="3" Text="{Binding CompletionLabel}"
+                                                               Foreground="{DynamicResource Settings.SubtleForeground}" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
                                 </StackPanel>
                             </Border>
                         </StackPanel>

@@ -29,6 +29,7 @@ internal sealed class TrayController : INotificationSink, IDisposable
     public event Action<string?>? OnSettingsRequested;
     public event Action? OnDiagnosticsRequested;
     public event Action? OnExitRequested;
+    public event Action? OnClipboardHistoryRequested;
 
     public TrayController(ILog log, PauseState pause)
     {
@@ -75,6 +76,10 @@ internal sealed class TrayController : INotificationSink, IDisposable
         var actionsItem = new MenuItem { Header = "动作..." };
         actionsItem.Click += (_, _) => OnSettingsRequested?.Invoke("Actions");
         menu.Items.Add(actionsItem);
+
+        var clipboardItem = new MenuItem { Header = "剪贴板历史..." };
+        clipboardItem.Click += (_, _) => OnClipboardHistoryRequested?.Invoke();
+        menu.Items.Add(clipboardItem);
 
         var diagnosticsItem = new MenuItem { Header = "诊断..." };
         diagnosticsItem.Click += (_, _) => OnDiagnosticsRequested?.Invoke();

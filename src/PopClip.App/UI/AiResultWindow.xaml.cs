@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
 using PopClip.App.Services;
 using PopClip.Core.Actions;
 
@@ -12,16 +13,26 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
 {
     private readonly IClipboardWriter _clipboard;
     private readonly Func<string, Task> _replaceAsync;
-    private readonly Func<IReadOnlyList<(string Role, string Content)>, Func<string, Task>, CancellationToken, Task<AiCompletionResult>> _sendAsync;
+    private readonly Func<IReadOnlyList<(string Role, string Content)>, AiStreamCallbacks, CancellationToken, Task<AiCompletionResult>> _sendAsync;
+    private readonly Action<ConversationSnapshot>? _onSessionFinalize;
     private readonly bool _canReplace;
     private readonly List<(string Role, string Content)> _history = new();
     private readonly CancellationTokenSource _windowCts = new();
     private TextBox? _streamingTextBox;
     private StackPanel? _streamingMessageStack;
+    private Border? _streamingReasoningHost;
+    private TextBox? _streamingReasoningTextBox;
+    private System.Windows.Controls.Primitives.ToggleButton? _streamingReasoningToggle;
+    private TextBlock? _streamingReasoningStatus;
     private CancellationTokenSource? _sendCts;
     private string _latestAssistantText = "";
     private string _streamingAssistantText = "";
+    private string _streamingReasoningText = "";
     private bool _isSending;
+    private int _totalPromptTokens;
+    private int _totalCompletionTokens;
+    private DateTime? _reasoningStartedAt;
+    private string _modelLabel = "";
 
     public AiResultWindow(
         string actionTitle,
@@ -30,12 +41,15 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         IClipboardWriter clipboard,
         Func<string, Task> replaceAsync,
         bool canReplace,
-        Func<IReadOnlyList<(string Role, string Content)>, Func<string, Task>, CancellationToken, Task<AiCompletionResult>> sendAsync)
+        Func<IReadOnlyList<(string Role, string Content)>, AiStreamCallbacks, CancellationToken, Task<AiCompletionResult>> sendAsync,
+        Action<ConversationSnapshot>? onSessionFinalize = null)
     {
         _clipboard = clipboard;
         _replaceAsync = replaceAsync;
         _canReplace = canReplace;
         _sendAsync = sendAsync;
+        _onSessionFinalize = onSessionFinalize;
+        _modelLabel = model;
         InitializeComponent();
 
         var titleText = string.IsNullOrWhiteSpace(actionTitle) ? "ClipAura AI" : actionTitle;
@@ -48,12 +62,23 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         SetIdle(model, sourceText.Length);
         AddAssistantMessage("已准备好。你可以基于引用文本继续提问。");
         Loaded += (_, _) => FocusQuestionBox();
-        Closed += (_, _) =>
+        Closed += OnWindowClosed;
+    }
+
+    private void OnWindowClosed(object? sender, EventArgs e)
+    {
+        _sendCts?.Cancel();
+        _windowCts.Cancel();
+        try
         {
-            _sendCts?.Cancel();
-            _windowCts.Cancel();
-            _windowCts.Dispose();
-        };
+            // 只在产生过至少一次助手回复时才持久化，避免存空对话
+            if (_history.Any(m => string.Equals(m.Role, "assistant", StringComparison.OrdinalIgnoreCase)))
+            {
+                _onSessionFinalize?.Invoke(new ConversationSnapshot(_history.ToArray(), _totalPromptTokens, _totalCompletionTokens));
+            }
+        }
+        catch { /* 关闭路径上不能抛 */ }
+        _windowCts.Dispose();
     }
 
     public void StartInitialPrompt(string prompt)
@@ -81,10 +106,77 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         _isSending = sending;
         LoadingBar.Visibility = sending ? Visibility.Visible : Visibility.Collapsed;
         SendButton.IsEnabled = !sending;
+        StopButton.Visibility = sending ? Visibility.Visible : Visibility.Collapsed;
         QuestionBox.IsEnabled = !sending;
+        VariantPanel.IsEnabled = !sending;
         if (!sending)
         {
             FocusQuestionBox();
+        }
+    }
+
+    private void OnStopClicked(object sender, RoutedEventArgs e)
+    {
+        _sendCts?.Cancel();
+    }
+
+    private async void OnRegenerateClicked(object sender, RoutedEventArgs e)
+    {
+        if (_isSending) return;
+        // 找到最近一对 user/assistant 消息：删掉 assistant 重新发起
+        for (var i = _history.Count - 1; i >= 0; i--)
+        {
+            if (string.Equals(_history[i].Role, "user", StringComparison.OrdinalIgnoreCase))
+            {
+                var lastUser = _history[i].Content;
+                if (i + 1 < _history.Count
+                    && string.Equals(_history[i + 1].Role, "assistant", StringComparison.OrdinalIgnoreCase))
+                {
+                    _history.RemoveAt(i + 1);
+                }
+                // 同时把 user 拿掉，再走标准 Submit 流程重新展示一对消息
+                _history.RemoveAt(i);
+                RebuildMessagesPanel();
+                await SubmitPromptAsync(lastUser, clearInput: false).ConfigureAwait(true);
+                return;
+            }
+        }
+    }
+
+    private async void OnContinueClicked(object sender, RoutedEventArgs e)
+    {
+        if (_isSending) return;
+        await SubmitPromptAsync("请继续。", clearInput: false).ConfigureAwait(true);
+    }
+
+    /// <summary>变体 chip 点击：把"再来一次/更短/更长/...等"作为一次新的 user 消息追问。
+    /// 不修改原 assistant 消息，让用户保留多个版本对比</summary>
+    private async void OnVariantClicked(object sender, RoutedEventArgs e)
+    {
+        if (_isSending) return;
+        if (sender is not FrameworkElement fe || fe.Tag is not string variant) return;
+        if (string.IsNullOrWhiteSpace(_latestAssistantText) && string.IsNullOrWhiteSpace(_streamingAssistantText))
+        {
+            return;
+        }
+        await SubmitPromptAsync(variant, clearInput: false).ConfigureAwait(true);
+    }
+
+    private void RebuildMessagesPanel()
+    {
+        MessagesPanel.Children.Clear();
+        // 初始问候
+        AddAssistantMessage("已准备好。你可以基于引用文本继续提问。");
+        foreach (var (role, content) in _history)
+        {
+            if (string.Equals(role, "user", StringComparison.OrdinalIgnoreCase))
+            {
+                AddUserMessage(content);
+            }
+            else if (string.Equals(role, "assistant", StringComparison.OrdinalIgnoreCase))
+            {
+                AddAssistantMessage(content);
+            }
         }
     }
 
@@ -111,21 +203,31 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         try
         {
             var snapshot = _history.ToArray();
-            var result = await _sendAsync(
-                snapshot,
+            var callbacks = new AiStreamCallbacks(
                 delta => Dispatcher.InvokeAsync(() => AppendAssistantDelta(delta)).Task,
-                _sendCts.Token).ConfigureAwait(true);
+                delta => Dispatcher.InvokeAsync(() => AppendReasoningDelta(delta)).Task);
+            var result = await _sendAsync(snapshot, callbacks, _sendCts.Token).ConfigureAwait(true);
 
             _latestAssistantText = result.Text;
             _history.Add(("assistant", result.Text));
-            FinishAssistantMessage(result.Text);
-            var markdown = MarkdownPreviewRenderer.LooksLikeMarkdown(result.Text) ? " · Markdown" : "";
-            MetaText.Text = $"{result.Model} · {result.Elapsed.TotalSeconds:0.0}s{markdown}";
+            _totalPromptTokens += result.PromptTokens;
+            _totalCompletionTokens += result.CompletionTokens;
+            _modelLabel = result.Model;
+            FinishAssistantMessage(result.Text, reasoning: result.Reasoning);
+            UpdateMeta(result);
             CopyButton.IsEnabled = true;
             ReplaceButton.IsEnabled = _canReplace;
         }
         catch (OperationCanceledException) when (_windowCts.IsCancellationRequested)
         {
+        }
+        catch (OperationCanceledException)
+        {
+            // 用户主动停止：流式结果保留为可观察文本，不算错误
+            FinalizeStreamingAsCancelled();
+            MetaText.Text = $"{_modelLabel} · 已停止";
+            CopyButton.IsEnabled = !string.IsNullOrWhiteSpace(_streamingAssistantText) || !string.IsNullOrWhiteSpace(_latestAssistantText);
+            ReplaceButton.IsEnabled = false;
         }
         catch (Exception ex)
         {
@@ -145,6 +247,46 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         }
     }
 
+    private void FinalizeStreamingAsCancelled()
+    {
+        if (_streamingMessageStack is null) return;
+        if (_streamingTextBox is not null && string.IsNullOrEmpty(_streamingAssistantText))
+        {
+            _streamingMessageStack.Children.Remove(_streamingTextBox);
+            AddMessageContent(_streamingMessageStack, "（已停止）", isAssistant: true, isError: false);
+        }
+        else
+        {
+            // 把流式 TextBox 留作正文，只补一个停止说明
+            var tag = new TextBlock
+            {
+                Text = "（已停止）",
+                FontSize = 11,
+                Margin = new Thickness(0, 4, 0, 0),
+                FontStyle = FontStyles.Italic,
+            };
+            tag.SetResourceReference(TextBlock.ForegroundProperty, "Settings.Muted");
+            _streamingMessageStack.Children.Add(tag);
+            _latestAssistantText = _streamingAssistantText;
+            _history.Add(("assistant", _streamingAssistantText));
+        }
+        _streamingTextBox = null;
+        _streamingMessageStack = null;
+        _streamingReasoningHost = null;
+        _streamingReasoningTextBox = null;
+        _streamingReasoningToggle = null;
+        _streamingReasoningStatus = null;
+    }
+
+    private void UpdateMeta(AiCompletionResult result)
+    {
+        var markdown = MarkdownPreviewRenderer.LooksLikeMarkdown(result.Text) ? " · Markdown" : "";
+        var tokens = (result.PromptTokens > 0 || result.CompletionTokens > 0)
+            ? $" · {result.PromptTokens}→{result.CompletionTokens} tok"
+            : "";
+        MetaText.Text = $"{result.Model} · {result.Elapsed.TotalSeconds:0.0}s{tokens}{markdown}";
+    }
+
     private void AddUserMessage(string text)
         => AddMessage("你", text, isUser: true, isError: false);
 
@@ -154,6 +296,8 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
     private void StartAssistantStreamingMessage()
     {
         _streamingAssistantText = "";
+        _streamingReasoningText = "";
+        _reasoningStartedAt = null;
         _streamingMessageStack = CreateMessageShell("ClipAura AI", isUser: false, isError: false);
         _streamingTextBox = new TextBox
         {
@@ -179,13 +323,174 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         ScrollToEnd();
     }
 
-    private void FinishAssistantMessage(string text, bool isError = false)
+    /// <summary>把思考通道的 delta 累加到流式消息上方一个可折叠的小字号区域。
+    /// 设计要点：默认折叠 + 与正文同区分隔 + 字号比正文小 1-2pt + 字色比正文淡两级
+    /// 避免抢占主体；用户想看时点开 Expander 即可</summary>
+    private void AppendReasoningDelta(string delta)
+    {
+        if (_streamingMessageStack is null || string.IsNullOrEmpty(delta)) return;
+        EnsureReasoningHost();
+        _streamingReasoningText += delta;
+        if (_streamingReasoningTextBox is not null)
+        {
+            _streamingReasoningTextBox.AppendText(delta);
+            _streamingReasoningTextBox.ScrollToEnd();
+        }
+        UpdateReasoningStatus(streaming: true);
+    }
+
+    private void EnsureReasoningHost()
+    {
+        if (_streamingReasoningHost is not null || _streamingMessageStack is null) return;
+
+        _reasoningStartedAt ??= DateTime.UtcNow;
+
+        var status = new TextBlock
+        {
+            FontSize = 10.5,
+            FontStyle = FontStyles.Italic,
+            Text = "思考中...",
+        };
+        status.SetResourceReference(TextBlock.ForegroundProperty, "Settings.Muted");
+        _streamingReasoningStatus = status;
+
+        var caret = new System.Windows.Shapes.Path
+        {
+            Width = 8,
+            Height = 8,
+            Stretch = Stretch.Uniform,
+            Data = Geometry.Parse("M 0 0 L 8 4 L 0 8 Z"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 6, 0),
+        };
+        caret.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "Settings.Muted");
+
+        var headerPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+        };
+        var label = new TextBlock
+        {
+            Text = "思考过程",
+            FontSize = 10.5,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        label.SetResourceReference(TextBlock.ForegroundProperty, "Settings.SubtleForeground");
+        headerPanel.Children.Add(caret);
+        headerPanel.Children.Add(label);
+        headerPanel.Children.Add(new TextBlock
+        {
+            Text = " · ",
+            FontSize = 10.5,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0, 4, 0),
+            Opacity = 0.6,
+        });
+        headerPanel.Children.Add(status);
+
+        var toggle = new System.Windows.Controls.Primitives.ToggleButton
+        {
+            Background = System.Windows.Media.Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(2, 2, 6, 2),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            IsChecked = false,
+            Content = headerPanel,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        toggle.SetResourceReference(System.Windows.Controls.Primitives.ToggleButton.ForegroundProperty, "Settings.SubtleForeground");
+        toggle.Checked += (_, _) =>
+        {
+            caret.RenderTransform = new RotateTransform(90, 4, 4);
+            if (_streamingReasoningTextBox is not null)
+            {
+                _streamingReasoningTextBox.Visibility = Visibility.Visible;
+            }
+        };
+        toggle.Unchecked += (_, _) =>
+        {
+            caret.RenderTransform = null;
+            if (_streamingReasoningTextBox is not null)
+            {
+                _streamingReasoningTextBox.Visibility = Visibility.Collapsed;
+            }
+        };
+        _streamingReasoningToggle = toggle;
+
+        var textBox = new TextBox
+        {
+            IsReadOnly = true,
+            TextWrapping = TextWrapping.Wrap,
+            BorderThickness = new Thickness(0),
+            Background = System.Windows.Media.Brushes.Transparent,
+            FontSize = 11.5,
+            Padding = new Thickness(0, 4, 0, 0),
+            Margin = new Thickness(0, 2, 0, 0),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Visibility = Visibility.Collapsed,
+        };
+        textBox.SetResourceReference(TextBox.ForegroundProperty, "Settings.Muted");
+        _streamingReasoningTextBox = textBox;
+
+        var host = new Border
+        {
+            Margin = new Thickness(0, 0, 0, 6),
+            Padding = new Thickness(8, 4, 8, 6),
+            BorderThickness = new Thickness(1),
+        };
+        host.SetResourceReference(Border.BorderBrushProperty, "Settings.Stroke");
+        host.SetResourceReference(Border.BackgroundProperty, "Settings.Card.SubtleBackground");
+        host.SetResourceReference(Border.CornerRadiusProperty, "Settings.Radius.Sm");
+
+        var inner = new StackPanel();
+        inner.Children.Add(toggle);
+        inner.Children.Add(textBox);
+        host.Child = inner;
+
+        // 插入到正文上方（流式正文是 stack 的最后一个；思考块要在它前面）
+        var insertIndex = _streamingMessageStack.Children.Count > 0
+            ? _streamingMessageStack.Children.Count - 1
+            : 0;
+        // header 是第 0 个子元素，需要保持在最前
+        if (insertIndex < 1) insertIndex = _streamingMessageStack.Children.Count;
+        _streamingMessageStack.Children.Insert(insertIndex, host);
+        _streamingReasoningHost = host;
+    }
+
+    private void UpdateReasoningStatus(bool streaming)
+    {
+        if (_streamingReasoningStatus is null) return;
+        if (_reasoningStartedAt is null)
+        {
+            _streamingReasoningStatus.Text = "思考中...";
+            return;
+        }
+        var elapsed = DateTime.UtcNow - _reasoningStartedAt.Value;
+        var label = streaming ? "思考中" : "已思考";
+        _streamingReasoningStatus.Text = elapsed.TotalSeconds < 1
+            ? $"{label} ({elapsed.TotalMilliseconds:0} ms)"
+            : $"{label} {elapsed.TotalSeconds:0.0}s";
+    }
+
+    private void FinishAssistantMessage(string text, bool isError = false, string reasoning = "")
     {
         if (_streamingMessageStack is null)
         {
             AddMessage("ClipAura AI", text, isUser: false, isError: isError);
             return;
         }
+
+        // 非流式响应（CompleteAsync）也可能携带 reasoning，但 stream 未走 callback；
+        // 这里如果流式没建过 reasoning 容器、却拿到了 final reasoning，则建一次直接塞进去
+        if (!isError && !string.IsNullOrWhiteSpace(reasoning) && _streamingReasoningHost is null)
+        {
+            EnsureReasoningHost();
+            _streamingReasoningText = reasoning;
+            _streamingReasoningTextBox!.Text = reasoning;
+        }
+
+        // 流式状态文字定格为最终耗时
+        UpdateReasoningStatus(streaming: false);
 
         if (_streamingTextBox is not null)
         {
@@ -194,6 +499,10 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         AddMessageContent(_streamingMessageStack, text, isAssistant: true, isError: isError);
         _streamingTextBox = null;
         _streamingMessageStack = null;
+        _streamingReasoningHost = null;
+        _streamingReasoningTextBox = null;
+        _streamingReasoningToggle = null;
+        _streamingReasoningStatus = null;
         ScrollToEnd();
     }
 

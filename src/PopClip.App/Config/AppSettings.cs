@@ -137,4 +137,7 @@ public sealed class AppSettings
     public string AiDeepSeekApiKeyProtected { get; set; } = "";
     public string AiOpenAiApiKeyProtected { get; set; } = "";
     public string AiCustomApiKeyProtected { get; set; } = "";
+
+    /// <summary>用户自建 Prompt 模板。内置模板不存这里，按需用 PromptTemplateLibrary.Builtin 合并</summary>
+    public List<PromptTemplateDefinition> PromptTemplates { get; set; } = new();
 }

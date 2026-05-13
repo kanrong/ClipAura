@@ -17,7 +17,19 @@ public sealed record AiClientOptions(
     string ProviderPreset,
     string ThinkingMode);
 
-public sealed record AiCompletionResult(string Text, string Model, TimeSpan Elapsed);
+public sealed record AiCompletionResult(
+    string Text,
+    string Model,
+    TimeSpan Elapsed,
+    string Reasoning = "",
+    int PromptTokens = 0,
+    int CompletionTokens = 0);
+
+/// <summary>流式过程中分别回调"正文 delta"与"思考 delta"。
+/// 思考通道仅在模型返回 reasoning_content 时被调用，UI 可独立渲染</summary>
+public sealed record AiStreamCallbacks(
+    Func<string, Task> OnContentDelta,
+    Func<string, Task>? OnReasoningDelta = null);
 
 public sealed class OpenAiCompatibleClient
 {
@@ -62,20 +74,24 @@ public sealed class OpenAiCompatibleClient
 
             using var doc = JsonDocument.Parse(body);
             var root = doc.RootElement;
-            var text = root.GetProperty("choices")[0]
-                .GetProperty("message")
-                .GetProperty("content")
-                .GetString()?
-                .Trim() ?? "";
+            var message = root.GetProperty("choices")[0].GetProperty("message");
+            var text = message.GetProperty("content").GetString()?.Trim() ?? "";
             if (text.Length == 0)
             {
                 throw new AiClientException("模型返回了空内容");
             }
 
+            var reasoning = "";
+            if (message.TryGetProperty("reasoning_content", out var rc) && rc.ValueKind == JsonValueKind.String)
+            {
+                reasoning = rc.GetString() ?? "";
+            }
+
             var model = root.TryGetProperty("model", out var modelElement)
                 ? modelElement.GetString() ?? options.Model
                 : options.Model;
-            return new AiCompletionResult(text, model, sw.Elapsed);
+            var (pt, ct2) = ParseUsage(root);
+            return new AiCompletionResult(text, model, sw.Elapsed, reasoning, pt, ct2);
         }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -93,10 +109,17 @@ public sealed class OpenAiCompatibleClient
         }
     }
 
-    public async Task<AiCompletionResult> StreamAsync(
+    public Task<AiCompletionResult> StreamAsync(
         AiClientOptions options,
         IReadOnlyList<(string Role, string Content)> messages,
         Func<string, Task> onDeltaAsync,
+        CancellationToken ct)
+        => StreamAsync(options, messages, new AiStreamCallbacks(onDeltaAsync), ct);
+
+    public async Task<AiCompletionResult> StreamAsync(
+        AiClientOptions options,
+        IReadOnlyList<(string Role, string Content)> messages,
+        AiStreamCallbacks callbacks,
         CancellationToken ct)
     {
         Validate(options);
@@ -114,13 +137,18 @@ public sealed class OpenAiCompatibleClient
             ["temperature"] = 0.2,
             ["max_tokens"] = 1200,
             ["stream"] = true,
+            // 多数 provider 在 stream_options.include_usage=true 时会在最后一帧返回 usage
+            ["stream_options"] = new Dictionary<string, object?> { ["include_usage"] = true },
         };
         ApplyThinkingOptions(payload, options);
         req.Content = new StringContent(JsonSerializer.Serialize(payload, Json), Encoding.UTF8, "application/json");
 
         var sw = Stopwatch.StartNew();
         var full = new StringBuilder();
+        var reasoning = new StringBuilder();
         var model = options.Model;
+        var promptTokens = 0;
+        var completionTokens = 0;
         try
         {
             using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
@@ -143,10 +171,24 @@ public sealed class OpenAiCompatibleClient
                 if (data.Length == 0) continue;
                 if (data.Equals("[DONE]", StringComparison.OrdinalIgnoreCase)) break;
 
-                var delta = ParseStreamDelta(data, ref model);
-                if (delta.Length == 0) continue;
-                full.Append(delta);
-                await onDeltaAsync(delta).ConfigureAwait(false);
+                var parsed = ParseStreamFrame(data, ref model);
+                if (parsed.PromptTokens > 0) promptTokens = parsed.PromptTokens;
+                if (parsed.CompletionTokens > 0) completionTokens = parsed.CompletionTokens;
+
+                if (parsed.ReasoningDelta.Length > 0)
+                {
+                    reasoning.Append(parsed.ReasoningDelta);
+                    if (callbacks.OnReasoningDelta is not null)
+                    {
+                        await callbacks.OnReasoningDelta(parsed.ReasoningDelta).ConfigureAwait(false);
+                    }
+                }
+
+                if (parsed.ContentDelta.Length > 0)
+                {
+                    full.Append(parsed.ContentDelta);
+                    await callbacks.OnContentDelta(parsed.ContentDelta).ConfigureAwait(false);
+                }
             }
 
             sw.Stop();
@@ -155,7 +197,7 @@ public sealed class OpenAiCompatibleClient
             {
                 throw new AiClientException("模型返回了空内容");
             }
-            return new AiCompletionResult(text, model, sw.Elapsed);
+            return new AiCompletionResult(text, model, sw.Elapsed, reasoning.ToString().Trim(), promptTokens, completionTokens);
         }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -198,7 +240,13 @@ public sealed class OpenAiCompatibleClient
         if (string.IsNullOrWhiteSpace(options.ApiKey)) throw new AiClientException("API Key 不能为空");
     }
 
-    private static string ParseStreamDelta(string data, ref string model)
+    private readonly record struct StreamFrame(
+        string ContentDelta,
+        string ReasoningDelta,
+        int PromptTokens,
+        int CompletionTokens);
+
+    private static StreamFrame ParseStreamFrame(string data, ref string model)
     {
         using var doc = JsonDocument.Parse(data);
         var root = doc.RootElement;
@@ -206,23 +254,55 @@ public sealed class OpenAiCompatibleClient
         {
             model = modelElement.GetString() ?? model;
         }
+
+        var (pt, ctok) = ParseUsage(root);
+
         if (!root.TryGetProperty("choices", out var choices)
             || choices.ValueKind != JsonValueKind.Array
             || choices.GetArrayLength() == 0)
         {
-            return "";
+            return new StreamFrame("", "", pt, ctok);
         }
         var choice = choices[0];
         if (!choice.TryGetProperty("delta", out var delta))
         {
-            return "";
+            return new StreamFrame("", "", pt, ctok);
         }
-        if (delta.TryGetProperty("content", out var content)
-            && content.ValueKind == JsonValueKind.String)
+
+        var content = "";
+        if (delta.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String)
         {
-            return content.GetString() ?? "";
+            content = c.GetString() ?? "";
         }
-        return "";
+
+        // reasoning_content：DeepSeek-R1 / deepseek thinking 风格
+        // reasoning：部分 OpenAI 兼容服务商的字段命名
+        var reasoning = "";
+        if (delta.TryGetProperty("reasoning_content", out var rc) && rc.ValueKind == JsonValueKind.String)
+        {
+            reasoning = rc.GetString() ?? "";
+        }
+        else if (delta.TryGetProperty("reasoning", out var r) && r.ValueKind == JsonValueKind.String)
+        {
+            reasoning = r.GetString() ?? "";
+        }
+
+        return new StreamFrame(content, reasoning, pt, ctok);
+    }
+
+    private static (int Prompt, int Completion) ParseUsage(JsonElement root)
+    {
+        if (!root.TryGetProperty("usage", out var usage) || usage.ValueKind != JsonValueKind.Object)
+        {
+            return (0, 0);
+        }
+        var p = usage.TryGetProperty("prompt_tokens", out var pe) && pe.ValueKind == JsonValueKind.Number
+            ? pe.GetInt32()
+            : 0;
+        var c = usage.TryGetProperty("completion_tokens", out var ce) && ce.ValueKind == JsonValueKind.Number
+            ? ce.GetInt32()
+            : 0;
+        return (p, c);
     }
 
     private static void ApplyThinkingOptions(Dictionary<string, object?> payload, AiClientOptions options)

@@ -30,6 +30,8 @@ public static class BuiltInActionIds
     public const string AiTranslate = "builtin.ai.translate";
     public const string AiExplain = "builtin.ai.explain";
     public const string AiReply = "builtin.ai.reply";
+    /// <summary>从浮动工具栏唤起"剪贴板历史"面板。运行时由 IClipboardHistoryLauncher 提供具体实现</summary>
+    public const string ClipboardHistory = "builtin.clipboard.history";
 }
 
 internal abstract class BuiltInAction : IAction
@@ -198,6 +200,28 @@ internal sealed class CalculateAction : BuiltInAction
     }
 }
 
+/// <summary>从浮动工具栏点击后呼出剪贴板历史面板。
+/// 不要求选区文本，运行时把当前 SelectionContext 透传给 launcher（用于"插入到选区"）</summary>
+internal sealed class ClipboardHistoryAction : BuiltInAction
+{
+    public override string Id => BuiltInActionIds.ClipboardHistory;
+    public override string Title => "历史";
+    public override string IconKey => "ClipboardHistory";
+
+    public override bool CanRun(SelectionContext context) => true;
+
+    public override Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
+    {
+        if (host.ClipboardHistory is null)
+        {
+            host.Notifier.Notify("剪贴板历史不可用");
+            return Task.CompletedTask;
+        }
+        host.ClipboardHistory.Open(context);
+        return Task.CompletedTask;
+    }
+}
+
 internal sealed class WordCountAction : BuiltInAction
 {
     public override string Id => BuiltInActionIds.WordCount;
@@ -245,4 +269,49 @@ internal sealed class AiTextAction : BuiltInAction
 
     public override async Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
         => await host.Ai.RunActionAsync(new AiTextActionRequest(_kind, _title), context, ct).ConfigureAwait(false);
+}
+
+/// <summary>由 actions.json 中 type:ai 动作派生的运行时动作。
+/// 用户在 JSON 里写 prompt 与 outputMode，运行时由 IAiTextService 展开变量并按输出模式执行</summary>
+public sealed class AiPromptAction : IAction
+{
+    private readonly ActionDescriptor _descriptor;
+    private readonly AiOutputMode _outputMode;
+
+    public AiPromptAction(ActionDescriptor descriptor)
+    {
+        _descriptor = descriptor;
+        _outputMode = ParseOutputMode(descriptor.OutputMode);
+    }
+
+    public string Id => _descriptor.Id;
+    public string Title => string.IsNullOrWhiteSpace(_descriptor.Title) ? "AI" : _descriptor.Title;
+    public string IconKey => string.IsNullOrWhiteSpace(_descriptor.Icon) ? "Ai" : _descriptor.Icon;
+    public AiOutputMode OutputMode => _outputMode;
+
+    public bool CanRun(SelectionContext context)
+        => !context.IsEmpty && !string.IsNullOrWhiteSpace(_descriptor.Prompt);
+
+    public Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
+    {
+        var request = new AiPromptRequest(
+            Title,
+            _descriptor.Prompt ?? "",
+            _descriptor.SystemPrompt,
+            _outputMode);
+        return host.Ai.RunPromptAsync(request, context, ct);
+    }
+
+    public static AiOutputMode ParseOutputMode(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return AiOutputMode.Chat;
+        return raw.Trim().ToLowerInvariant() switch
+        {
+            "chat" => AiOutputMode.Chat,
+            "replace" => AiOutputMode.Replace,
+            "clipboard" => AiOutputMode.Clipboard,
+            "inlinetoast" or "toast" or "inline" => AiOutputMode.InlineToast,
+            _ => AiOutputMode.Chat,
+        };
+    }
 }

@@ -1,6 +1,6 @@
 namespace PopClip.Core.Actions;
 
-/// <summary>JSON 中声明动作的形状。MVP 仅支持 type=builtin，引用一个内置 Id；v2 扩展 type=script/url-template</summary>
+/// <summary>JSON 中声明动作的形状。支持 builtin / url-template / script / ai 四种类型</summary>
 public sealed class ActionDescriptor
 {
     public string Id { get; set; } = "";
@@ -19,6 +19,15 @@ public sealed class ActionDescriptor
 
     public string? ScriptPath { get; set; }
     public string? Arguments { get; set; }
+
+    /// <summary>type=ai 时的用户 prompt 模板。可使用 {text} {language} {clipboard} {foreground_proc} {selection_len} 等占位符</summary>
+    public string? Prompt { get; set; }
+
+    /// <summary>type=ai 时附加的 system prompt；为空则使用默认助手 prompt</summary>
+    public string? SystemPrompt { get; set; }
+
+    /// <summary>type=ai 时的输出方式：chat / replace / clipboard / inlineToast；默认 chat</summary>
+    public string? OutputMode { get; set; }
 
     public bool Enabled { get; set; } = true;
 }

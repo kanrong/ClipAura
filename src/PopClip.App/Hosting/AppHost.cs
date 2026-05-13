@@ -37,6 +37,11 @@ internal sealed class AppHost : IDisposable
     private PauseState? _pause;
     private HotKeyManager? _hotkeys;
     private SettingsWindow? _settingsWindow;
+    private HistoryDatabase? _historyDb;
+    private SqliteConversationStore? _historyStore;
+    private SqliteUsageRecorder? _usage;
+    private ClipboardHistoryService? _clipHistory;
+    private ClipboardHistoryLauncher? _clipHistoryLauncher;
 
     public bool TryAcquireSingleInstance()
     {
@@ -80,15 +85,32 @@ internal sealed class AppHost : IDisposable
         _tray = new TrayController(_log, _pause);
         _tray.OnSettingsRequested += tag => ShowSettingsWindow(tag);
         _tray.OnDiagnosticsRequested += ShowDiagnostics;
+        _tray.OnClipboardHistoryRequested += OpenClipboardHistory;
         _tray.OnExitRequested += () => WpfApplication.Current.Shutdown();
         _tray.Show();
 
         _toolbar = new FloatingToolbar(_log);
         _toolbar.PrewarmLayout();
 
+        // SQLite-backed 历史 / 用量 / 剪贴板存储；初始化失败时退化为 no-op，不阻塞 AI 主流程
+        _historyDb = new HistoryDatabase(_log);
+        _historyDb.Initialize();
+        _historyStore = new SqliteConversationStore(_historyDb, _log);
+        _usage = new SqliteUsageRecorder(_historyDb, _log);
+        _clipHistory = new ClipboardHistoryService(_historyDb, clipboardAccess, _log);
+        clipboardWriter.AttachHistory(_clipHistory);
+        _clipHistory.Start();
+
         var settingsProvider = new SettingsProvider(_settings);
-        var aiTextService = new AiTextService(_log, _settings, _replacer, clipboardWriter);
-        _actionHost = new ActionHost(_log, _replacer, urlLauncher, clipboardWriter, _toolbar, settingsProvider, aiTextService);
+        var aiTextService = new AiTextService(
+            _log, _settings, _replacer, clipboardWriter, _toolbar,
+            clipboardAccess: clipboardAccess,
+            historyStore: _historyStore,
+            usage: _usage);
+        _clipHistoryLauncher = new ClipboardHistoryLauncher(_clipHistory, clipboardWriter, _replacer, clipboardPaste);
+        _actionHost = new ActionHost(
+            _log, _replacer, urlLauncher, clipboardWriter, _toolbar,
+            settingsProvider, aiTextService, _clipHistoryLauncher);
 
         _gate = new SuppressionGate(_log, _settings);
 
@@ -147,10 +169,36 @@ internal sealed class AppHost : IDisposable
                 return;
             }
 
-            _settingsWindow = new SettingsWindow(_store!, _settings!, initialPage);
+            _settingsWindow = new SettingsWindow(
+                _store!, _settings!, initialPage,
+                historyStore: _historyStore,
+                usage: _usage,
+                onOpenConversation: ReopenConversation);
             _settingsWindow.Saved += () => ApplyRuntimeSettings(reloadActions: true);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
             _settingsWindow.Show();
+        });
+    }
+
+    /// <summary>"对话历史"列表中双击某条 → 把消息重放进新 AiResultWindow。
+    /// 不复活流式状态，只把消息以静态形式展示并允许继续追问</summary>
+    private void ReopenConversation(string conversationId)
+    {
+        if (_historyStore is null) return;
+        var record = _historyStore.Load(conversationId);
+        if (record is null) return;
+        WpfApplication.Current?.Dispatcher.Invoke(() =>
+        {
+            try
+            {
+                var window = new ConversationReplayWindow(record);
+                window.Show();
+                window.Activate();
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("reopen conversation failed", ("err", ex.Message), ("id", conversationId));
+            }
         });
     }
 
@@ -206,6 +254,11 @@ internal sealed class AppHost : IDisposable
         });
     }
 
+    private void OpenClipboardHistory()
+    {
+        _clipHistoryLauncher?.Open(null);
+    }
+
     private void ShowDiagnostics()
     {
         WpfApplication.Current?.Dispatcher.Invoke(() =>
@@ -238,6 +291,7 @@ internal sealed class AppHost : IDisposable
         _hotkeys?.Dispose();
         _watcher?.Dispose();
         _tray?.Dispose();
+        _clipHistory?.Dispose();
         _clipboardThread?.Dispose();
         _instance?.Dispose();
     }

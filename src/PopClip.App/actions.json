@@ -10,6 +10,16 @@
     { "id": "lower",     "type": "builtin", "builtIn": "builtin.case.lower",      "title": "小写",       "icon": "Lower",     "enabled": true },
     { "id": "title",     "type": "builtin", "builtIn": "builtin.case.title",      "title": "Title",      "icon": "Title",     "enabled": true },
     { "id": "calc",      "type": "builtin", "builtIn": "builtin.calculate",       "title": "计算",       "icon": "Calc",      "enabled": true },
-    { "id": "wc",        "type": "builtin", "builtIn": "builtin.wordcount",       "title": "字数",       "icon": "Count",     "enabled": true }
+    { "id": "wc",        "type": "builtin", "builtIn": "builtin.wordcount",       "title": "字数",       "icon": "Count",     "enabled": true },
+    {
+      "id": "ai-fix-grammar",
+      "type": "ai",
+      "title": "修语法",
+      "icon": "AiRewrite",
+      "outputMode": "replace",
+      "prompt": "只修正下面文本中的语法、标点和明显拼写错误，不要改写表达、不要解释、保留原语言：\n\n{text}",
+      "enabled": true
+    },
+    { "id": "clipboard-history", "type": "builtin", "builtIn": "builtin.clipboard.history", "title": "历史", "icon": "ClipboardHistory", "enabled": false }
   ]
 }

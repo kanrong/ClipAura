@@ -44,6 +44,8 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     private int _dismissMouseLeaveDelayMs = 800;
     private bool _dismissOnTimeout;
     private int _dismissTimeoutMs = 5000;
+    // 鼠标未悬停时的目标透明度；鼠标进入浮窗后窗口 Opacity 立即恢复为 1.0
+    private double _idleOpacity = 1.0;
     private bool _dismissOnEscape = true;
     private bool _keyboardShortcutsEnabled = true;
     private bool _tabNavigationEnabled = true;
@@ -93,6 +95,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         InitializeComponent();
         DataContext = this;
         SourceInitialized += OnSourceInitialized;
+        MouseEnter += OnMouseEnterRestoreOpacity;
         MouseLeave += OnMouseLeave;
         Items.CollectionChanged += OnItemsChanged;
     }
@@ -139,6 +142,13 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         _keyboardShortcutsEnabled = settings.EnableToolbarKeyboardShortcuts;
         _tabNavigationEnabled = settings.EnableToolbarTabNavigation;
         _numberShortcutsEnabled = settings.EnableToolbarNumberShortcuts;
+        _idleOpacity = Math.Clamp(settings.ToolbarIdleOpacity, 0.3, 1.0);
+        Dispatcher.Invoke(() =>
+        {
+            // 未显示或鼠标不在浮窗上时立刻按 idle 透明度生效；
+            // 已显示且鼠标当前悬停在浮窗内时保持完全不透明，等离开后再回落
+            Opacity = IsMouseOver ? 1.0 : _idleOpacity;
+        });
         Dispatcher.Invoke(() =>
         {
             var radius = Math.Clamp(settings.ToolbarCornerRadius, 0, 18);
@@ -340,6 +350,8 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         // ShowActivated=False 保证不抢焦点
         Left = -32000;
         Top = -32000;
+        // 显示前先按 idle 透明度生效；鼠标进入浮窗后由 OnMouseEnterRestoreOpacity 切到 1.0
+        Opacity = _idleOpacity;
         base.Show();
         UpdateLayout();
 
@@ -544,8 +556,22 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         return (x, y);
     }
 
+    private void OnMouseEnterRestoreOpacity(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        // 鼠标进入浮窗时永远以完全不透明显示，方便用户辨认与点击；离开后回落到 _idleOpacity
+        Opacity = 1.0;
+        // 鼠标停留在浮窗上视为用户在使用，暂停超时计时；离开后由 OnMouseLeave 重新调度
+        _dismissTimeoutCts?.Cancel();
+        _dismissTimeoutCts = null;
+    }
+
     private void OnMouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
     {
+        // 鼠标离开时立刻回落到 idle 透明度，让用户看清遮挡的背景内容
+        Opacity = _idleOpacity;
+        // 鼠标离开后重新开始超时计时（若用户开启了"浮窗超时后自动消失"）
+        ScheduleTimeoutDismiss();
+
         // 鼠标离开后延迟自动消失，避免用户在边缘抖动时误关；用户也可在设置中关闭此触发
         if (!_dismissOnMouseLeave) return;
         var delay = _dismissMouseLeaveDelayMs > 0 ? _dismissMouseLeaveDelayMs : 1;
@@ -629,6 +655,8 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         _dismissTimeoutCts?.Cancel();
         _dismissTimeoutCts = null;
         if (!_dismissOnTimeout) return;
+        // 鼠标停留在浮窗上视为用户正在使用：跳过本次计时，等 OnMouseLeave 再重新调度
+        if (IsMouseOver) return;
 
         var delayMs = _dismissTimeoutMs > 0 ? _dismissTimeoutMs : 3000;
         var cts = new CancellationTokenSource();

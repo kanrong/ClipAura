@@ -30,6 +30,7 @@ public static class BuiltInActionIds
     public const string AiTranslate = "builtin.ai.translate";
     public const string AiExplain = "builtin.ai.explain";
     public const string AiReply = "builtin.ai.reply";
+    public const string AiTidy = "builtin.ai.tidy";
     /// <summary>从浮动工具栏唤起"剪贴板历史"面板。运行时由 IClipboardHistoryLauncher 提供具体实现</summary>
     public const string ClipboardHistory = "builtin.clipboard.history";
 }

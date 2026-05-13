@@ -34,6 +34,7 @@ internal sealed class IconKeyToGlyphConverter : IValueConverter
         ["AiTranslate"] = "\uF2B7",
         ["AiExplain"] = "\uE946",
         ["AiReply"] = "\uE8F2",
+        ["AiTidy"] = "\uE8A4",
     };
 
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
@@ -103,6 +104,7 @@ internal sealed class IconKeyToMaterialDesignKindConverter : IValueConverter
         ["AiTranslate"] = PackIconMaterialDesignKind.TranslateRound,
         ["AiExplain"] = PackIconMaterialDesignKind.InfoRound,
         ["AiReply"] = PackIconMaterialDesignKind.ReplyRound,
+        ["AiTidy"] = PackIconMaterialDesignKind.FormatLineSpacingRound,
     };
 
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)

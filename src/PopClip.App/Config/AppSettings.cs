@@ -80,6 +80,10 @@ public sealed class AppSettings
     public double ToolbarButtonSpacing { get; set; } = 0;
     public double ToolbarFontSize { get; set; } = 12;
     public int ToolbarMaxActionsPerRow { get; set; } = 6;
+
+    /// <summary>浮窗默认透明度（鼠标未悬停时）。范围 0.3 ~ 1.0；1.0 表示完全不透明。
+    /// 鼠标进入浮窗后会自动恢复为 1.0，离开后回到此值，避免遮挡背后内容</summary>
+    public double ToolbarIdleOpacity { get; set; } = 1.0;
     public bool EnableToolbarKeyboardShortcuts { get; set; } = true;
     public bool EnableToolbarTabNavigation { get; set; } = true;
     public bool EnableToolbarNumberShortcuts { get; set; } = true;

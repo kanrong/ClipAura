@@ -87,6 +87,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         new BuiltInChoice(BuiltInActionIds.AiTranslate, "AI 翻译"),
         new BuiltInChoice(BuiltInActionIds.AiExplain, "AI 解释"),
         new BuiltInChoice(BuiltInActionIds.AiReply, "AI 回复"),
+        new BuiltInChoice(BuiltInActionIds.AiTidy, "AI 整理"),
     };
 
     public event Action? Saved;
@@ -226,6 +227,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         ButtonSpacingBox.Value = _settings.ToolbarButtonSpacing;
         ToolbarFontSizeBox.Value = _settings.ToolbarFontSize;
         MaxActionsPerRowBox.Value = _settings.ToolbarMaxActionsPerRow;
+        ToolbarOpacitySlider.Value = Math.Clamp(_settings.ToolbarIdleOpacity, 0.3, 1.0);
+        UpdateToolbarOpacityLabel(ToolbarOpacitySlider.Value);
         EnableToolbarKeyboardShortcutsBox.IsChecked = _settings.EnableToolbarKeyboardShortcuts;
         EnableToolbarTabNavigationBox.IsChecked = _settings.EnableToolbarTabNavigation;
         EnableToolbarNumberShortcutsBox.IsChecked = _settings.EnableToolbarNumberShortcuts;
@@ -761,6 +764,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         BuiltInActionIds.AiTranslate => "AiTranslate",
         BuiltInActionIds.AiExplain => "AiExplain",
         BuiltInActionIds.AiReply => "AiReply",
+        BuiltInActionIds.AiTidy => "AiTidy",
         _ => "Script",
     };
 
@@ -832,6 +836,17 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         return null;
     }
 
+    private void OnToolbarOpacityChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        UpdateToolbarOpacityLabel(e.NewValue);
+    }
+
+    private void UpdateToolbarOpacityLabel(double value)
+    {
+        if (ToolbarOpacityValue is null) return;
+        ToolbarOpacityValue.Text = (value * 100).ToString("0") + "%";
+    }
+
     private void OnPopupModeChanged(object sender, SelectionChangedEventArgs e)
     {
         var mode = SelectedTag(PopupModeBox);
@@ -873,6 +888,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         _settings.ToolbarButtonSpacing = NumberBoxDouble(ButtonSpacingBox, _settings.ToolbarButtonSpacing, 0, 10);
         _settings.ToolbarFontSize = NumberBoxDouble(ToolbarFontSizeBox, _settings.ToolbarFontSize, 10, 18);
         _settings.ToolbarMaxActionsPerRow = NumberBoxInt(MaxActionsPerRowBox, _settings.ToolbarMaxActionsPerRow, 3, 12);
+        _settings.ToolbarIdleOpacity = Math.Clamp(ToolbarOpacitySlider.Value, 0.3, 1.0);
         _settings.EnableToolbarKeyboardShortcuts = EnableToolbarKeyboardShortcutsBox.IsChecked == true;
         _settings.EnableToolbarTabNavigation = EnableToolbarTabNavigationBox.IsChecked == true;
         _settings.EnableToolbarNumberShortcuts = EnableToolbarNumberShortcutsBox.IsChecked == true;
@@ -953,6 +969,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         AddDefaultAiAction("ai-translate", BuiltInActionIds.AiTranslate, "AI 翻译");
         AddDefaultAiAction("ai-explain", BuiltInActionIds.AiExplain, "AI 解释");
         AddDefaultAiAction("ai-reply", BuiltInActionIds.AiReply, "AI 回复");
+        AddDefaultAiAction("ai-tidy", BuiltInActionIds.AiTidy, "AI 整理");
         AddDefaultAiPromptAction("ai-fix-grammar", "修语法", "AiRewrite",
             "只修正下面文本中的语法、标点和明显拼写错误，不要改写表达、不要解释、保留原语言：\n\n{text}",
             "replace");

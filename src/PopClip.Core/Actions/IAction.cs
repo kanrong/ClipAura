@@ -63,6 +63,8 @@ public enum AiTextActionKind
     Translate,
     Explain,
     Reply,
+    /// <summary>整理文本格式：合并多余空行，保留标题与正文之间的视觉分隔，不改动任何文字内容</summary>
+    Tidy,
 }
 
 /// <summary>AI 动作的输出落点。

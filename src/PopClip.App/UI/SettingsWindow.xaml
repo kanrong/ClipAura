@@ -730,6 +730,37 @@
                                     </Grid>
                                 </StackPanel>
                             </Border>
+
+                            <Border Style="{StaticResource Settings.Card}">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource Settings.SectionTitle}" Text="透明度" />
+                                    <TextBlock Style="{StaticResource Settings.HintText}"
+                                               Text="鼠标未悬停时浮窗的不透明度；鼠标进入浮窗后会自动恢复为完全不透明，便于点击。"
+                                               Margin="0,0,0,10" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="64" />
+                                        </Grid.ColumnDefinitions>
+                                        <Slider x:Name="ToolbarOpacitySlider"
+                                                Grid.Column="0"
+                                                Minimum="0.3"
+                                                Maximum="1.0"
+                                                SmallChange="0.05"
+                                                LargeChange="0.1"
+                                                TickFrequency="0.05"
+                                                IsSnapToTickEnabled="False"
+                                                VerticalAlignment="Center"
+                                                Margin="0,0,12,0"
+                                                ValueChanged="OnToolbarOpacityChanged" />
+                                        <TextBlock x:Name="ToolbarOpacityValue"
+                                                   Grid.Column="1"
+                                                   VerticalAlignment="Center"
+                                                   HorizontalAlignment="Right"
+                                                   Foreground="{DynamicResource Settings.SubtleForeground}" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
 
                         <!-- ===================== 动作 ===================== -->

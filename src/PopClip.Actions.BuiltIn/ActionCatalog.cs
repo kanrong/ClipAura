@@ -40,6 +40,7 @@ public sealed class ActionCatalog
             [BuiltInActionIds.AiTranslate] = new AiTextAction(BuiltInActionIds.AiTranslate, "AI 翻译", "AiTranslate", AiTextActionKind.Translate),
             [BuiltInActionIds.AiExplain] = new AiTextAction(BuiltInActionIds.AiExplain, "AI 解释", "AiExplain", AiTextActionKind.Explain),
             [BuiltInActionIds.AiReply] = new AiTextAction(BuiltInActionIds.AiReply, "AI 回复", "AiReply", AiTextActionKind.Reply),
+            [BuiltInActionIds.AiTidy] = new AiTextAction(BuiltInActionIds.AiTidy, "AI 整理", "AiTidy", AiTextActionKind.Tidy),
         };
     }
 

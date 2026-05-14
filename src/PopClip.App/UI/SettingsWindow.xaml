@@ -13,7 +13,8 @@
                  WindowBackdropType="Mica"
                  ExtendsContentIntoTitleBar="True"
                  Background="{DynamicResource Settings.Window.Background}"
-                 FontFamily="{StaticResource Settings.FontFamily}"
+                 Foreground="{DynamicResource Settings.Foreground}"
+                 FontFamily="{DynamicResource Settings.FontFamily}"
                  UseLayoutRounding="True"
                  TextOptions.TextFormattingMode="Display"
                  TextOptions.TextRenderingMode="ClearType">
@@ -299,16 +300,16 @@
                 </DockPanel>
             </Border>
 
-            <!-- ============================ 主面板 ============================ -->
-            <Grid Grid.Column="1">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-
-                <ScrollViewer Grid.Row="0"
+            <!-- ============================ 主面板 ============================
+                 显式 Background 让标题/副标题等"非卡片"区域也跟随主题色，
+                 避免 Mica 半透明导致深色主题下大片背景看不出色调 -->
+            <Grid Grid.Column="1"
+                  Background="{DynamicResource Settings.Window.Background}">
+                <!-- 全部设置改为"点击即生效"，不再需要底部"保存/取消"按钮区。
+                     左右 padding 缩到 24，缩短侧边栏与卡片之间的视觉间隙 -->
+                <ScrollViewer x:Name="MainScrollViewer"
                               VerticalScrollBarVisibility="Auto"
-                              Padding="36,28,36,20">
+                              Padding="24,20,24,20">
                     <Grid>
                         <!-- ===================== 通用 ===================== -->
                         <StackPanel x:Name="GeneralPage">
@@ -511,12 +512,98 @@
                             </Border>
                         </StackPanel>
 
-                        <!-- ===================== 外观 ===================== -->
-                        <StackPanel x:Name="AppearancePage" Visibility="Collapsed">
+                        <!-- ===================== 外观 =====================
+                             AppearancePage 改为 Grid：行 0 固定（页头 + 实时预览），行 1 内部 ScrollViewer 滚动其它卡片。
+                             Height 绑定外层 ScrollViewer.ViewportHeight（内容区域高度，不含 Padding），
+                             外观页恰好占满可视区域，避免外层产生多余滚动条 -->
+                        <Grid x:Name="AppearancePage"
+                              Visibility="Collapsed"
+                              Height="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType=ScrollViewer}}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <!-- 顶部固定区右侧 Margin 与下方 ScrollViewer 内 StackPanel 保持一致（14），
+                                 让"预览卡片右边缘"与"按钮显示/字体等设置卡片右边缘"在视觉上严格对齐 -->
+                            <StackPanel Grid.Row="0" Margin="0,0,14,0">
                             <TextBlock Style="{StaticResource Settings.PageTitle}" Text="外观" />
                             <TextBlock Style="{StaticResource Settings.PageDescription}"
-                                       Text="浮动工具栏的显示模式、主题与按钮风格" />
+                                       Text="浮动工具栏的显示模式、主题与按钮风格。所有调整即时生效，下方主体可滚动浏览。" />
 
+                            <!-- ============= 实时预览：与真实浮窗共用同一套 Toolbar* 主题资源与字体，
+                                                外观页所有可视参数变化都在这里直接反映 ============= -->
+                            <Border Margin="0,0,0,16"
+                                    Padding="20,18,20,16"
+                                    Background="{DynamicResource Settings.Card.SubtleBackground}"
+                                    BorderBrush="{DynamicResource Settings.Stroke}"
+                                    BorderThickness="1"
+                                    CornerRadius="{StaticResource Settings.Radius.Md}"
+                                    HorizontalAlignment="Stretch"
+                                    SnapsToDevicePixels="True">
+                                <StackPanel HorizontalAlignment="Center">
+                                    <TextBlock Style="{StaticResource Settings.HintText}"
+                                               HorizontalAlignment="Left"
+                                               Margin="0,0,0,10"
+                                               Text="实时预览（与真实浮窗一致）" />
+                                    <Border Background="{DynamicResource ToolbarBackground}"
+                                            BorderBrush="{DynamicResource ToolbarBorder}"
+                                            CornerRadius="{Binding PreviewCornerRadius}"
+                                            BorderThickness="{Binding PreviewBorderThickness}"
+                                            Opacity="{Binding PreviewOpacity}"
+                                            HorizontalAlignment="Center"
+                                            SnapsToDevicePixels="True">
+                                        <Border.Effect>
+                                            <DropShadowEffect Color="#000000"
+                                                              Direction="270"
+                                                              ShadowDepth="{Binding PreviewShadowDepth}"
+                                                              BlurRadius="{Binding PreviewShadowBlurRadius}"
+                                                              Opacity="{Binding PreviewShadowOpacity}" />
+                                        </Border.Effect>
+                                        <ItemsControl ItemsSource="{Binding ToolbarPreviewItems}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <StackPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="Transparent"
+                                                            CornerRadius="{Binding DataContext.PreviewButtonCornerRadius, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            Margin="{Binding DataContext.PreviewButtonMargin, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            Padding="{Binding DataContext.PreviewButtonPadding, RelativeSource={RelativeSource AncestorType=Window}}">
+                                                        <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                                            <ui:SymbolIcon Symbol="{Binding Icon}"
+                                                                           HorizontalAlignment="Center"
+                                                                           FontSize="{Binding DataContext.PreviewIconFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                           Foreground="{DynamicResource ToolbarForeground}"
+                                                                           Visibility="{Binding DataContext.PreviewIconVisibility, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                                            <TextBlock Text="{Binding Title}"
+                                                                       HorizontalAlignment="Center"
+                                                                       Margin="0,2,0,0"
+                                                                       FontFamily="{DynamicResource ToolbarFontFamily}"
+                                                                       FontSize="{Binding DataContext.PreviewFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                       Foreground="{DynamicResource ToolbarForeground}"
+                                                                       Visibility="{Binding DataContext.PreviewTextVisibility, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                            </StackPanel>
+
+                            <!-- 行 1：可滚动主体。所有外观设置卡片放进这里，鼠标滚轮在此区域才滚动。
+                                 StackPanel 右边留 14 让滚动条悬浮在卡片右侧之外，
+                                 避免拉到底部时滚动条与卡片底边相互穿插；
+                                 Row 0 的预览卡片也用相同 Margin-Right 让上下卡片右边对齐 -->
+                            <ScrollViewer Grid.Row="1"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          CanContentScroll="False"
+                                          Padding="0,0,0,4">
+                                <StackPanel Margin="0,0,14,0">
                             <Border Style="{StaticResource Settings.Card}">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource Settings.SectionTitle}" Text="按钮显示" />
@@ -526,14 +613,87 @@
                                         <RadioButton x:Name="DisplayTextOnly" GroupName="DisplayMode" Content="仅文字" />
                                     </WrapPanel>
 
-                                    <TextBlock Style="{StaticResource Settings.SectionTitle}" Text="颜色主题" Margin="0,18,0,10" />
-                                    <WrapPanel>
-                                        <RadioButton x:Name="ThemeAuto" GroupName="ThemeMode" Content="自动跟随系统" Margin="0,0,16,0" />
-                                        <RadioButton x:Name="ThemeLight" GroupName="ThemeMode" Content="浅色" Margin="0,0,16,0" />
-                                        <RadioButton x:Name="ThemeDark" GroupName="ThemeMode" Content="深色" />
-                                    </WrapPanel>
+                    <TextBlock Style="{StaticResource Settings.SectionTitle}" Text="颜色主题" Margin="0,18,0,10" />
+                    <TextBlock Style="{StaticResource Settings.HintText}"
+                               Margin="0,0,0,10"
+                               Text="主题对全局生效：浮窗、设置窗口、对话窗等同步切换。基础三档可跟随系统明暗，彩色预设保留各自配色。" />
+                    <!-- 主题预览卡片列表：选中后立即写入 settings.json 并刷新全局画刷 -->
+                                    <ListBox x:Name="ThemePresetList"
+                                             ItemsSource="{Binding ToolbarThemeChoices}"
+                                             SelectedValuePath="Mode"
+                                             SelectionMode="Single"
+                                             SelectionChanged="OnToolbarThemeChanged"
+                                             Background="Transparent"
+                                             BorderThickness="0"
+                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                             KeyboardNavigation.DirectionalNavigation="Cycle">
+                                        <ListBox.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel Orientation="Horizontal" IsItemsHost="True" />
+                                            </ItemsPanelTemplate>
+                                        </ListBox.ItemsPanel>
+                                        <ListBox.ItemContainerStyle>
+                                            <Style TargetType="ListBoxItem">
+                                                <Setter Property="Margin" Value="0,0,10,10" />
+                                                <Setter Property="Padding" Value="0" />
+                                                <Setter Property="Background" Value="Transparent" />
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="ListBoxItem">
+                                                            <Border x:Name="Bd"
+                                                                    Background="{DynamicResource Settings.Card.SubtleBackground}"
+                                                                    BorderBrush="{DynamicResource Settings.Stroke}"
+                                                                    BorderThickness="1"
+                                                                    CornerRadius="{StaticResource Settings.Radius.Md}"
+                                                                    Padding="10,8,12,8"
+                                                                    SnapsToDevicePixels="True">
+                                                                <ContentPresenter />
+                                                            </Border>
+                                                            <ControlTemplate.Triggers>
+                                                                <Trigger Property="IsMouseOver" Value="True">
+                                                                    <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Settings.Accent}" />
+                                                                </Trigger>
+                                                                <Trigger Property="IsSelected" Value="True">
+                                                                    <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Settings.Accent}" />
+                                                                    <Setter TargetName="Bd" Property="BorderThickness" Value="2" />
+                                                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Settings.AccentSoft}" />
+                                                                </Trigger>
+                                                            </ControlTemplate.Triggers>
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Style>
+                                        </ListBox.ItemContainerStyle>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <!-- 颜色预览圆点：左主背景色 / 右前景色 -->
+                                                    <Border Width="22" Height="22"
+                                                            CornerRadius="11"
+                                                            Background="{Binding BackgroundBrush}"
+                                                            BorderBrush="{DynamicResource Settings.Stroke}"
+                                                            BorderThickness="1"
+                                                            VerticalAlignment="Center" />
+                                                    <Border Width="22" Height="22"
+                                                            CornerRadius="11"
+                                                            Background="{Binding ForegroundBrush}"
+                                                            BorderBrush="{DynamicResource Settings.Stroke}"
+                                                            BorderThickness="1"
+                                                            Margin="-8,0,8,0"
+                                                            VerticalAlignment="Center" />
+                                                    <TextBlock Text="{Binding Label}"
+                                                               FontSize="{StaticResource Settings.FontSize.Body}"
+                                                               Foreground="{DynamicResource Settings.Foreground}"
+                                                               VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+
                                     <ui:ToggleSwitch x:Name="FollowAccentColor"
-                                                     Content="选中按钮跟随系统强调色" Margin="0,12,0,0" />
+                                                     Content="选中按钮跟随系统强调色（仅基础三档生效）"
+                                                     Margin="0,8,0,0" />
 
                                     <TextBlock Style="{StaticResource Settings.SectionTitle}" Text="浮窗外缘" Margin="0,18,0,10" />
                                     <WrapPanel>
@@ -546,7 +706,84 @@
 
                             <Border Style="{StaticResource Settings.Card}">
                                 <StackPanel>
+                                    <TextBlock Style="{StaticResource Settings.SectionTitle}" Text="字体" />
+                                    <TextBlock Style="{StaticResource Settings.HintText}"
+                                               Text="界面字体作用于设置窗口与对话窗等程序自身界面；浮窗字体仅作用于选区悬浮工具栏，留空则继承界面字体；两者都留空时使用应用内置的中文优先回退链（首选 Microsoft YaHei UI）。"
+                                               Margin="0,0,0,12" />
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="220" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                                   Style="{StaticResource Settings.FieldLabel}"
+                                                   Text="界面字体" />
+                                        <ComboBox Grid.Row="0" Grid.Column="1"
+                                                  x:Name="UiFontFamilyBox"
+                                                  IsEditable="True"
+                                                  StaysOpenOnEdit="True"
+                                                  MaxDropDownHeight="320"
+                                                  SelectionChanged="OnUiFontFamilyChanged"
+                                                  LostFocus="OnUiFontFamilyChanged" />
+                                        <TextBlock Grid.Row="0" Grid.Column="2"
+                                                   x:Name="UiFontPreview"
+                                                   Margin="12,0,0,0"
+                                                   FontSize="14"
+                                                   Foreground="{DynamicResource Settings.Foreground}"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Text="界面字体预览 AaBb 1234" />
+
+                                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                                   Margin="0,10,0,0"
+                                                   Style="{StaticResource Settings.FieldLabel}"
+                                                   Text="浮窗字体" />
+                                        <ComboBox Grid.Row="1" Grid.Column="1"
+                                                  Margin="0,10,0,0"
+                                                  x:Name="ToolbarFontFamilyBox"
+                                                  IsEditable="True"
+                                                  StaysOpenOnEdit="True"
+                                                  MaxDropDownHeight="320"
+                                                  SelectionChanged="OnToolbarFontFamilyChanged"
+                                                  LostFocus="OnToolbarFontFamilyChanged" />
+                                        <TextBlock Grid.Row="1" Grid.Column="2"
+                                                   x:Name="ToolbarFontPreview"
+                                                   Margin="12,10,0,0"
+                                                   FontSize="14"
+                                                   Foreground="{DynamicResource Settings.Foreground}"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Text="浮窗字体预览 AaBb 1234" />
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <ui:Button Appearance="Secondary"
+                                                   Icon="{ui:SymbolIcon ArrowReset24}"
+                                                   Content="重置为默认"
+                                                   Click="OnResetFontFamilies" />
+                                        <TextBlock Style="{StaticResource Settings.HintText}"
+                                                   Margin="12,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   Text="可直接输入字体名（支持英文/中文族名），例如 JetBrains Mono、霞鹜文楷、思源宋体。" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource Settings.Card}">
+                                <StackPanel>
                                     <TextBlock Style="{StaticResource Settings.SectionTitle}" Text="按钮风格" />
+                                    <TextBlock Style="{StaticResource Settings.FieldLabel}"
+                                               Text="密度"
+                                               Margin="0,0,0,4" />
+                                    <WrapPanel Margin="0,0,0,12">
+                                        <RadioButton x:Name="DensityCompact" GroupName="ToolbarDensity" Content="紧凑" Margin="0,0,16,0" />
+                                        <RadioButton x:Name="DensityStandard" GroupName="ToolbarDensity" Content="标准" Margin="0,0,16,0" />
+                                        <RadioButton x:Name="DensityComfortable" GroupName="ToolbarDensity" Content="宽松" />
+                                    </WrapPanel>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
@@ -608,7 +845,9 @@
                                     </Grid>
                                 </StackPanel>
                             </Border>
-                        </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
 
                         <!-- ===================== 动作 ===================== -->
                         <Grid x:Name="ActionsPage"
@@ -1293,27 +1532,6 @@
                         </StackPanel>
                     </Grid>
                 </ScrollViewer>
-
-                <!-- 底部 sticky 操作栏 -->
-                <Border Grid.Row="1"
-                        Background="{DynamicResource Settings.Card.Background}"
-                        BorderBrush="{DynamicResource Settings.Stroke}"
-                        BorderThickness="0,1,0,0"
-                        Padding="36,12">
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <ui:Button x:Name="CancelBtn"
-                                   Appearance="Secondary"
-                                   Content="取消"
-                                   Width="100"
-                                   Margin="0,0,10,0"
-                                   Click="OnCancel" />
-                        <ui:Button x:Name="OkBtn"
-                                   Appearance="Primary"
-                                   Content="保存"
-                                   Width="100"
-                                   Click="OnSave" />
-                    </StackPanel>
-                </Border>
             </Grid>
         </Grid>
     </Grid>

@@ -23,8 +23,21 @@ using WpfPoint = System.Windows.Point;
 
 namespace PopClip.App.UI;
 
-public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
+public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPropertyChanged
 {
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void RaisePropertyChanged([CallerMemberName] string? name = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+        field = value;
+        RaisePropertyChanged(name);
+        return true;
+    }
+
     private static readonly (string Name, string Url)[] Presets =
     {
         ("Google", "https://www.google.com/search?q={q}"),
@@ -44,6 +57,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
     private ActionEditorItem? _dragItem;
     private string _currentAiKeyBucket = AiProviderCatalog.DeepSeekKeyBucket;
     private bool _syncingAiProvider;
+    private bool _suspendCommit;
 
     public ObservableCollection<string> ProcessFilters { get; } = new();
     public ObservableCollection<ActionEditorItem> ActionItems { get; } = new();
@@ -61,6 +75,22 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         new LogLevelChoice(LogLevel.Warn, "警告"),
         new LogLevelChoice(LogLevel.Error, "错误"),
     };
+
+    /// <summary>外观页"颜色主题"卡片列表数据源。
+    /// BackgroundBrush / ForegroundBrush 是渲染预览圆点用，对应浮窗 Theme.xaml 中的主色对；
+    /// 基础三档（Auto / Light / Dark）用中性灰色，让用户能在视觉上区分"系统色"和"彩色预设"</summary>
+    public IReadOnlyList<ToolbarThemeChoice> ToolbarThemeChoices { get; } = new[]
+    {
+        new ToolbarThemeChoice(ToolbarThemeMode.Auto, "自动", "#F4F6F9", "#2B3037"),
+        new ToolbarThemeChoice(ToolbarThemeMode.Light, "浅色", "#FFFFFF", "#1E2329"),
+        new ToolbarThemeChoice(ToolbarThemeMode.Dark, "深色", "#2B3037", "#F2F4F7"),
+        new ToolbarThemeChoice(ToolbarThemeMode.QingciBlue, "青瓷蓝", "#113974", "#99D3D4"),
+        new ToolbarThemeChoice(ToolbarThemeMode.DeepInkGreen, "深墨绿", "#2B564A", "#C4D373"),
+        new ToolbarThemeChoice(ToolbarThemeMode.MistyGreen, "浅雾绿", "#688E73", "#F6E9CE"),
+        new ToolbarThemeChoice(ToolbarThemeMode.SunsetRose, "暮霞粉", "#8B3A4D", "#FFE2D5"),
+        new ToolbarThemeChoice(ToolbarThemeMode.DistantMountain, "远山黛", "#2B3D4F", "#D5DBE5"),
+        new ToolbarThemeChoice(ToolbarThemeMode.Sandalwood, "檀木香", "#5C4033", "#F2E1C2"),
+    };
     public string LogDirectoryPath => ConsoleLog.Instance.DirectoryPath;
     public string ConfigDirectoryPath => ConfigPaths.ConfigDir;
     /// <summary>"添加用户自定义动作"图标下拉的可选项。
@@ -74,6 +104,45 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         new AiOutputModeChoice("clipboard", "写入剪贴板"),
         new AiOutputModeChoice("inlineToast", "浮窗显示结果"),
     };
+
+    /// <summary>外观页的浮窗预览示例按钮，模拟用户日常浮窗里可能出现的"复制/粘贴/搜索/翻译/AI"</summary>
+    public IReadOnlyList<ToolbarPreviewItem> ToolbarPreviewItems { get; } = new[]
+    {
+        new ToolbarPreviewItem("复制", Wpf.Ui.Controls.SymbolRegular.Copy24),
+        new ToolbarPreviewItem("粘贴", Wpf.Ui.Controls.SymbolRegular.ClipboardPaste24),
+        new ToolbarPreviewItem("搜索", Wpf.Ui.Controls.SymbolRegular.Search24),
+        new ToolbarPreviewItem("翻译", Wpf.Ui.Controls.SymbolRegular.Translate24),
+        new ToolbarPreviewItem("AI", Wpf.Ui.Controls.SymbolRegular.Sparkle24),
+    };
+
+    // ===== 浮窗预览：从外观页控件值派生，PropertyChanged 推送给 XAML 数据绑定 =====
+    private CornerRadius _previewCornerRadius = new(9);
+    private CornerRadius _previewButtonCornerRadius = new(0);
+    private Thickness _previewButtonMargin = new(2, 0, 2, 0);
+    private Thickness _previewButtonPadding = new(12, 9, 12, 9);
+    private Thickness _previewBorderThickness = new(1);
+    private double _previewFontSize = 13;
+    private double _previewIconFontSize = 15;
+    private double _previewShadowDepth = 2;
+    private double _previewShadowBlurRadius = 6;
+    private double _previewShadowOpacity = 0.32;
+    private double _previewOpacity = 1.0;
+    private Visibility _previewIconVisibility = Visibility.Visible;
+    private Visibility _previewTextVisibility = Visibility.Visible;
+
+    public CornerRadius PreviewCornerRadius { get => _previewCornerRadius; private set => SetField(ref _previewCornerRadius, value); }
+    public CornerRadius PreviewButtonCornerRadius { get => _previewButtonCornerRadius; private set => SetField(ref _previewButtonCornerRadius, value); }
+    public Thickness PreviewButtonMargin { get => _previewButtonMargin; private set => SetField(ref _previewButtonMargin, value); }
+    public Thickness PreviewButtonPadding { get => _previewButtonPadding; private set => SetField(ref _previewButtonPadding, value); }
+    public Thickness PreviewBorderThickness { get => _previewBorderThickness; private set => SetField(ref _previewBorderThickness, value); }
+    public double PreviewFontSize { get => _previewFontSize; private set => SetField(ref _previewFontSize, value); }
+    public double PreviewIconFontSize { get => _previewIconFontSize; private set => SetField(ref _previewIconFontSize, value); }
+    public double PreviewShadowDepth { get => _previewShadowDepth; private set => SetField(ref _previewShadowDepth, value); }
+    public double PreviewShadowBlurRadius { get => _previewShadowBlurRadius; private set => SetField(ref _previewShadowBlurRadius, value); }
+    public double PreviewShadowOpacity { get => _previewShadowOpacity; private set => SetField(ref _previewShadowOpacity, value); }
+    public double PreviewOpacity { get => _previewOpacity; private set => SetField(ref _previewOpacity, value); }
+    public Visibility PreviewIconVisibility { get => _previewIconVisibility; private set => SetField(ref _previewIconVisibility, value); }
+    public Visibility PreviewTextVisibility { get => _previewTextVisibility; private set => SetField(ref _previewTextVisibility, value); }
 
     public IReadOnlyList<PromptTemplateDefinition> BuiltinPromptTemplates => PromptTemplateLibrary.Builtin;
 
@@ -111,23 +180,29 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         _historyStore = historyStore;
         _usage = usage;
         _onOpenConversation = onOpenConversation;
-        // FluentWindow 自己会按 WindowBackdropType 处理 Mica，再走 ApplicationThemeManager 切深浅色
-        ApplyWpfUiTheme();
+        // 构造期间禁止 commit：Bind() 内大量控件初始化赋值会触发 Changed 事件，
+        // 必须由 Loaded 阶段统一释放，避免在数据还没就位时就开始写盘
+        _suspendCommit = true;
+        // 主题/字体由 ThemeManager 写到 Application.Resources，所有窗口及 WPF-UI 控件共享
+        ThemeManager.Apply(_settings);
         InitializeComponent();
         DataContext = this;
-        // 系统亮暗主题切换时自动同步 WPF-UI 控件主题与窗口背景
-        SourceInitialized += (_, _) =>
+        // 仅 Auto 模式才挂 SystemThemeWatcher：用户选了固定主题/彩色预设时
+        // 系统亮暗变化不应该反向覆盖用户选择
+        if (_settings.ToolbarTheme == ToolbarThemeMode.Auto)
         {
-            try
+            SourceInitialized += (_, _) =>
             {
-                Wpf.Ui.Appearance.SystemThemeWatcher.Watch(this, Wpf.Ui.Controls.WindowBackdropType.Mica, updateAccents: true);
-            }
-            catch
-            {
-                // 某些 Win10 旧版本不支持 Mica，watcher 会回退；任何异常都不影响功能
-            }
-        };
-        ApplyThemeResources();
+                try
+                {
+                    Wpf.Ui.Appearance.SystemThemeWatcher.Watch(this, Wpf.Ui.Controls.WindowBackdropType.Mica, updateAccents: true);
+                }
+                catch
+                {
+                    // 某些 Win10 旧版本不支持 Mica，watcher 会回退；任何异常都不影响功能
+                }
+            };
+        }
         _pages = new Dictionary<string, FrameworkElement>(StringComparer.OrdinalIgnoreCase)
         {
             ["General"] = GeneralPage,
@@ -151,57 +226,21 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         {
             NavigationList.SelectedIndex = 0;
         }
+        Loaded += OnSettingsLoaded;
     }
 
-    private static void ApplyWpfUiTheme()
+    private void OnSettingsLoaded(object sender, RoutedEventArgs e)
     {
-        var theme = SystemThemeHelper.IsSystemDark()
-            ? Wpf.Ui.Appearance.ApplicationTheme.Dark
-            : Wpf.Ui.Appearance.ApplicationTheme.Light;
-        try
+        HookInstantCommit();
+        _suspendCommit = false;
+
+        // 进设置窗口本身视为完成首次配置，关掉自动弹出引导
+        if (!_settings.FirstRunCompleted)
         {
-            Wpf.Ui.Appearance.ApplicationThemeManager.Apply(theme, Wpf.Ui.Controls.WindowBackdropType.None, updateAccent: true);
+            _settings.FirstRunCompleted = true;
+            try { _store.SaveSettings(_settings); }
+            catch { /* 首次写盘失败也不阻塞 UI */ }
         }
-        catch
-        {
-            // ApplicationThemeManager 偶尔在测试 / 设计器环境抛异常；忽略不影响功能
-        }
-    }
-
-    /// <summary>深色模式时覆盖 Settings.* 主题画刷。
-    /// 走 Resources 实例字典而非全局 ResourceDictionary，避免污染其他窗口</summary>
-    private void ApplyThemeResources()
-    {
-        if (!SystemThemeHelper.IsSystemDark()) return;
-
-        SolidColorBrush B(byte r, byte g, byte b, byte a = 0xFF) =>
-            new(System.Windows.Media.Color.FromArgb(a, r, g, b));
-
-        Resources["Settings.Window.Background"] = B(0x24, 0x28, 0x2E);
-        Resources["Settings.Sidebar.Background"] = B(0x27, 0x2C, 0x33);
-        Resources["Settings.Sidebar.SelectedBackground"] = B(0x31, 0x45, 0x61);
-        Resources["Settings.Sidebar.HoverBackground"] = B(0x31, 0x37, 0x40);
-        Resources["Settings.Card.Background"] = B(0x2B, 0x30, 0x37);
-        Resources["Settings.Card.Border"] = B(0x4A, 0x51, 0x5B);
-        Resources["Settings.Card.SubtleBackground"] = B(0x25, 0x2A, 0x31);
-        Resources["Settings.Foreground"] = B(0xF2, 0xF4, 0xF7);
-        Resources["Settings.SubtleForeground"] = B(0xA8, 0xB0, 0xBA);
-        Resources["Settings.Muted"] = B(0x8A, 0x95, 0xA3);
-        Resources["Settings.Stroke"] = B(0x43, 0x4A, 0x54);
-        Resources["Settings.Accent"] = B(0x4D, 0x90, 0xFE);
-        Resources["Settings.AccentHover"] = B(0x6C, 0xA4, 0xFF);
-        Resources["Settings.AccentSoft"] = B(0x2C, 0x42, 0x5E);
-        Resources["Settings.Input.Background"] = B(0x25, 0x2A, 0x31);
-        Resources["Settings.Input.Border"] = B(0x4A, 0x51, 0x5B);
-        Resources["Settings.Input.BorderFocused"] = B(0x4D, 0x90, 0xFE);
-        Resources["Settings.Hover"] = B(0x36, 0x3D, 0x46);
-        Resources["Settings.SuccessSoft"] = B(0x16, 0x33, 0x25);
-        Resources["Settings.Success"] = B(0x5E, 0xD4, 0x8E);
-        Resources["Settings.DangerSoft"] = B(0x40, 0x1B, 0x1F);
-        Resources["Settings.Danger"] = B(0xFF, 0x8A, 0x8A);
-        Resources["Settings.WarningSoft"] = B(0x3D, 0x2C, 0x14);
-        Resources["Settings.Warning"] = B(0xF3, 0xC2, 0x68);
-        Foreground = (SolidColorBrush)Resources["Settings.Foreground"];
     }
 
     private void Bind()
@@ -222,13 +261,17 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         DisplayIconAndText.IsChecked = _settings.ToolbarDisplay == ToolbarDisplayMode.IconAndText;
         DisplayIconOnly.IsChecked = _settings.ToolbarDisplay == ToolbarDisplayMode.IconOnly;
         DisplayTextOnly.IsChecked = _settings.ToolbarDisplay == ToolbarDisplayMode.TextOnly;
-        ThemeAuto.IsChecked = _settings.ToolbarTheme == ToolbarThemeMode.Auto;
-        ThemeLight.IsChecked = _settings.ToolbarTheme == ToolbarThemeMode.Light;
-        ThemeDark.IsChecked = _settings.ToolbarTheme == ToolbarThemeMode.Dark;
+        ThemePresetList.SelectedValue = _settings.ToolbarTheme;
+        if (ThemePresetList.SelectedValue is null) ThemePresetList.SelectedIndex = 0;
         SurfaceShadow.IsChecked = _settings.ToolbarSurface == ToolbarSurfaceStyle.Shadow;
         SurfaceBorder.IsChecked = _settings.ToolbarSurface == ToolbarSurfaceStyle.Border;
         SurfaceShadowAndBorder.IsChecked = _settings.ToolbarSurface == ToolbarSurfaceStyle.ShadowAndBorder;
+
+        DensityCompact.IsChecked = _settings.ToolbarDensity == ToolbarDensity.Compact;
+        DensityStandard.IsChecked = _settings.ToolbarDensity == ToolbarDensity.Standard;
+        DensityComfortable.IsChecked = _settings.ToolbarDensity == ToolbarDensity.Comfortable;
         FollowAccentColor.IsChecked = _settings.FollowAccentColor;
+        BindFontFamilyChoices();
         CornerRadiusBox.Value = _settings.ToolbarCornerRadius;
         ButtonSpacingBox.Value = _settings.ToolbarButtonSpacing;
         ToolbarFontSizeBox.Value = _settings.ToolbarFontSize;
@@ -278,6 +321,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         {
             ActionItems.Add(ActionEditorItem.FromDescriptor(action));
         }
+        RefreshToolbarPreview();
     }
 
     private void BindAiSettings()
@@ -496,10 +540,13 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         if (SearchGoogle.IsChecked == true) hit = Presets[0];
         else if (SearchBing.IsChecked == true) hit = Presets[1];
         else if (SearchBaidu.IsChecked == true) hit = Presets[2];
-        if (hit is null) return;
-
-        SearchEngineName.Text = hit.Value.Name;
-        SearchUrlTemplate.Text = hit.Value.Url;
+        if (hit is not null)
+        {
+            SearchEngineName.Text = hit.Value.Name;
+            SearchUrlTemplate.Text = hit.Value.Url;
+        }
+        // 点击 Custom 不改文本，但仍要触发一次 commit 让 settings 即时落盘
+        CommitAll();
     }
 
     private void OnAiProviderChanged(object sender, SelectionChangedEventArgs e)
@@ -507,6 +554,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         if (_syncingAiProvider) return;
         RememberPendingAiKey();
         RefreshAiProviderFields(overwritePresetValues: true);
+        CommitAll();
     }
 
     private void RefreshAiProviderFields(bool overwritePresetValues)
@@ -827,12 +875,180 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
     private void OnToolbarOpacityChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         UpdateToolbarOpacityLabel(e.NewValue);
+        CommitAll();
+    }
+
+    /// <summary>颜色主题选择变化：当前选择写入 settings 并立即应用到全局画刷。
+    /// CommitAll → AppHost.ApplyRuntimeSettings → ThemeManager.Apply，
+    /// 后者会同步更新 Application.Resources，让所有窗口随即换肤</summary>
+    private void OnToolbarThemeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        CommitAll();
     }
 
     private void UpdateToolbarOpacityLabel(double value)
     {
         if (ToolbarOpacityValue is null) return;
         ToolbarOpacityValue.Text = (value * 100).ToString("0") + "%";
+    }
+
+    /// <summary>把系统已安装字体填入"界面字体 / 浮窗字体"两个 ComboBox。
+    /// 使用 LocalizedFontNames 优先取中文族名，列表前补一个"默认"代表清空，
+    /// 留空配置项是个常见姿势，IsEditable 允许用户键入未列出的字体名</summary>
+    private void BindFontFamilyChoices()
+    {
+        var families = EnumerateSystemFontFamilies();
+        // "默认字体"项实际写入的字符串是 ""，CommitAll 时会把它落到 settings；
+        // FontFamilyHelper.ResolveUi/ResolveToolbar 看到空字符串后回退到内部链
+        // （首选 Windows 当前消息字体 + 中文回退），所以切回此项就等同于"跟随 Windows 主体字体"。
+        // 实际生效的字体名在下方"预览"文本中以原文显示，不再叠加"默认"前缀
+        var defaultLabel = "默认字体";
+        var choices = new List<FontFamilyChoice>(families.Count + 1)
+        {
+            new("", defaultLabel),
+        };
+        foreach (var name in families)
+        {
+            choices.Add(new FontFamilyChoice(name, name));
+        }
+
+        UiFontFamilyBox.ItemsSource = choices;
+        UiFontFamilyBox.DisplayMemberPath = nameof(FontFamilyChoice.Label);
+        UiFontFamilyBox.SelectedValuePath = nameof(FontFamilyChoice.Value);
+
+        ToolbarFontFamilyBox.ItemsSource = choices;
+        ToolbarFontFamilyBox.DisplayMemberPath = nameof(FontFamilyChoice.Label);
+        ToolbarFontFamilyBox.SelectedValuePath = nameof(FontFamilyChoice.Value);
+
+        SetFontComboValue(UiFontFamilyBox, _settings.UiFontFamily);
+        SetFontComboValue(ToolbarFontFamilyBox, _settings.ToolbarFontFamily);
+        RefreshFontPreviews();
+    }
+
+    private static IReadOnlyList<string> EnumerateSystemFontFamilies()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var list = new List<string>();
+        try
+        {
+            var culture = System.Globalization.CultureInfo.CurrentUICulture;
+            var fallback = System.Globalization.CultureInfo.GetCultureInfo("en-US");
+            foreach (var f in System.Windows.Media.Fonts.SystemFontFamilies)
+            {
+                var name = LocalizedName(f, culture) ?? LocalizedName(f, fallback) ?? f.Source;
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                if (!seen.Add(name)) continue;
+                list.Add(name);
+            }
+            list.Sort(StringComparer.CurrentCulture);
+        }
+        catch
+        {
+            // 极端环境下字体列表枚举失败，至少给一个空集合让用户可以手动输入
+        }
+        return list;
+    }
+
+    private static string? LocalizedName(System.Windows.Media.FontFamily family, System.Globalization.CultureInfo culture)
+    {
+        try
+        {
+            if (family.FamilyNames.TryGetValue(System.Windows.Markup.XmlLanguage.GetLanguage(culture.IetfLanguageTag), out var name))
+            {
+                return name;
+            }
+        }
+        catch
+        {
+            // FamilyNames 取值在某些字体上抛 NotSupportedException；忽略后落回 Source
+        }
+        return null;
+    }
+
+    private static void SetFontComboValue(WpfComboBox combo, string fontFamily)
+    {
+        var trimmed = (fontFamily ?? "").Trim();
+        if (combo.ItemsSource is IEnumerable<FontFamilyChoice> choices)
+        {
+            var hit = choices.FirstOrDefault(c => string.Equals(c.Value, trimmed, StringComparison.OrdinalIgnoreCase));
+            if (hit is not null)
+            {
+                combo.SelectedValue = hit.Value;
+                combo.Text = hit.Label;
+                return;
+            }
+        }
+        // 配置中保存了系统并未列出的字体名（例如用户手动改了 json）：保留原文本，
+        // 让 ComboBox 通过 IsEditable=true 仍能显示并使用
+        combo.SelectedValue = null;
+        combo.Text = trimmed;
+    }
+
+    private void OnUiFontFamilyChanged(object sender, RoutedEventArgs e)
+    {
+        RefreshFontPreviews();
+        CommitAll();
+    }
+
+    private void OnToolbarFontFamilyChanged(object sender, RoutedEventArgs e)
+    {
+        RefreshFontPreviews();
+        CommitAll();
+    }
+
+    private void OnResetFontFamilies(object sender, RoutedEventArgs e)
+    {
+        SetFontComboValue(UiFontFamilyBox, "");
+        SetFontComboValue(ToolbarFontFamilyBox, "");
+        RefreshFontPreviews();
+        CommitAll();
+    }
+
+    private void RefreshFontPreviews()
+    {
+        var uiInput = NormalizeFontFamilyInput(UiFontFamilyBox);
+        var toolbarInput = NormalizeFontFamilyInput(ToolbarFontFamilyBox);
+        var uiFont = FontFamilyHelper.ResolveUi(uiInput);
+        var toolbarFont = FontFamilyHelper.ResolveToolbar(toolbarInput, uiInput);
+
+        // 预览文本格式："字体名 · 示例"。
+        // 留空时直接显示实际生效的字体名（Windows 当前消息字体），让用户对照下拉里的"默认字体"
+        // 也能一眼看出真实效果
+        var uiName = string.IsNullOrWhiteSpace(uiInput) ? FontFamilyHelper.PreferredUiName : uiInput;
+        var toolbarName = string.IsNullOrWhiteSpace(toolbarInput)
+            ? (string.IsNullOrWhiteSpace(uiInput) ? FontFamilyHelper.PreferredUiName : uiInput)
+            : toolbarInput;
+
+        try
+        {
+            UiFontPreview.FontFamily = new System.Windows.Media.FontFamily(uiFont);
+            UiFontPreview.Text = $"{uiName} · 预览 AaBb 你好";
+        }
+        catch { /* 输入了无效族名也不要抛 */ }
+        try
+        {
+            ToolbarFontPreview.FontFamily = new System.Windows.Media.FontFamily(toolbarFont);
+            ToolbarFontPreview.Text = $"{toolbarName} · 预览 AaBb 你好";
+        }
+        catch { /* 同上 */ }
+    }
+
+    /// <summary>从 IsEditable ComboBox 中取用户输入或选项值。
+    /// 1) 优先看 SelectedItem 是否就是已知的 FontFamilyChoice：是则使用其 Value（"默认字体"项 Value="" 直接命中）
+    /// 2) 否则取 Text：用户键入了未列出的字体名时走这条分支
+    /// 3) Text 以"默认 / 系统默认"等中文 Label 开头时归一为空，避免被误当作字体名</summary>
+    private static string NormalizeFontFamilyInput(WpfComboBox combo)
+    {
+        if (combo.SelectedItem is FontFamilyChoice picked)
+        {
+            return picked.Value?.Trim() ?? "";
+        }
+        var text = combo.Text?.Trim() ?? "";
+        if (text.StartsWith("默认字体", StringComparison.Ordinal)) return "";
+        if (text.StartsWith("系统默认", StringComparison.Ordinal)) return "";
+        if (text.StartsWith("默认", StringComparison.Ordinal)) return "";
+        return text;
     }
 
     private void OnPopupModeChanged(object sender, SelectionChangedEventArgs e)
@@ -843,7 +1059,25 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         RequiredModifierBox.IsEnabled = mode == nameof(SelectionPopupMode.ModifierRequired);
     }
 
-    private void OnSave(object sender, RoutedEventArgs e)
+    /// <summary>把当前 UI 控件的全部值同步到 _settings，并持久化 + 通知 AppHost 应用。
+    /// "点击即生效"模式：任何受监听的控件触发变化时都会走这里；
+    /// _suspendCommit 期间静默（用于 Bind 阶段批量初始化 IsChecked / SelectedValue），
+    /// 避免在数据尚未就位时就开始写盘</summary>
+    private void CommitAll()
+    {
+        if (_suspendCommit) return;
+        SyncSettingsFromUi();
+        PersistAndNotify();
+    }
+
+    /// <summary>统一的事件转接器：任何控件 Changed/LostFocus 都走它，
+    /// 内部委托给 CommitAll，签名兼容 RoutedEventArgs 派生的所有事件参数</summary>
+    private void OnInstantCommit(object sender, RoutedEventArgs e) => CommitAll();
+
+    /// <summary>DependencyPropertyDescriptor.AddValueChanged 的回调签名（无 sender RoutedEventArgs）</summary>
+    private void OnInstantCommitPlain(object? sender, EventArgs e) => CommitAll();
+
+    private void SyncSettingsFromUi()
     {
         _settings.BlacklistMode = BlacklistRadio.IsChecked == true;
         _settings.SuppressOnFullScreen = FullScreenSuppress.IsChecked == true;
@@ -861,16 +1095,21 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             : DisplayTextOnly.IsChecked == true
                 ? ToolbarDisplayMode.TextOnly
                 : ToolbarDisplayMode.IconAndText;
-        _settings.ToolbarTheme = ThemeDark.IsChecked == true
-            ? ToolbarThemeMode.Dark
-            : ThemeLight.IsChecked == true
-                ? ToolbarThemeMode.Light
-                : ToolbarThemeMode.Auto;
+        _settings.ToolbarTheme = ThemePresetList.SelectedValue is ToolbarThemeMode pickedTheme
+            ? pickedTheme
+            : ToolbarThemeMode.Auto;
+        _settings.UiFontFamily = NormalizeFontFamilyInput(UiFontFamilyBox);
+        _settings.ToolbarFontFamily = NormalizeFontFamilyInput(ToolbarFontFamilyBox);
         _settings.ToolbarSurface = SurfaceShadow.IsChecked == true
             ? ToolbarSurfaceStyle.Shadow
             : SurfaceBorder.IsChecked == true
                 ? ToolbarSurfaceStyle.Border
                 : ToolbarSurfaceStyle.ShadowAndBorder;
+        _settings.ToolbarDensity = DensityCompact.IsChecked == true
+            ? ToolbarDensity.Compact
+            : DensityComfortable.IsChecked == true
+                ? ToolbarDensity.Comfortable
+                : ToolbarDensity.Standard;
         _settings.FollowAccentColor = FollowAccentColor.IsChecked == true;
         _settings.ToolbarCornerRadius = NumberBoxDouble(CornerRadiusBox, _settings.ToolbarCornerRadius, 0, 18);
         _settings.ToolbarButtonSpacing = NumberBoxDouble(ButtonSpacingBox, _settings.ToolbarButtonSpacing, 0, 10);
@@ -916,16 +1155,23 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         _settings.PauseHotKey = PauseHotKeyBox.Text.Trim();
         _settings.ToolbarHotKey = ToolbarHotKeyBox.Text.Trim();
         SaveAiSettings();
-        _settings.FirstRunCompleted = true;
+        RefreshToolbarPreview();
+    }
 
-        // 仅在"AI 首次启用"那一次播种默认动作；后续保存不再触发，
-        // 这样用户删了"修语法/润色/三句话总结"再保存就不会被强制补回
+    private void PersistAndNotify()
+    {
+        // 仅在"AI 首次启用"那一次播种默认动作；后续提交不再触发，
+        // 这样用户删了"修语法/润色/三句话总结"再切换 AI 开关也不会被强制补回。
+        // EnsureDefaultAiActions 内部会修改 ActionItems，会触发集合变更回调（递归 CommitAll），
+        // 因此用 _suspendCommit 包裹一层防递归
         if (_settings.AiEnabled && !_settings.AiDefaultActionsSeeded)
         {
-            EnsureDefaultAiActions();
+            var prev = _suspendCommit;
+            _suspendCommit = true;
+            try { EnsureDefaultAiActions(); }
+            finally { _suspendCommit = prev; }
             _settings.AiDefaultActionsSeeded = true;
         }
-
         _store.SaveSettings(_settings);
         _store.SaveActions(new ActionsConfig
         {
@@ -933,7 +1179,6 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             Actions = ActionItems.Select(x => x.ToDescriptor()).ToList(),
         });
         Saved?.Invoke();
-        Close();
     }
 
     private void SaveAiSettings()
@@ -1095,10 +1340,196 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             ? mode
             : AiThinkingMode.Auto;
 
-    private void OnCancel(object sender, RoutedEventArgs e) => Close();
+    /// <summary>从外观页控件当前值派生预览的 Margin / Padding / 字号 / 阴影 / 透明度 等参数。
+    /// 主题与字体走 DynamicResource 自动跟随，不需要在这里推送</summary>
+    private void RefreshToolbarPreview()
+    {
+        if (DisplayIconAndText is null) return;
+        var iconOn = DisplayIconOnly.IsChecked != true && DisplayTextOnly.IsChecked != true
+            || DisplayIconOnly.IsChecked == true;
+        var textOn = DisplayIconOnly.IsChecked != true && DisplayTextOnly.IsChecked != true
+            || DisplayTextOnly.IsChecked == true;
+        // 上面两条只决定"是否两者都开"，下面再单独处理 IconOnly / TextOnly 排他
+        if (DisplayIconOnly.IsChecked == true) { iconOn = true; textOn = false; }
+        else if (DisplayTextOnly.IsChecked == true) { iconOn = false; textOn = true; }
+        PreviewIconVisibility = iconOn ? Visibility.Visible : Visibility.Collapsed;
+        PreviewTextVisibility = textOn ? Visibility.Visible : Visibility.Collapsed;
+
+        var radius = NumberBoxDouble(CornerRadiusBox, _settings.ToolbarCornerRadius, 0, 18);
+        var spacing = NumberBoxDouble(ButtonSpacingBox, _settings.ToolbarButtonSpacing, 0, 10);
+        var fontSize = NumberBoxDouble(ToolbarFontSizeBox, _settings.ToolbarFontSize, 10, 18);
+        // 与浮窗实例化时一致：外圆角 = 用户值 + 1，给描边留 1px 抗锯齿余量
+        PreviewCornerRadius = new CornerRadius(radius + 1);
+        PreviewButtonCornerRadius = new CornerRadius(0);
+        PreviewButtonMargin = new Thickness(spacing, 0, spacing, 0);
+        // 按钮内边距跟随密度档：紧凑 / 标准（默认）/ 宽松，让预览与真实浮窗呈相同观感
+        var (padX, padY) = ResolvePreviewPadding();
+        PreviewButtonPadding = new Thickness(padX, padY, padX, padY);
+        PreviewFontSize = fontSize;
+        PreviewIconFontSize = fontSize + 2;
+        PreviewOpacity = Math.Clamp(ToolbarOpacitySlider.Value, 0.3, 1.0);
+
+        var surface = SurfaceShadow.IsChecked == true
+            ? ToolbarSurfaceStyle.Shadow
+            : SurfaceBorder.IsChecked == true
+                ? ToolbarSurfaceStyle.Border
+                : ToolbarSurfaceStyle.ShadowAndBorder;
+        // 阴影参数与 FloatingToolbar.ApplySurfaceStyle 严格对齐，
+        // 切换"按钮风格"时预览与浮窗呈现完全相同的"浮起"层次
+        switch (surface)
+        {
+            case ToolbarSurfaceStyle.Shadow:
+                PreviewBorderThickness = new Thickness(0);
+                PreviewShadowBlurRadius = 10;
+                PreviewShadowDepth = 3;
+                PreviewShadowOpacity = 0.55;
+                break;
+            case ToolbarSurfaceStyle.Border:
+                PreviewBorderThickness = new Thickness(1);
+                PreviewShadowBlurRadius = 0;
+                PreviewShadowDepth = 0;
+                PreviewShadowOpacity = 0;
+                break;
+            default:
+                PreviewBorderThickness = new Thickness(1);
+                PreviewShadowBlurRadius = 8;
+                PreviewShadowDepth = 2;
+                PreviewShadowOpacity = 0.42;
+                break;
+        }
+    }
+
+    /// <summary>把当前选中的密度档位映射成按钮 padding。
+    /// 与 FloatingToolbar.PaddingForDensity 数值严格一致，保持预览与真实浮窗同款观感</summary>
+    private (double X, double Y) ResolvePreviewPadding()
+    {
+        if (DensityCompact is not null && DensityCompact.IsChecked == true) return (8, 5);
+        if (DensityComfortable is not null && DensityComfortable.IsChecked == true) return (16, 13);
+        return (12, 9);
+    }
+
+    /// <summary>把所有"点击/输入即生效"的控件挂上统一的 CommitAll 回调。
+    /// 在 Loaded 后调用，避免与 Bind 阶段批量初始化撞车；
+    /// 部分控件（ThemePresetList、PopupModeBox、UI/Toolbar 字体下拉等）已经在 XAML 上指向了
+    /// 专用 handler，那些 handler 内会自己调 CommitAll，因此这里不再重复挂</summary>
+    private void HookInstantCommit()
+    {
+        // ToggleSwitch / CheckBox / RadioButton 走 Checked/Unchecked
+        AttachToggle(FullScreenSuppress, LaunchAtStartup, EnableSelectAllPopupBox,
+            EnableToolbarKeyboardShortcutsBox, EnableToolbarTabNavigationBox, EnableToolbarNumberShortcutsBox,
+            DismissOnMouseLeaveBox, DismissOnForegroundChangedBox, DismissOnClickOutsideBox,
+            DismissOnEscapeKeyBox, DismissOnNewSelectionBox, DismissOnActionInvokedBox,
+            DismissOnTimeoutBox, FollowAccentColor, AiEnabledBox);
+        AttachRadio(BlacklistRadio, WhitelistRadio,
+            DisplayIconAndText, DisplayIconOnly, DisplayTextOnly,
+            SurfaceShadow, SurfaceBorder, SurfaceShadowAndBorder,
+            DensityCompact, DensityStandard, DensityComfortable);
+
+        // ComboBox SelectionChanged
+        AttachCombo(RequiredModifierBox, QuickClickModifierBox, AiThinkingModeBox, LogLevelBox);
+        // PopupModeBox 已挂 OnPopupModeChanged，再补一个 commit 即可（多 handler 共存不冲突）
+        PopupModeBox.SelectionChanged += OnInstantCommit;
+
+        // NumberBox 的 ValueProperty 不暴露 RoutedEventArgs 事件，用 DependencyPropertyDescriptor 监听
+        AttachNumber(MinTextLengthBox, MaxTextLengthBox, PopupDelayBox, HoverDelayBox,
+            DismissMouseLeaveDelayBox, DismissTimeoutMsBox,
+            CornerRadiusBox, ButtonSpacingBox, ToolbarFontSizeBox, MaxActionsPerRowBox,
+            AiTimeoutBox, AiMaxOutputTokensBox);
+
+        // TextBox / PasswordBox：用 LostFocus 而不是 TextChanged，避免每个键盘字符都触发写盘
+        AttachTextLostFocus(SearchEngineName, SearchUrlTemplate,
+            PauseHotKeyBox, ToolbarHotKeyBox,
+            AiBaseUrlBox, AiModelBox, AiDefaultLanguageBox);
+        AiApiKeyBox.LostFocus += OnInstantCommit;
+
+        // 集合：动作列表 / 进程过滤名单
+        ProcessFilters.CollectionChanged += (_, _) => CommitAll();
+        ActionItems.CollectionChanged += OnActionsCollectionChanged;
+        foreach (var existing in ActionItems)
+        {
+            existing.PropertyChanged += OnActionItemChanged;
+        }
+    }
+
+    private void AttachToggle(params System.Windows.Controls.Primitives.ToggleButton?[] toggles)
+    {
+        foreach (var t in toggles)
+        {
+            if (t is null) continue;
+            t.Checked += OnInstantCommit;
+            t.Unchecked += OnInstantCommit;
+        }
+    }
+
+    private void AttachRadio(params System.Windows.Controls.Primitives.ToggleButton?[] radios)
+    {
+        // RadioButton 复用 ToggleButton；OnCheckChanged 只关心 Checked 即可（同组 Unchecked 总会伴随另一项 Checked）
+        foreach (var r in radios)
+        {
+            if (r is null) continue;
+            r.Checked += OnInstantCommit;
+        }
+    }
+
+    private void AttachCombo(params System.Windows.Controls.Primitives.Selector?[] combos)
+    {
+        foreach (var c in combos)
+        {
+            if (c is null) continue;
+            c.SelectionChanged += OnInstantCommit;
+        }
+    }
+
+    private void AttachNumber(params Wpf.Ui.Controls.NumberBox?[] boxes)
+    {
+        var dpd = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(
+            Wpf.Ui.Controls.NumberBox.ValueProperty,
+            typeof(Wpf.Ui.Controls.NumberBox));
+        if (dpd is null) return;
+        foreach (var b in boxes)
+        {
+            if (b is null) continue;
+            dpd.AddValueChanged(b, OnInstantCommitPlain);
+        }
+    }
+
+    private void AttachTextLostFocus(params Control?[] controls)
+    {
+        foreach (var c in controls)
+        {
+            if (c is null) continue;
+            c.LostFocus += OnInstantCommit;
+        }
+    }
+
+    private void OnActionsCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (e.NewItems is not null)
+        {
+            foreach (ActionEditorItem item in e.NewItems)
+            {
+                item.PropertyChanged += OnActionItemChanged;
+            }
+        }
+        if (e.OldItems is not null)
+        {
+            foreach (ActionEditorItem item in e.OldItems)
+            {
+                item.PropertyChanged -= OnActionItemChanged;
+            }
+        }
+        CommitAll();
+    }
+
+    private void OnActionItemChanged(object? sender, PropertyChangedEventArgs e) => CommitAll();
 }
 
 public sealed record BuiltInChoice(string Id, string Title);
+
+/// <summary>外观页"实时预览"中的示例按钮。
+/// Icon 使用 WPF-UI SymbolRegular 而非应用内自定义图标 key，因为预览只需呈现视觉效果，
+/// 不必走真实浮窗的 IconKeyToMaterialDesignKindConverter 转换链</summary>
+public sealed record ToolbarPreviewItem(string Title, Wpf.Ui.Controls.SymbolRegular Icon);
 
 public sealed record AiOutputModeChoice(string Value, string Label);
 
@@ -1116,6 +1547,41 @@ public sealed record UsageRow(string DateLabel, string CallsLabel, string Prompt
 
 public sealed record AiThinkingModeChoice(AiThinkingMode Value, string Label, string Description);
 public sealed record LogLevelChoice(LogLevel Value, string Label);
+
+/// <summary>外观页"颜色主题"卡片的数据载体。
+/// BackgroundHex / ForegroundHex 直接以颜色字符串声明，方便在常量数组里写死；
+/// XAML 端通过 BackgroundBrush / ForegroundBrush 拿到 SolidColorBrush 渲染预览圆点</summary>
+public sealed class ToolbarThemeChoice
+{
+    public ToolbarThemeChoice(ToolbarThemeMode mode, string label, string backgroundHex, string foregroundHex)
+    {
+        Mode = mode;
+        Label = label;
+        BackgroundBrush = MakeBrush(backgroundHex);
+        ForegroundBrush = MakeBrush(foregroundHex);
+    }
+
+    public ToolbarThemeMode Mode { get; }
+    public string Label { get; }
+    public SolidColorBrush BackgroundBrush { get; }
+    public SolidColorBrush ForegroundBrush { get; }
+
+    private static SolidColorBrush MakeBrush(string hex)
+    {
+        try
+        {
+            return (SolidColorBrush)new System.Windows.Media.BrushConverter().ConvertFromString(hex)!;
+        }
+        catch
+        {
+            return new SolidColorBrush(System.Windows.Media.Colors.Transparent);
+        }
+    }
+}
+
+/// <summary>字体 ComboBox 的数据载体。
+/// 留空 Value 表示"使用默认回退链"，Label 含中文说明便于普通用户理解</summary>
+public sealed record FontFamilyChoice(string Value, string Label);
 
 public sealed record RecentProcessItem(string ProcessName, string WindowTitle)
 {

@@ -13,7 +13,6 @@ using PopClip.Core.Session;
 using PopClip.Hooks.Interop;
 using PopClip.Hooks.Window;
 using Brush = System.Windows.Media.Brush;
-using Color = System.Windows.Media.Color;
 using RectangleGeometry = System.Windows.Media.RectangleGeometry;
 using SolidColorBrush = System.Windows.Media.SolidColorBrush;
 
@@ -38,8 +37,6 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     private bool _isTextVisible = true;
     private int _selectedIndex = -1;
     private int _maxActionsPerRow = 6;
-    private ToolbarThemeMode _themeMode = ToolbarThemeMode.Auto;
-    private bool _followAccentColor = true;
     private bool _dismissOnMouseLeave = true;
     private int _dismissMouseLeaveDelayMs = 800;
     private bool _dismissOnTimeout;
@@ -50,12 +47,22 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     private bool _keyboardShortcutsEnabled = true;
     private bool _tabNavigationEnabled = true;
     private bool _numberShortcutsEnabled = true;
-    private CancellationTokenSource? _toastCts;
     private CancellationTokenSource? _dismissTimeoutCts;
-    private string? _toastCopyText;
-    private const int ShadowPaddingDip = 9;
-    private const int OuterMarginDip = 18;
+    private ToolbarToastWindow? _toastWindow;
+    /// <summary>窗口外缘留给阴影扩散的 DIP 数。
+    /// 与 FloatingToolbar.xaml 中 Grid.Margin 严格一致（同步改），
+    /// 决定阴影最大可见 BlurRadius+ShadowDepth；过小阴影边缘会被透明窗口裁切，过大会增加屏占用</summary>
+    private const int ShadowPaddingDip = 12;
+
+    /// <summary>窗口尺寸 = ContentClipHost.DesiredSize + 这个值。
+    /// 必须 = ShadowPaddingDip * 2（左右 / 上下两侧 Margin 之和），
+    /// 否则 SizeToContent 算出的 window 比真实内容小，右侧按钮会被透明边裁切</summary>
+    private const int OuterMarginDip = ShadowPaddingDip * 2;
+    /// <summary>Standard 密度下按钮的左右内边距。
+    /// Compact / Comfortable 由 PaddingForDensity 派生</summary>
     private const double ToolbarButtonPaddingX = 12;
+
+    /// <summary>Standard 密度下按钮的上下内边距</summary>
     private const double ToolbarButtonPaddingY = 9;
     // 外圆角半径，与阴影底板/描边层的 CornerRadius 完全一致；
     // ContentClipHost 用它作 Clip 圆角，按钮 hover 颜色直接铺满到外圆角弧线，
@@ -63,6 +70,9 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     private double _outerCornerRadius;
 
     public event Action? Dismissed;
+    /// <summary>系统主题/强调色变化时触发，由 AppHost 转给 ThemeManager 重新应用全局主题。
+    /// 浮窗 WndProc 是系统消息最容易接到的入口，因此用它做信号源，而不在内部直接动主题资源</summary>
+    public event Action? SystemThemeChanged;
     public event PropertyChangedEventHandler? PropertyChanged;
     public DateTime LastToastAtUtc { get; private set; } = DateTime.MinValue;
 
@@ -125,15 +135,13 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         });
     }
 
-    /// <summary>由设置层调用，切换浮窗浅色/深色主题</summary>
-    public void ApplyThemeMode(ToolbarThemeMode mode)
-        => ApplyThemeMode(mode, _followAccentColor);
-
     public void ApplyAppearance(AppSettings settings)
     {
         ApplyDisplayMode(settings.ToolbarDisplay);
-        ApplyThemeMode(settings.ToolbarTheme, settings.FollowAccentColor);
+        // 主题与字体由 ThemeManager 统一写到 Application.Resources，浮窗的 DynamicResource 自动跟随；
+        // 这里不重复写本地资源字典，避免覆盖全局主题
         ApplySurfaceStyle(settings.ToolbarSurface);
+        var (padX, padY) = PaddingForDensity(settings.ToolbarDensity);
         _maxActionsPerRow = Math.Clamp(settings.ToolbarMaxActionsPerRow, 3, 12);
         _dismissOnMouseLeave = settings.DismissOnMouseLeave;
         _dismissMouseLeaveDelayMs = Math.Clamp(settings.DismissMouseLeaveDelayMs, 0, 5000);
@@ -166,11 +174,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             // 不再有 container padding：StackPanel 直接贴满 ContentClipHost，
             // ItemsPanel 通过负 Margin 抵消最外侧按钮的左右 Margin，最左/最右按钮的高亮区直接贴到外壳内边
             Resources["ToolbarButtonMargin"] = new Thickness(spacing, 0, spacing, 0);
-            Resources["ToolbarButtonPadding"] = new Thickness(
-                ToolbarButtonPaddingX,
-                ToolbarButtonPaddingY,
-                ToolbarButtonPaddingX,
-                ToolbarButtonPaddingY);
+            Resources["ToolbarButtonPadding"] = new Thickness(padX, padY, padX, padY);
             Resources["ToolbarItemsPanelMargin"] = new Thickness(-spacing, 0, -spacing, 0);
             Resources["ToolbarButtonFontSize"] = fontSize;
             // 图标比正文大 4 号 + SemiBold 字重，让图标在按钮里成为视觉重心
@@ -208,32 +212,8 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         UpdateContentClip();
     }
 
-    private void ApplyThemeMode(ToolbarThemeMode mode, bool followAccentColor)
-    {
-        Dispatcher.Invoke(() =>
-        {
-            _themeMode = mode;
-            _followAccentColor = followAccentColor;
-            var resolved = mode == ToolbarThemeMode.Auto
-                ? (SystemThemeHelper.IsSystemDark() ? ToolbarThemeMode.Dark : ToolbarThemeMode.Light)
-                : mode;
-            var prefix = resolved == ToolbarThemeMode.Dark ? "ToolbarDark" : "ToolbarLight";
-            SetToolbarResource("ToolbarBackground", $"{prefix}Background");
-            SetToolbarResource("ToolbarShadow", $"{prefix}Shadow");
-            SetToolbarResource("ToolbarBorder", $"{prefix}Border");
-            SetToolbarResource("ToolbarForeground", $"{prefix}Foreground");
-            SetToolbarResource("ToolbarHover", $"{prefix}Hover");
-            SetToolbarResource("ToolbarAccentSoft", $"{prefix}AccentSoft");
-            SetToolbarResource("ToolbarToastBackground", $"{prefix}ToastBackground");
-            if (followAccentColor)
-            {
-                Resources["ToolbarAccentSoft"] = new SolidColorBrush(BlendAccent(SystemThemeHelper.AccentColor(), resolved));
-            }
-        });
-    }
-
-    // 阴影参数策略：加深 Opacity（更明显）+ 缩小 BlurRadius（不晕散到边框外远处）；
-    // 总预算 BlurRadius + ShadowDepth 不超过 ShadowPaddingDip(=9) 避免被透明窗口边界裁切
+    // 阴影参数策略：加深 Opacity 让"浮起"立体感更明显；
+    // 总预算 BlurRadius + ShadowDepth 不超过 ShadowPaddingDip(=12) 避免被透明窗口边界裁切
     private void ApplySurfaceStyle(ToolbarSurfaceStyle style)
     {
         Dispatcher.Invoke(() =>
@@ -241,11 +221,11 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             switch (style)
             {
                 case ToolbarSurfaceStyle.Shadow:
-                    // 纯阴影：在没有描边的情况下用稍宽一点的范围让外形可读，但仍偏紧
+                    // 纯阴影：放宽 BlurRadius + 提高 Opacity，叠出明显"浮起"立体感
                     Resources["ToolbarBorderThickness"] = new Thickness(0);
-                    Resources["ToolbarShadowBlurRadius"] = 7d;
-                    Resources["ToolbarShadowDepth"] = 2d;
-                    Resources["ToolbarShadowOpacity"] = 0.42d;
+                    Resources["ToolbarShadowBlurRadius"] = 10d;
+                    Resources["ToolbarShadowDepth"] = 3d;
+                    Resources["ToolbarShadowOpacity"] = 0.55d;
                     break;
                 case ToolbarSurfaceStyle.Border:
                     // 纯细边框：去掉阴影完全避免裁切；边框颜色由 ToolbarBorder 主题切换
@@ -255,34 +235,24 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
                     Resources["ToolbarShadowOpacity"] = 0d;
                     break;
                 default:
-                    // ShadowAndBorder：阴影更深更紧贴，细边框 + 重阴影构成"漂浮卡片"感
+                    // ShadowAndBorder：阴影更深一档，细边框 + 较重阴影构成"漂浮卡片"感
                     Resources["ToolbarBorderThickness"] = new Thickness(1);
-                    Resources["ToolbarShadowBlurRadius"] = 6d;
+                    Resources["ToolbarShadowBlurRadius"] = 8d;
                     Resources["ToolbarShadowDepth"] = 2d;
-                    Resources["ToolbarShadowOpacity"] = 0.32d;
+                    Resources["ToolbarShadowOpacity"] = 0.42d;
                     break;
             }
         });
     }
 
-    private static Color BlendAccent(Color accent, ToolbarThemeMode theme)
+    /// <summary>把密度档位映射成按钮的左右/上下内边距。
+    /// Standard 与早期硬编码一致 (12,9)，向 Compact (8,5) / Comfortable (16,13) 两侧线性放缩</summary>
+    private static (double X, double Y) PaddingForDensity(ToolbarDensity density) => density switch
     {
-        var factor = theme == ToolbarThemeMode.Dark ? 0.36 : 0.18;
-        var baseColor = theme == ToolbarThemeMode.Dark ? Color.FromRgb(0x2B, 0x30, 0x37) : Color.FromRgb(0xFF, 0xFF, 0xFF);
-        byte Blend(byte a, byte b) => (byte)Math.Round(a * factor + b * (1 - factor));
-        return Color.FromRgb(Blend(accent.R, baseColor.R), Blend(accent.G, baseColor.G), Blend(accent.B, baseColor.B));
-    }
-
-    private void SetToolbarResource(string targetKey, string sourceKey)
-    {
-        var value = TryFindResource(sourceKey) ?? System.Windows.Application.Current?.TryFindResource(sourceKey);
-        if (value is null)
-        {
-            _log.Warn("toolbar theme resource missing", ("key", sourceKey));
-            return;
-        }
-        Resources[targetKey] = value;
-    }
+        ToolbarDensity.Compact => (8, 5),
+        ToolbarDensity.Comfortable => (16, 13),
+        _ => (ToolbarButtonPaddingX, ToolbarButtonPaddingY),
+    };
 
     private void OnPropertyChanged([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
@@ -341,7 +311,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             or NativeMethods.WM_THEMECHANGED
             or NativeMethods.WM_DWMCOLORIZATIONCOLORCHANGED)
         {
-            ApplyThemeMode(_themeMode, _followAccentColor);
+            SystemThemeChanged?.Invoke();
         }
         return 0;
     }
@@ -352,6 +322,9 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     /// 物理像素，再用物理像素做边界约束 + SetWindowPos，避免 DIP/PX 混用偏移</summary>
     public void ShowAt(SelectionRect anchorRect, ForegroundWindowInfo foreground)
     {
+        // 新选区出现先关掉上一次残留的 toast：旧 toast 位置是基于上次浮窗算的，
+        // 新浮窗位置不同的话会让旧 toast 飘在屏幕奇怪位置或盖在新浮窗上
+        HideToast();
         PrewarmLayout();
         UpdateOverflowLayout();
         SelectIndex(ShouldAutoSelectFirstItem() ? 0 : -1);
@@ -570,14 +543,32 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
 
     private void UpdateOverflowLayout()
     {
-        if (Items.Count > _maxActionsPerRow)
-        {
-            ItemsHost.MaxWidth = _maxActionsPerRow * 112;
-        }
-        else
+        if (Items.Count <= _maxActionsPerRow)
         {
             ItemsHost.ClearValue(MaxWidthProperty);
+            return;
         }
+
+        // 强制 measure 让 ItemContainerGenerator 生成可读 DesiredSize 的 container；
+        // 没这一步 ContainerFromIndex 会拿到 null，退回到硬编码估值不能适配
+        // 用户切显示模式（横向/纵向 button 宽度差 ~20DIP）/ 切密度 / 切字号 之后的实际宽度
+        ItemsHost.ApplyTemplate();
+        ItemsHost.UpdateLayout();
+
+        double maxItemDesiredWidth = 0;
+        for (int i = 0; i < Items.Count; i++)
+        {
+            if (ItemsHost.ItemContainerGenerator.ContainerFromIndex(i) is UIElement el
+                && el.DesiredSize.Width > maxItemDesiredWidth)
+            {
+                maxItemDesiredWidth = el.DesiredSize.Width;
+            }
+        }
+        // 兜底（首帧 container 未生成时）；旧硬编码 112 在纵向布局下偏大，统一缩到 96
+        if (maxItemDesiredWidth < 1) maxItemDesiredWidth = 96;
+        // +1 抵消舍入；按"最宽 button * N"作为 MaxWidth，短按钮排得下时一行 ≥ N，
+        // 真正超出 _maxActionsPerRow 的情形 WrapPanel 自动换到下一行
+        ItemsHost.MaxWidth = maxItemDesiredWidth * _maxActionsPerRow + 1;
     }
 
     /// <summary>把工具栏摆到 anchor 下方，左边缘贴近鼠标垂线；触底则上翻并按工作区约束</summary>
@@ -648,9 +639,20 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         // 否则下次 base.Show() 会因为 Visibility 仍是 Visible 而 no-op，SizeToContent 不再触发
         base.Hide();
         _isShown = false;
-        HideToast();
+        // 故意不在这里 HideToast：DismissOnActionInvoked=true 时浮窗会在动作完成后 700ms 自关，
+        // 但用户期望"复制完看到提示"——让 toast 自己计时 1.8s 后再关，体验更自然。
+        // 旧 toast 在下一次 ShowAt 入口处会被强制清掉（避免新浮窗位置变化时旧 toast 残留）
         Dismissed?.Invoke();
         _log.Debug("toolbar dismissed", ("reason", reason));
+    }
+
+    /// <summary>窗口彻底关闭（程序退出等）时连同 toast 一起释放，避免 Owner 已销毁后 toast 还驻留</summary>
+    protected override void OnClosed(EventArgs e)
+    {
+        _toastWindow?.HideNow();
+        _toastWindow?.Close();
+        _toastWindow = null;
+        base.OnClosed(e);
     }
 
     /// <summary>外部代码触发关闭（前台窗口变化、Esc、新选区等）</summary>
@@ -658,49 +660,31 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
 
     public void Notify(string text) => ShowInlineToast(text);
 
+    /// <summary>把提示交给独立 ToolbarToastWindow 显示，避免内嵌 Toast 与浮窗 SizeToContent 冲突，
+    /// 也允许浮窗 700ms 关闭后提示自己续命到 durationMs 结束</summary>
     public void ShowInlineToast(string text, bool isError = false, string? copyText = null, int durationMs = 1800)
     {
         Dispatcher.Invoke(() =>
         {
             LastToastAtUtc = DateTime.UtcNow;
-            _toastCts?.Cancel();
-            _toastCts = new CancellationTokenSource();
-            _toastCopyText = copyText;
-            ToastText.Text = text;
-            ToastCopyButton.Visibility = string.IsNullOrEmpty(copyText) ? Visibility.Collapsed : Visibility.Visible;
-            ToastHost.Visibility = Visibility.Visible;
-            if (isError)
-            {
-                ToastHost.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x5A, 0x1E, 0x1E));
-            }
-            else
-            {
-                if (TryFindResource("ToolbarToastBackground") is Brush brush) ToastHost.Background = brush;
-            }
-
-            var cts = _toastCts;
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await Task.Delay(durationMs, cts.Token).ConfigureAwait(false);
-                    Dispatcher.Invoke(() =>
-                    {
-                        if (cts.IsCancellationRequested) return;
-                        ToastHost.Visibility = Visibility.Collapsed;
-                    });
-                }
-                catch (OperationCanceledException) { }
-            });
+            EnsureToastWindow();
+            // anchor 取浮窗水平中心、内容下沿（Window.Top + Height - ShadowPaddingDip）；
+            // 浮窗外缘有 ShadowPaddingDip 的透明阴影留白，扣掉之后 toast 才贴近"用户能看到的浮窗底"
+            var anchorCenterX = Left + Width / 2;
+            var anchorTopY = Top + Height - ShadowPaddingDip;
+            _toastWindow!.Show(text, copyText, isError, durationMs, anchorCenterX, anchorTopY);
         });
     }
 
-    private void HideToast()
+    private void EnsureToastWindow()
     {
-        _toastCts?.Cancel();
-        ToastHost.Visibility = Visibility.Collapsed;
-        _toastCopyText = null;
+        if (_toastWindow is not null) return;
+        _toastWindow = new ToolbarToastWindow(_log);
+        // 浮窗 Owner 关闭时 toast 也跟着销毁；但 toast 自己的 durationMs 计时由它自己管，浮窗 Hide 不会强关 toast
+        _toastWindow.Owner = this;
     }
+
+    private void HideToast() => _toastWindow?.HideNow();
 
     private void ScheduleTimeoutDismiss()
     {
@@ -745,18 +729,4 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         });
     }
 
-    private void OnCopyToastClicked(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrEmpty(_toastCopyText)) return;
-        try
-        {
-            System.Windows.Clipboard.SetText(_toastCopyText);
-            ToastText.Text = "错误信息已复制";
-            ToastCopyButton.Visibility = Visibility.Collapsed;
-        }
-        catch (Exception ex)
-        {
-            _log.Warn("copy toast failed", ("err", ex.Message));
-        }
-    }
 }

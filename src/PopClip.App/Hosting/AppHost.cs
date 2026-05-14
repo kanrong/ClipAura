@@ -92,6 +92,8 @@ internal sealed class AppHost : IDisposable
 
         _toolbar = new FloatingToolbar(_log);
         _toolbar.PrewarmLayout();
+        // 系统主题/强调色变化时，由浮窗 WndProc 转发到这里重新跑一次全局主题应用
+        _toolbar.SystemThemeChanged += OnSystemThemeChanged;
 
         // SQLite-backed 历史 / 用量 / 剪贴板存储；初始化失败时退化为 no-op，不阻塞 AI 主流程
         _historyDb = new HistoryDatabase(_log);
@@ -207,6 +209,8 @@ internal sealed class AppHost : IDisposable
     {
         if (_settings is null) return;
         ConsoleLog.Instance.SetMinimumLevel(_settings.LogLevel);
+        // 主题/字体先于浮窗外观应用：浮窗 DynamicResource 才能在第一次 ApplyAppearance 拿到最新画刷
+        ThemeManager.Apply(_settings);
         _toolbar?.ApplyAppearance(_settings);
         if (reloadActions && _store is not null && _catalog is not null)
         {
@@ -216,6 +220,12 @@ internal sealed class AppHost : IDisposable
         }
         _hotkeys?.Apply(_settings);
         ApplyStartupSetting();
+    }
+
+    private void OnSystemThemeChanged()
+    {
+        if (_settings is null) return;
+        WpfApplication.Current?.Dispatcher.Invoke(() => ThemeManager.Apply(_settings));
     }
 
     private void ApplyStartupSetting()
@@ -263,6 +273,10 @@ internal sealed class AppHost : IDisposable
 
     public void Dispose()
     {
+        if (_toolbar is not null)
+        {
+            _toolbar.SystemThemeChanged -= OnSystemThemeChanged;
+        }
         _session?.Dispose();
         _hotkeys?.Dispose();
         _watcher?.Dispose();

@@ -13,7 +13,7 @@
         ResizeMode="NoResize"
         SizeToContent="WidthAndHeight"
         UseLayoutRounding="True"
-        FontFamily="Microsoft YaHei UI, Microsoft YaHei, 微软雅黑, PingFang SC, Segoe UI"
+        FontFamily="{DynamicResource ToolbarFontFamily}"
         TextOptions.TextFormattingMode="Display"
         TextOptions.TextRenderingMode="ClearType">
     <Window.Resources>
@@ -21,35 +21,11 @@
         <local:IconKeyToFontFamilyConverter x:Key="IconFontConv" />
         <local:IconKeyToMaterialDesignKindConverter x:Key="MaterialIconConv" />
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
-
-        <!-- 浮窗内的"复制"小按钮：屏蔽全局 WPF-UI Fluent 默认样式，保持极简紧凑的外观 -->
-        <Style x:Key="ToolbarToastButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Foreground" Value="{DynamicResource ToolbarForeground}" />
-            <Setter Property="FontSize" Value="11" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd"
-                                Background="{TemplateBinding Background}"
-                                CornerRadius="3"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ToolbarHover}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
     </Window.Resources>
 
-    <Grid Margin="9"
+    <!-- Margin 与 FloatingToolbar.xaml.cs ShadowPaddingDip 必须严格相等，否则
+         窗口定位会与阴影外缘错位；这里 12 留给 BlurRadius=10 + Depth=3 的纯阴影模式不被裁切 -->
+    <Grid Margin="12"
           SnapsToDevicePixels="True">
         <!-- 阴影底板：fill 必须与主体 ToolbarBackground 同色，主 Border 完全覆盖其填充区，
              只露出 DropShadowEffect 投射出来的柔和阴影。
@@ -91,18 +67,18 @@
                             <Button Style="{StaticResource ToolbarButtonStyle}"
                                     Command="{Binding Command}"
                                     ToolTip="{Binding Title}">
-                                <StackPanel Orientation="Horizontal">
-                                    <!-- 图标：比正文大 4 号 + SemiBold；
-                                         对 Segoe Fluent Icons 字体而言字重影响很小，但对
-                                         普通字符/emoji 起到加粗强调，整体让图标成为按钮焦点 -->
+                                <!-- 图标在上、文字在下：与"外观页实时预览"卡片保持完全一致；
+                                     IconOnly 模式时文字折叠，TextOnly 模式时图标折叠，按钮高度自适应 -->
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                                     <iconPacks:PackIconMaterialDesign Kind="{Binding IconKey, Converter={StaticResource MaterialIconConv}}"
                                                                       Width="{DynamicResource ToolbarIconFontSize}"
                                                                       Height="{DynamicResource ToolbarIconFontSize}"
-                                                                      VerticalAlignment="Center"
+                                                                      HorizontalAlignment="Center"
                                                                       Visibility="{Binding DataContext.IsIconVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}">
                                         <iconPacks:PackIconMaterialDesign.Style>
                                             <Style TargetType="iconPacks:PackIconMaterialDesign">
-                                                <Setter Property="Margin" Value="0,0,6,0" />
+                                                <!-- 图标下方与文字之间留 2px：仅图标模式时清零，避免按钮多出空白边 -->
+                                                <Setter Property="Margin" Value="0,0,0,2" />
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}}" Value="False">
                                                         <Setter Property="Margin" Value="0" />
@@ -112,7 +88,7 @@
                                         </iconPacks:PackIconMaterialDesign.Style>
                                     </iconPacks:PackIconMaterialDesign>
                                     <TextBlock Text="{Binding Title}"
-                                               VerticalAlignment="Center"
+                                               HorizontalAlignment="Center"
                                                Visibility="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
                                 </StackPanel>
                             </Button>
@@ -120,26 +96,6 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <Border x:Name="ToastHost"
-                        Background="{DynamicResource ToolbarToastBackground}"
-                        CornerRadius="3"
-                        Margin="3,2,3,3"
-                        Padding="8,5"
-                        Visibility="Collapsed">
-                    <DockPanel LastChildFill="True">
-                        <Button x:Name="ToastCopyButton"
-                                Style="{StaticResource ToolbarToastButtonStyle}"
-                                Content="复制"
-                                DockPanel.Dock="Right"
-                                Margin="8,0,0,0"
-                                Padding="6,2"
-                                Click="OnCopyToastClicked"
-                                Visibility="Collapsed" />
-                        <TextBlock x:Name="ToastText"
-                                   Foreground="{DynamicResource ToolbarForeground}"
-                                   TextWrapping="Wrap" />
-                    </DockPanel>
-                </Border>
             </StackPanel>
         </Grid>
 

@@ -11,8 +11,11 @@
                  WindowBackdropType="Mica"
                  ExtendsContentIntoTitleBar="True"
                  Background="{DynamicResource Settings.Window.Background}"
-                 FontFamily="{StaticResource Settings.FontFamily}">
-    <Grid>
+                 Foreground="{DynamicResource Settings.Foreground}"
+                 FontFamily="{DynamicResource Settings.FontFamily}">
+    <!-- 显式 Background 让 Mica 半透之上盖一层主题纯色，
+         避免 ApplicationTheme=Dark 时窗体被 Mica 染成深色，看不出当前选择的主题 -->
+    <Grid Background="{DynamicResource Settings.Window.Background}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />

@@ -44,7 +44,9 @@
     <sys:Double x:Key="Settings.FontSize.Body">13</sys:Double>
     <sys:Double x:Key="Settings.FontSize.Section">16</sys:Double>
     <sys:Double x:Key="Settings.FontSize.Page">22</sys:Double>
-    <!-- 字体回退链：中文环境优先（Microsoft YaHei UI / 微软雅黑），缺中文字形再回落到 Segoe -->
+    <!-- 字体回退链：中文环境优先（Microsoft YaHei UI / 微软雅黑），缺中文字形再回落到 Segoe。
+         设置窗口运行时会用 DynamicResource 覆写 Settings.FontFamily 实现"在线换字体"，
+         因此下面 Style 的 FontFamily Setter 也统一走 DynamicResource，保证联动 -->
     <FontFamily x:Key="Settings.FontFamily">Microsoft YaHei UI, Microsoft YaHei, 微软雅黑, PingFang SC, Segoe UI Variable Display, Segoe UI</FontFamily>
 
     <!-- ============================================================
@@ -52,7 +54,7 @@
          ============================================================ -->
 
     <Style x:Key="Settings.PageTitle" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource Settings.FontFamily}" />
+        <Setter Property="FontFamily" Value="{DynamicResource Settings.FontFamily}" />
         <Setter Property="FontSize" Value="{StaticResource Settings.FontSize.Page}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource Settings.Foreground}" />
@@ -60,7 +62,7 @@
     </Style>
 
     <Style x:Key="Settings.PageDescription" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource Settings.FontFamily}" />
+        <Setter Property="FontFamily" Value="{DynamicResource Settings.FontFamily}" />
         <Setter Property="FontSize" Value="{StaticResource Settings.FontSize.Body}" />
         <Setter Property="Foreground" Value="{DynamicResource Settings.SubtleForeground}" />
         <Setter Property="Margin" Value="0,0,0,18" />
@@ -68,7 +70,7 @@
     </Style>
 
     <Style x:Key="Settings.SectionTitle" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource Settings.FontFamily}" />
+        <Setter Property="FontFamily" Value="{DynamicResource Settings.FontFamily}" />
         <Setter Property="FontSize" Value="{StaticResource Settings.FontSize.Section}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource Settings.Foreground}" />
@@ -76,7 +78,7 @@
     </Style>
 
     <Style x:Key="Settings.FieldLabel" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource Settings.FontFamily}" />
+        <Setter Property="FontFamily" Value="{DynamicResource Settings.FontFamily}" />
         <Setter Property="FontSize" Value="{StaticResource Settings.FontSize.Body}" />
         <Setter Property="Foreground" Value="{DynamicResource Settings.SubtleForeground}" />
         <Setter Property="VerticalAlignment" Value="Center" />
@@ -84,7 +86,7 @@
     </Style>
 
     <Style x:Key="Settings.HintText" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource Settings.FontFamily}" />
+        <Setter Property="FontFamily" Value="{DynamicResource Settings.FontFamily}" />
         <Setter Property="FontSize" Value="11" />
         <Setter Property="Foreground" Value="{DynamicResource Settings.Muted}" />
         <Setter Property="TextWrapping" Value="Wrap" />
@@ -128,7 +130,7 @@
         <Setter Property="Margin" Value="0,1" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="Foreground" Value="{DynamicResource Settings.Foreground}" />
-        <Setter Property="FontFamily" Value="{StaticResource Settings.FontFamily}" />
+        <Setter Property="FontFamily" Value="{DynamicResource Settings.FontFamily}" />
         <Setter Property="FontSize" Value="{StaticResource Settings.FontSize.Body}" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">

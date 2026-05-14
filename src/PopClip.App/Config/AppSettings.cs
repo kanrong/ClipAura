@@ -11,12 +11,21 @@ public enum ToolbarDisplayMode
     TextOnly,
 }
 
-/// <summary>浮窗颜色主题</summary>
+/// <summary>浮窗颜色主题。
+/// Auto/Light/Dark 为基础三档，跟随系统或强制明暗；
+/// 之后的枚举值为彩色预设，仅作用于浮窗，不读系统明暗，避免预设被反向覆盖。
+/// 顺序关系到序列化兼容：新预设只能追加在末尾</summary>
 public enum ToolbarThemeMode
 {
     Auto,
     Light,
     Dark,
+    QingciBlue,
+    DeepInkGreen,
+    MistyGreen,
+    SunsetRose,
+    DistantMountain,
+    Sandalwood,
 }
 
 /// <summary>浮窗外缘层次风格</summary>
@@ -25,6 +34,17 @@ public enum ToolbarSurfaceStyle
     Shadow,
     Border,
     ShadowAndBorder,
+}
+
+/// <summary>浮窗内边距密度档位。
+/// 只用一档"按钮间距"无法同时控制按钮内 padding 和按钮间外 margin，
+/// 这里把三档（紧凑/标准/宽松）抽出来统一调度按钮 padding 与 ItemsPanel margin，
+/// 让用户一次选定整体疏密风格</summary>
+public enum ToolbarDensity
+{
+    Compact,
+    Standard,
+    Comfortable,
 }
 
 public enum AiProviderPreset
@@ -82,6 +102,19 @@ public sealed class AppSettings
     public double ToolbarButtonSpacing { get; set; } = 0;
     public double ToolbarFontSize { get; set; } = 12;
     public int ToolbarMaxActionsPerRow { get; set; } = 6;
+
+    /// <summary>浮窗整体密度档位：紧凑 / 标准（默认）/ 宽松。
+    /// 影响按钮内边距与 ItemsPanel 外边距，不影响圆角与字号；
+    /// 用户更倾向"一键切换风格"而不是逐项微调时使用</summary>
+    public ToolbarDensity ToolbarDensity { get; set; } = ToolbarDensity.Standard;
+
+    /// <summary>设置窗口与全局 UI 字体族；空串表示使用内置默认中文字体回退链。
+    /// 用户可在外观设置里挑选系统已安装字体（如 "JetBrains Mono"、"霞鹜文楷" 等）</summary>
+    public string UiFontFamily { get; set; } = "";
+
+    /// <summary>浮窗专用字体族；空串=继承 UiFontFamily，再空=默认中文字体回退链。
+    /// 单独分一项是因为浮窗按钮空间窄，用户常希望换成更紧凑或更宽松的字体</summary>
+    public string ToolbarFontFamily { get; set; } = "";
 
     /// <summary>浮窗默认透明度（鼠标未悬停时）。范围 0.3 ~ 1.0；1.0 表示完全不透明。
     /// 鼠标进入浮窗后会自动恢复为 1.0，离开后回到此值，避免遮挡背后内容</summary>

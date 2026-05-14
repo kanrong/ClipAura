@@ -12,8 +12,9 @@
                  WindowBackdropType="Mica"
                  ExtendsContentIntoTitleBar="True"
                  Background="{DynamicResource Settings.Window.Background}"
-                 FontFamily="{StaticResource Settings.FontFamily}">
-    <Grid>
+                 Foreground="{DynamicResource Settings.Foreground}"
+                 FontFamily="{DynamicResource Settings.FontFamily}">
+    <Grid Background="{DynamicResource Settings.Window.Background}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />

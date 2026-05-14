@@ -22,6 +22,79 @@
     <SolidColorBrush x:Key="ToolbarDarkToastBackground" Color="#313842" />
     <SolidColorBrush x:Key="ToolbarDarkSeparator" Color="#4A515B" />
 
+    <!-- ============================================================
+         彩色预设主题（仅作用于浮窗）。
+         配色取自国画/平面设计常用搭配，统一遵循"深色背景 + 浅色前景"，
+         浮窗自然过渡到色面板观感。每套包含 7 个画刷以匹配主题切换接口：
+           Background  - 主面板填充（与 Border 圆角共用）
+           Border      - 1px 描边层颜色
+           Foreground  - 主体文字 / 图标色
+           Hover       - 按钮 hover 背景，要比 Background 略亮但同色调
+           AccentSoft  - 键盘选中 / 强调态背景，更明显
+           ToastBackground - Toast 区域底色，介于 Background 与 Hover 之间
+           Separator   - 分割线，目前与 Border 一致
+         ============================================================ -->
+
+    <!-- 青瓷蓝：浅青绿文字 #99D3D4 配深海蓝背景 #113974 -->
+    <SolidColorBrush x:Key="ToolbarQingciBlueBackground" Color="#113974" Opacity="0.98" />
+    <SolidColorBrush x:Key="ToolbarQingciBlueShadow" Color="#000000" Opacity="0.32" />
+    <SolidColorBrush x:Key="ToolbarQingciBlueBorder" Color="#1E4F8E" Opacity="1" />
+    <SolidColorBrush x:Key="ToolbarQingciBlueForeground" Color="#C7E5E6" />
+    <SolidColorBrush x:Key="ToolbarQingciBlueHover" Color="#1B4A8A" />
+    <SolidColorBrush x:Key="ToolbarQingciBlueAccentSoft" Color="#2A6DA8" />
+    <SolidColorBrush x:Key="ToolbarQingciBlueToastBackground" Color="#16407E" />
+    <SolidColorBrush x:Key="ToolbarQingciBlueSeparator" Color="#1E4F8E" />
+
+    <!-- 深墨绿：嫩黄绿文字 #C4D373 配深墨绿背景 #2B564A -->
+    <SolidColorBrush x:Key="ToolbarDeepInkGreenBackground" Color="#2B564A" Opacity="0.98" />
+    <SolidColorBrush x:Key="ToolbarDeepInkGreenShadow" Color="#000000" Opacity="0.32" />
+    <SolidColorBrush x:Key="ToolbarDeepInkGreenBorder" Color="#3F6E5F" Opacity="1" />
+    <SolidColorBrush x:Key="ToolbarDeepInkGreenForeground" Color="#E2EBB7" />
+    <SolidColorBrush x:Key="ToolbarDeepInkGreenHover" Color="#3A6657" />
+    <SolidColorBrush x:Key="ToolbarDeepInkGreenAccentSoft" Color="#5A8266" />
+    <SolidColorBrush x:Key="ToolbarDeepInkGreenToastBackground" Color="#315E51" />
+    <SolidColorBrush x:Key="ToolbarDeepInkGreenSeparator" Color="#3F6E5F" />
+
+    <!-- 浅雾绿：奶油米色文字 #F6E9CE 配雾绿背景 #688E73 -->
+    <SolidColorBrush x:Key="ToolbarMistyGreenBackground" Color="#688E73" Opacity="0.98" />
+    <SolidColorBrush x:Key="ToolbarMistyGreenShadow" Color="#000000" Opacity="0.26" />
+    <SolidColorBrush x:Key="ToolbarMistyGreenBorder" Color="#7AA083" Opacity="1" />
+    <SolidColorBrush x:Key="ToolbarMistyGreenForeground" Color="#FBF1DC" />
+    <SolidColorBrush x:Key="ToolbarMistyGreenHover" Color="#779B81" />
+    <SolidColorBrush x:Key="ToolbarMistyGreenAccentSoft" Color="#8FB498" />
+    <SolidColorBrush x:Key="ToolbarMistyGreenToastBackground" Color="#71957B" />
+    <SolidColorBrush x:Key="ToolbarMistyGreenSeparator" Color="#7AA083" />
+
+    <!-- 暮霞粉：浅米粉文字 #FFE2D5 配酒红玫紫背景 #8B3A4D -->
+    <SolidColorBrush x:Key="ToolbarSunsetRoseBackground" Color="#8B3A4D" Opacity="0.98" />
+    <SolidColorBrush x:Key="ToolbarSunsetRoseShadow" Color="#000000" Opacity="0.32" />
+    <SolidColorBrush x:Key="ToolbarSunsetRoseBorder" Color="#A04960" Opacity="1" />
+    <SolidColorBrush x:Key="ToolbarSunsetRoseForeground" Color="#FFE2D5" />
+    <SolidColorBrush x:Key="ToolbarSunsetRoseHover" Color="#9B4258" />
+    <SolidColorBrush x:Key="ToolbarSunsetRoseAccentSoft" Color="#B25A72" />
+    <SolidColorBrush x:Key="ToolbarSunsetRoseToastBackground" Color="#963E52" />
+    <SolidColorBrush x:Key="ToolbarSunsetRoseSeparator" Color="#A04960" />
+
+    <!-- 远山黛：淡蓝灰文字 #D5DBE5 配深岩蓝灰背景 #2B3D4F -->
+    <SolidColorBrush x:Key="ToolbarDistantMountainBackground" Color="#2B3D4F" Opacity="0.98" />
+    <SolidColorBrush x:Key="ToolbarDistantMountainShadow" Color="#000000" Opacity="0.32" />
+    <SolidColorBrush x:Key="ToolbarDistantMountainBorder" Color="#3D5169" Opacity="1" />
+    <SolidColorBrush x:Key="ToolbarDistantMountainForeground" Color="#D5DBE5" />
+    <SolidColorBrush x:Key="ToolbarDistantMountainHover" Color="#374A5E" />
+    <SolidColorBrush x:Key="ToolbarDistantMountainAccentSoft" Color="#4A6481" />
+    <SolidColorBrush x:Key="ToolbarDistantMountainToastBackground" Color="#314357" />
+    <SolidColorBrush x:Key="ToolbarDistantMountainSeparator" Color="#3D5169" />
+
+    <!-- 檀木香：浅米色文字 #F2E1C2 配深棕背景 #5C4033 -->
+    <SolidColorBrush x:Key="ToolbarSandalwoodBackground" Color="#5C4033" Opacity="0.98" />
+    <SolidColorBrush x:Key="ToolbarSandalwoodShadow" Color="#000000" Opacity="0.32" />
+    <SolidColorBrush x:Key="ToolbarSandalwoodBorder" Color="#735346" Opacity="1" />
+    <SolidColorBrush x:Key="ToolbarSandalwoodForeground" Color="#F2E1C2" />
+    <SolidColorBrush x:Key="ToolbarSandalwoodHover" Color="#6B4B3C" />
+    <SolidColorBrush x:Key="ToolbarSandalwoodAccentSoft" Color="#8B6549" />
+    <SolidColorBrush x:Key="ToolbarSandalwoodToastBackground" Color="#634537" />
+    <SolidColorBrush x:Key="ToolbarSandalwoodSeparator" Color="#735346" />
+
     <StaticResource x:Key="ToolbarBackground" ResourceKey="ToolbarLightBackground" />
     <StaticResource x:Key="ToolbarShadow" ResourceKey="ToolbarLightShadow" />
     <StaticResource x:Key="ToolbarBorder" ResourceKey="ToolbarLightBorder" />
@@ -44,6 +117,8 @@
     <sys:Double x:Key="ToolbarShadowOpacity" xmlns:sys="clr-namespace:System;assembly=mscorlib">0.32</sys:Double>
     <sys:Double x:Key="ToolbarButtonFontSize" xmlns:sys="clr-namespace:System;assembly=mscorlib">12</sys:Double>
     <sys:Double x:Key="ToolbarIconFontSize" xmlns:sys="clr-namespace:System;assembly=mscorlib">14</sys:Double>
+    <!-- 浮窗字体回退链：与设置窗口保持一致；FloatingToolbar 运行时根据用户配置覆写 -->
+    <FontFamily x:Key="ToolbarFontFamily">Microsoft YaHei UI, Microsoft YaHei, 微软雅黑, PingFang SC, Segoe UI</FontFamily>
 
     <Style x:Key="ToolbarButtonStyle" TargetType="Button">
         <Setter Property="Background" Value="Transparent" />

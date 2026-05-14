@@ -33,14 +33,23 @@ public interface IActionHost
     Logging.ILog Log { get; }
 }
 
-/// <summary>抽象"把剪贴板内容粘到当前位置"的能力。
-/// HasClipboardText 用于 CanRun 的轻量判断（高频调用，不允许读取剪贴板正文）；
-/// PasteAsync 才真正触发粘贴动作</summary>
+/// <summary>抽象"代用户对目标窗口模拟剪贴板键盘动作"的能力（Ctrl+C / Ctrl+V）。
+/// 这两个动作都让源应用/目标应用自己去处理剪贴板，
+/// 借此保留 HTML / RTF / 图片 / 文件清单 等系统按键时本就会带的多格式数据，
+/// 不允许用 Clipboard.SetText 单独写纯文本来代替——那会让 Word/Outlook 等富文本应用粘贴出格式丢失/方块乱码。
+/// HasClipboardText 用于 CanRun 的轻量判断（高频调用，不允许读取剪贴板正文）</summary>
 public interface IPasteService
 {
     /// <summary>剪贴板当前是否包含可粘贴的文本。
     /// 实现必须保持轻量（仅 ContainsText 判定），用于浮窗弹出前对内置粘贴动作做可见性过滤</summary>
     bool HasClipboardText { get; }
+
+    /// <summary>把 context.Foreground 指向窗口的当前选区拷到剪贴板（等价于用户按 Ctrl+C）。
+    /// 比"我们自己 Clipboard.SetText(selectionText)"重要的差异在于：
+    /// 源应用会被叫醒主动写多格式数据，剪贴板里同时含 CF_UNICODETEXT / CF_HTML / CF_RTF 等，
+    /// 之后在富文本编辑器粘贴时保留原格式。
+    /// 返回 false 表示底层 SendInput/SetForegroundWindow 失败</summary>
+    Task<bool> CopyAsync(SelectionContext context, CancellationToken ct);
 
     /// <summary>把剪贴板内容粘贴到 context.Foreground 指向的窗口。
     /// 调用方应自行先关闭浮窗并恢复目标窗口焦点，本方法只负责模拟 Ctrl+V。

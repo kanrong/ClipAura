@@ -43,15 +43,29 @@ internal abstract class BuiltInAction : IAction
     public abstract Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct);
 }
 
+/// <summary>内置"复制"动作：等价于让用户按一次 Ctrl+C。
+/// 关键设计：刻意不走 host.Clipboard.SetText(context.Text)。
+/// 那条路径只能写入纯文本格式（CF_UNICODETEXT），会丢失源应用本来一并写入的 CF_HTML / CF_RTF
+/// 等富文本格式，进而在 Word/Outlook 等富文本编辑器粘贴时出现"格式丢失/方块乱码"。
+/// 改为转交给系统 Ctrl+C，让源应用按自身策略把多格式数据写入剪贴板，行为与用户手动 Ctrl+C 完全一致。
+/// 失败时（targetHwnd 为 0 或 SendInput 抛错）退回到 SetText 兜底，至少保住纯文本可粘贴</summary>
 internal sealed class CopyAction : BuiltInAction
 {
     public override string Id => BuiltInActionIds.Copy;
     public override string Title => "复制";
     public override string IconKey => "Copy";
-    public override Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
+
+    public override async Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
     {
+        if (context.Foreground.Hwnd != 0)
+        {
+            var ok = await host.Paste.CopyAsync(context, ct).ConfigureAwait(false);
+            if (ok) return;
+            host.Log.Warn("copy via Ctrl+C failed, fallback to plain SetText");
+        }
+        // 兜底：拿不到目标 HWND 或键盘模拟失败时，保底把纯文本塞进剪贴板，
+        // 让用户至少能 Ctrl+V 出文字（哪怕没有格式）
         host.Clipboard.SetText(context.Text);
-        return Task.CompletedTask;
     }
 }
 

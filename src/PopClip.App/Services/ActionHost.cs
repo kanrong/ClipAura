@@ -11,6 +11,7 @@ internal sealed class ActionHost : IActionHost
     public INotificationSink Notifier { get; }
     public ISettingsProvider Settings { get; }
     public IAiTextService Ai { get; }
+    public IPasteService Paste { get; }
     public IClipboardHistoryLauncher? ClipboardHistory { get; }
     public ILog Log { get; }
 
@@ -22,6 +23,7 @@ internal sealed class ActionHost : IActionHost
         INotificationSink notifier,
         ISettingsProvider settings,
         IAiTextService ai,
+        IPasteService paste,
         IClipboardHistoryLauncher? clipboardHistory = null)
     {
         Log = log;
@@ -31,6 +33,7 @@ internal sealed class ActionHost : IActionHost
         Notifier = notifier;
         Settings = settings;
         Ai = ai;
+        Paste = paste;
         ClipboardHistory = clipboardHistory;
     }
 }

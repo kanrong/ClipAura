@@ -34,14 +34,6 @@ internal sealed class SelectionSessionManager : IDisposable
     private readonly Channel<SelectionCandidate> _candidateChannel;
     private CancellationTokenSource? _cts;
 
-    // 剪贴板兜底指纹：仅对 AcquisitionSource.ClipboardFallback 生效。
-    // UIA 路径拿到的是当前真实选区，即使重复也是用户主动选的；剪贴板兜底则可能在
-    // 用户实际没有选中任何内容时被宿主程序回填旧文本（部分 IDE/浏览器 Ctrl+C 默认行为）。
-    // 这种情况"用户视角没有选中任何内容，但浮窗却显示了选项"，对用户毫无意义 → 直接丢弃。
-    // 不需要时间窗口：即使过了很久再次出现"同样的剪贴板兜底文本"，依然是用户视角无意义的弹窗
-    private string? _lastClipboardFallbackText;
-    private nint _lastClipboardFallbackHwnd;
-
     public SelectionSessionManager(
         ILog log,
         InputWatcher watcher,
@@ -184,24 +176,6 @@ internal sealed class SelectionSessionManager : IDisposable
                 ("min", _settings.MinTextLength),
                 ("max", _settings.MaxTextLength));
             return;
-        }
-
-        // 仅对剪贴板兜底路径做指纹去重：UIA 路径来的是用户真实选区，不参与。
-        // 同一前台窗口下、剪贴板兜底文本与上次完全相同时跳过——这种情况几乎一定是
-        // 宿主程序在用户没有真实选区时被 Ctrl+C 回填了旧值，弹窗对用户毫无意义
-        if (outcome.Context.Source == AcquisitionSource.ClipboardFallback)
-        {
-            if (_lastClipboardFallbackText is not null
-                && _lastClipboardFallbackHwnd == foreground.Hwnd
-                && string.Equals(_lastClipboardFallbackText, outcome.Context.Text, StringComparison.Ordinal))
-            {
-                _log.Info("candidate dropped: duplicate clipboard fallback text",
-                    ("len", outcome.Context.Text.Length),
-                    ("hwnd", foreground.Hwnd));
-                return;
-            }
-            _lastClipboardFallbackText = outcome.Context.Text;
-            _lastClipboardFallbackHwnd = foreground.Hwnd;
         }
 
         var preview = outcome.Context.Text.Length > 40

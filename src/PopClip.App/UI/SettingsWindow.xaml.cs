@@ -72,6 +72,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
     public IReadOnlyList<BuiltInChoice> BuiltInChoices { get; } = new[]
     {
         new BuiltInChoice(BuiltInActionIds.Copy, "复制"),
+        new BuiltInChoice(BuiltInActionIds.Paste, "粘贴"),
         new BuiltInChoice(BuiltInActionIds.OpenUrl, "打开链接"),
         new BuiltInChoice(BuiltInActionIds.Mailto, "发送邮件"),
         new BuiltInChoice(BuiltInActionIds.Search, "搜索"),
@@ -295,6 +296,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             Actions =
             {
                 new() { Id = "copy", Type = "builtin", BuiltIn = BuiltInActionIds.Copy, Title = "复制", Icon = "Copy", Enabled = true },
+                new() { Id = "paste", Type = "builtin", BuiltIn = BuiltInActionIds.Paste, Title = "粘贴", Icon = "Paste", Enabled = true },
                 new() { Id = "open-url", Type = "builtin", BuiltIn = BuiltInActionIds.OpenUrl, Title = "打开链接", Icon = "Url", Enabled = true },
                 new() { Id = "mailto", Type = "builtin", BuiltIn = BuiltInActionIds.Mailto, Title = "邮件", Icon = "Mail", Enabled = true },
                 new() { Id = "search", Type = "builtin", BuiltIn = BuiltInActionIds.Search, Title = "搜索", Icon = "Search", Enabled = true },

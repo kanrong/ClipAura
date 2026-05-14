@@ -73,7 +73,10 @@ internal sealed class AppHost : IDisposable
         var clipboardPaste = new ClipboardPaste(_log, clipboardAccess);
         _replacer = new TextReplacerService(_log, uiaReplacer, clipboardPaste);
 
-        _catalog = new ActionCatalog(_log);
+        // PasteService 必须在 ActionCatalog 之前构造：PasteAction.CanRun 通过它判定
+        // "剪贴板是否有文本"，因此目录在装配每个内置动作时就需要这个能力
+        var pasteService = new PasteService(_log, clipboardAccess, clipboardPaste);
+        _catalog = new ActionCatalog(_log, pasteService);
         var cfg = _store.LoadActions();
         if (cfg is not null) _catalog.Load(cfg);
         else _catalog.LoadDefaults();
@@ -110,7 +113,7 @@ internal sealed class AppHost : IDisposable
         _clipHistoryLauncher = new ClipboardHistoryLauncher(_clipHistory, clipboardWriter, _replacer, clipboardPaste);
         _actionHost = new ActionHost(
             _log, _replacer, urlLauncher, clipboardWriter, _toolbar,
-            settingsProvider, aiTextService, _clipHistoryLauncher);
+            settingsProvider, aiTextService, pasteService, _clipHistoryLauncher);
 
         _gate = new SuppressionGate(_log, _settings);
 

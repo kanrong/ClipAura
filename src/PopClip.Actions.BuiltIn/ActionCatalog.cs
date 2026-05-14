@@ -14,7 +14,10 @@ public sealed class ActionCatalog
     private readonly Dictionary<string, IAction> _registry;
     private List<ResolvedAction> _ordered = new();
 
-    public ActionCatalog(ILog log)
+    /// <summary>构造函数。
+    /// pasteService 必须随 catalog 一起注入：PasteAction.CanRun 依赖它判定剪贴板是否有文本，
+    /// 注入到 catalog 而非通过 IActionHost 取，是为了让 CanRun（接口不携带 host）也能访问粘贴能力</summary>
+    public ActionCatalog(ILog log, IPasteService pasteService)
     {
         _log = log;
         // 旧 GoogleSearch / BingSearch ID 全部别名到统一 SearchAction，兼容历史 actions.json
@@ -22,6 +25,7 @@ public sealed class ActionCatalog
         _registry = new Dictionary<string, IAction>(StringComparer.OrdinalIgnoreCase)
         {
             [BuiltInActionIds.Copy] = new CopyAction(),
+            [BuiltInActionIds.Paste] = new PasteAction(pasteService),
             [BuiltInActionIds.Search] = search,
             [BuiltInActionIds.GoogleSearch] = search,
             [BuiltInActionIds.BingSearch] = search,
@@ -119,6 +123,7 @@ public sealed class ActionCatalog
             Actions = new List<ActionDescriptor>
             {
                 new() { Id = "copy", Type = "builtin", BuiltIn = BuiltInActionIds.Copy, Title = "复制" },
+                new() { Id = "paste", Type = "builtin", BuiltIn = BuiltInActionIds.Paste, Title = "粘贴" },
                 new() { Id = "open-url", Type = "builtin", BuiltIn = BuiltInActionIds.OpenUrl, Title = "打开链接" },
                 new() { Id = "mailto", Type = "builtin", BuiltIn = BuiltInActionIds.Mailto, Title = "发送邮件" },
                 new() { Id = "search", Type = "builtin", BuiltIn = BuiltInActionIds.Search, Title = "搜索" },

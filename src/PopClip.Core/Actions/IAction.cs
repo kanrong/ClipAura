@@ -25,9 +25,27 @@ public interface IActionHost
     INotificationSink Notifier { get; }
     ISettingsProvider Settings { get; }
     IAiTextService Ai { get; }
+    /// <summary>粘贴能力（把剪贴板内容写回当前选区/光标位置）。
+    /// 内置粘贴动作通过它实现，外部脚本/扩展动作也可使用</summary>
+    IPasteService Paste { get; }
     /// <summary>剪贴板历史唤起器。可能为 null（如轻量化测试场景）</summary>
     IClipboardHistoryLauncher? ClipboardHistory { get; }
     Logging.ILog Log { get; }
+}
+
+/// <summary>抽象"把剪贴板内容粘到当前位置"的能力。
+/// HasClipboardText 用于 CanRun 的轻量判断（高频调用，不允许读取剪贴板正文）；
+/// PasteAsync 才真正触发粘贴动作</summary>
+public interface IPasteService
+{
+    /// <summary>剪贴板当前是否包含可粘贴的文本。
+    /// 实现必须保持轻量（仅 ContainsText 判定），用于浮窗弹出前对内置粘贴动作做可见性过滤</summary>
+    bool HasClipboardText { get; }
+
+    /// <summary>把剪贴板内容粘贴到 context.Foreground 指向的窗口。
+    /// 调用方应自行先关闭浮窗并恢复目标窗口焦点，本方法只负责模拟 Ctrl+V。
+    /// 返回 false 表示粘贴失败（例如目标 HWND 已失效）</summary>
+    Task<bool> PasteAsync(SelectionContext context, CancellationToken ct);
 }
 
 /// <summary>剪贴板历史面板的呼出接口，由 UI 层注入实现</summary>

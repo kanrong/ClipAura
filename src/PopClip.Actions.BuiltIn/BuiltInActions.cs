@@ -10,6 +10,10 @@ namespace PopClip.Actions.BuiltIn;
 public static class BuiltInActionIds
 {
     public const string Copy = "builtin.copy";
+    /// <summary>把剪贴板内容粘贴到当前选区/光标位置。
+    /// 与 Ctrl+Click 触发的"只有粘贴"工具条不同，这是个普通可见动作：
+    /// 浮窗里同时有"复制 / 粘贴"两个按钮，选择文本后既可以复制也可以直接替换</summary>
+    public const string Paste = "builtin.paste";
     /// <summary>统一搜索动作；具体引擎 URL 通过 ISettingsProvider 注入，运行时从设置读取</summary>
     public const string Search = "builtin.search";
     /// <summary>历史 ID，保留是为了兼容旧 actions.json；映射到 SearchAction 上</summary>
@@ -53,6 +57,34 @@ internal sealed class CopyAction : BuiltInAction
     {
         host.Clipboard.SetText(context.Text);
         return Task.CompletedTask;
+    }
+}
+
+/// <summary>内置"粘贴"动作：把当前剪贴板内容粘到选区/光标位置。
+/// 选区是否为空不影响可见性（空选区即"原地光标处粘贴"），仅要求剪贴板有文本。
+/// CanRun 通过持有的 IPasteService 做 HasClipboardText 轻量探测（STA 上仅 ContainsText，不读取正文），
+/// 这样剪贴板为空时按钮不出现；浮窗弹出阶段的额外开销控制在亚毫秒级</summary>
+internal sealed class PasteAction : BuiltInAction
+{
+    private readonly IPasteService _paste;
+
+    public PasteAction(IPasteService paste) => _paste = paste;
+
+    public override string Id => BuiltInActionIds.Paste;
+    public override string Title => "粘贴";
+    public override string IconKey => "Paste";
+
+    public override bool CanRun(SelectionContext context) => _paste.HasClipboardText;
+
+    public override async Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
+    {
+        if (!host.Paste.HasClipboardText)
+        {
+            host.Notifier.Notify("剪贴板没有可粘贴的文本");
+            return;
+        }
+        var ok = await host.Paste.PasteAsync(context, ct).ConfigureAwait(false);
+        if (!ok) host.Notifier.Notify("粘贴失败");
     }
 }
 

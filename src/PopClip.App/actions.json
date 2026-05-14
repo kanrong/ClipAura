@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "actions": [
     { "id": "copy",      "type": "builtin", "builtIn": "builtin.copy",            "title": "复制",       "icon": "Copy",      "enabled": true },
+    { "id": "paste",     "type": "builtin", "builtIn": "builtin.paste",           "title": "粘贴",       "icon": "Paste",     "enabled": true },
     { "id": "open-url",  "type": "builtin", "builtIn": "builtin.open.url",        "title": "打开链接",   "icon": "Url",       "enabled": true },
     { "id": "mailto",    "type": "builtin", "builtIn": "builtin.open.mailto",     "title": "邮件",       "icon": "Mail",      "enabled": true },
     { "id": "search",    "type": "builtin", "builtIn": "builtin.search",          "title": "搜索",       "icon": "Search",    "enabled": true },

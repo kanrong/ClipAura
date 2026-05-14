@@ -147,7 +147,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         {
             // 未显示或鼠标不在浮窗上时立刻按 idle 透明度生效；
             // 已显示且鼠标当前悬停在浮窗内时保持完全不透明，等离开后再回落
-            Opacity = IsMouseOver ? 1.0 : _idleOpacity;
+            Opacity = IsMouseOverWindowReal() ? 1.0 : _idleOpacity;
         });
         Dispatcher.Invoke(() =>
         {
@@ -296,6 +296,17 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         if (!_isShown || _hwnd == 0) return false;
         if (!NativeMethods.GetWindowRect(_hwnd, out var rect)) return false;
         return x >= rect.Left && x < rect.Right && y >= rect.Top && y < rect.Bottom;
+    }
+
+    /// <summary>判定鼠标"真实地"位于浮窗矩形内：
+    /// 优先用 WPF 命中测试 IsMouseOver；浮窗为 NoActivate + Focusable=False，
+    /// 在部分场景下 MouseEnter 可能不触发或被丢弃，因此再用 Win32 GetCursorPos+GetWindowRect 兜底，
+    /// 保证 timeout 计时器决策不会因事件丢失而误关浮窗</summary>
+    private bool IsMouseOverWindowReal()
+    {
+        if (IsMouseOver) return true;
+        if (!NativeMethods.GetCursorPos(out var pt)) return false;
+        return ContainsScreenPoint(pt.X, pt.Y);
     }
 
 
@@ -579,7 +590,8 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         {
             Dispatcher.Invoke(() =>
             {
-                if (IsMouseOver) return;
+                // 同样用 Win32 物理坐标兜底，避免 MouseEnter 漏触发时鼠标仍在浮窗上却被关闭
+                if (IsMouseOverWindowReal()) return;
                 if (DateTime.UtcNow - _lastShownAtUtc < TimeSpan.FromMilliseconds(700)) return;
                 HideToolbar("mouse-leave");
             });
@@ -655,8 +667,6 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         _dismissTimeoutCts?.Cancel();
         _dismissTimeoutCts = null;
         if (!_dismissOnTimeout) return;
-        // 鼠标停留在浮窗上视为用户正在使用：跳过本次计时，等 OnMouseLeave 再重新调度
-        if (IsMouseOver) return;
 
         var delayMs = _dismissTimeoutMs > 0 ? _dismissTimeoutMs : 3000;
         var cts = new CancellationTokenSource();
@@ -665,12 +675,32 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         {
             try
             {
-                await Task.Delay(delayMs, cts.Token).ConfigureAwait(false);
-                Dispatcher.Invoke(() =>
+                // 轮询风格：到期时若鼠标仍停留在浮窗上，进入下一轮等待，不关闭浮窗；
+                // 直到一次到期时鼠标已离开浮窗（Win32 物理坐标判定），才真正 HideToolbar。
+                // 这样语义稳定：只要鼠标在浮窗上，超时永远不触发；不依赖 WPF MouseEnter/MouseLeave 路由事件，
+                // 规避 NoActivate + Focusable=False 浮窗在某些路径下事件丢失导致的"鼠标在浮窗上仍被超时关闭"问题
+                while (!cts.IsCancellationRequested)
                 {
-                    if (cts.IsCancellationRequested || !_isShown) return;
-                    HideToolbar("timeout");
-                });
+                    await Task.Delay(delayMs, cts.Token).ConfigureAwait(false);
+
+                    var shouldHide = false;
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (cts.IsCancellationRequested || !_isShown) return;
+                        shouldHide = !IsMouseOverWindowReal();
+                    });
+                    if (!shouldHide)
+                    {
+                        _log.Debug("toolbar timeout postponed: mouse still over");
+                        continue;
+                    }
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (cts.IsCancellationRequested || !_isShown) return;
+                        HideToolbar("timeout");
+                    });
+                    return;
+                }
             }
             catch (OperationCanceledException) { }
         });

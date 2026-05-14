@@ -16,6 +16,10 @@ public sealed class ClipboardAccess
 
     public string? GetText() => _thread.Invoke(GetTextOnSta);
 
+    /// <summary>仅检查剪贴板是否包含文本，不实际复制内容；
+    /// 用于 PasteAction.CanRun 等高频判断点，避免每次浮窗弹出都把潜在的大段剪贴板正文搬到本进程</summary>
+    public bool HasText() => _thread.Invoke(HasTextOnSta);
+
     public void SetText(string text) => _thread.Invoke(() => SetTextOnSta(text));
 
     public void Clear() => _thread.Invoke(() =>
@@ -45,6 +49,18 @@ public sealed class ClipboardAccess
             catch (Exception) { return null; }
         }
         return null;
+    }
+
+    private static bool HasTextOnSta()
+    {
+        for (var i = 0; i < RetryCount; i++)
+        {
+            try { return WpfClipboard.ContainsText(); }
+            catch (COMException) { Thread.Sleep(RetryDelayMs); }
+            catch (ExternalException) { Thread.Sleep(RetryDelayMs); }
+            catch (Exception) { return false; }
+        }
+        return false;
     }
 
     private static void SetTextOnSta(string text)

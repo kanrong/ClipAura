@@ -70,10 +70,13 @@ public sealed class SelectionStateMachine
 
             case MouseUpEvent mu:
                 _leftDown = false;
-                // Ctrl+原地点击优先级最高：直接当作"粘贴意图"，不参与拖选/双击识别
-                if (!_movedFarEnough && (_downWithCtrl || mu.Ctrl))
+                // 配置的修饰键 + 原地点击优先级最高：直接当作"剪贴板操作意图"，不参与双击/选区识别
+                if (!_movedFarEnough && MatchesModifier(GetOptions().QuickClickModifier,
+                        _downWithShift || mu.Shift,
+                        _downWithCtrl || mu.Ctrl,
+                        _downWithAlt || mu.Alt))
                 {
-                    SchedulePending(new SelectionCandidate(SelectionTrigger.MouseCtrlClick, mu.X, mu.Y, mu.TimestampUtc), GetDelay(mu));
+                    SchedulePending(new SelectionCandidate(SelectionTrigger.MouseModifierClick, mu.X, mu.Y, mu.TimestampUtc), GetDelay(mu));
                     _lastUpAtUtc = DateTime.MinValue;
                 }
                 else if (_movedFarEnough)
@@ -191,13 +194,16 @@ public sealed class SelectionStateMachine
     {
         var options = GetOptions();
         if (options.PopupMode != SelectionPopupMode.ModifierRequired) return true;
-        return options.RequiredModifier switch
+        return MatchesModifier(options.RequiredModifier, shift, ctrl, alt);
+    }
+
+    private static bool MatchesModifier(SelectionModifierKey modifier, bool shift, bool ctrl, bool alt)
+        => modifier switch
         {
             SelectionModifierKey.Ctrl => ctrl,
             SelectionModifierKey.Shift => shift,
             _ => alt,
         };
-    }
 
     private SelectionStateOptions GetOptions()
     {

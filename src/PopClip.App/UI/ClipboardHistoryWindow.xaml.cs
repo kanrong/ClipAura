@@ -113,7 +113,10 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
     }
 
     private void OnItemDoubleClick(object sender, MouseButtonEventArgs e)
-        => HandleConfirm(modifier: ModifierKeys.None);
+    {
+        e.Handled = true;
+        HandleConfirm(modifier: ModifierKeys.None);
+    }
 
     private void OnCopyClicked(object sender, RoutedEventArgs e)
         => HandleConfirm(modifier: ModifierKeys.Control);
@@ -125,37 +128,30 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
     {
         if (HistoryList.SelectedItem is not HistoryRow row) return;
         var copyOnly = modifier.HasFlag(ModifierKeys.Control);
-        _writer.SetText(row.Text);
-
-        if (!copyOnly && _anchorContext is not null && _replacer is not null)
+        if (copyOnly || _anchorContext is null)
         {
-            _ = ReplaceAndCloseAsync(row.Text);
+            _writer.SetText(row.Text);
+            Close();
             return;
         }
 
-        if (!copyOnly && _paste is not null && _anchorContext is not null)
-        {
-            // 没有 UIA replacer 也尝试 Ctrl+V 落地
-            _ = Task.Run(() =>
-            {
-                try { _paste.PasteCurrent(_anchorContext.Foreground.Hwnd); }
-                catch { /* ignore */ }
-            });
-        }
         Close();
-    }
-
-    private async Task ReplaceAndCloseAsync(string text)
-    {
-        try
+        _ = Task.Run(async () =>
         {
-            if (_anchorContext is not null && _replacer is not null)
+            try
             {
-                await _replacer.TryReplaceAsync(_anchorContext, text, CancellationToken.None).ConfigureAwait(true);
+                _writer.SetText(row.Text);
+                if (_replacer is not null)
+                {
+                    var replaced = await _replacer.TryReplaceAsync(_anchorContext, row.Text, CancellationToken.None)
+                        .ConfigureAwait(false);
+                    if (replaced) return;
+                }
+
+                _paste?.PasteCurrent(_anchorContext.Foreground.Hwnd);
             }
-        }
-        catch { /* swallow */ }
-        finally { Close(); }
+            catch { /* ignore */ }
+        });
     }
 }
 

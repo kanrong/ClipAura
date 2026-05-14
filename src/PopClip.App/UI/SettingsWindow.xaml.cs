@@ -229,6 +229,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
 
         SelectComboByTag(PopupModeBox, _settings.PopupMode.ToString());
         SelectComboByTag(RequiredModifierBox, _settings.RequiredModifier.ToString());
+        SelectComboByTag(QuickClickModifierBox, _settings.QuickClickModifier.ToString());
         PopupDelayBox.Value = _settings.PopupDelayMs;
         HoverDelayBox.Value = _settings.HoverDelayMs;
         EnableSelectAllPopupBox.IsChecked = _settings.EnableSelectAllPopup;
@@ -866,6 +867,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         _settings.RequiredModifier = Enum.TryParse<SelectionModifierKey>(SelectedTag(RequiredModifierBox), out var modifier)
             ? modifier
             : SelectionModifierKey.Alt;
+        _settings.QuickClickModifier = Enum.TryParse<SelectionModifierKey>(SelectedTag(QuickClickModifierBox), out var quickClickModifier)
+            ? quickClickModifier
+            : SelectionModifierKey.Ctrl;
         _settings.PopupDelayMs = NumberBoxInt(PopupDelayBox, _settings.PopupDelayMs, 0, 1500);
         _settings.HoverDelayMs = NumberBoxInt(HoverDelayBox, _settings.HoverDelayMs, 0, 1500);
         _settings.EnableSelectAllPopup = EnableSelectAllPopupBox.IsChecked == true;

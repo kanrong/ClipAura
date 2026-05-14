@@ -48,7 +48,7 @@ public sealed class LowLevelMouseHook
             // 双击需要在状态机里依据两次 down/up 的时间+距离自行识别
             // mouse down/up 同步采样 Shift / Ctrl 状态：
             //   Shift+原地点击 → 走正常工具条路径（与扩展选区配合）
-            //   Ctrl +原地点击 → 直接弹"粘贴"
+            //   配置的修饰键 + 原地点击 → 直接弹剪贴板工具条
             var shift = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_SHIFT) & 0x8000) != 0;
             var ctrl = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_CONTROL) & 0x8000) != 0;
             var alt = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_MENU) & 0x8000) != 0;

@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using System.Diagnostics;
 using PopClip.Actions.BuiltIn;
 using PopClip.App.Config;
 using PopClip.App.Services;
@@ -18,6 +19,8 @@ namespace PopClip.App.Hosting;
 /// <summary>把 Hooks → 状态机 → 文本获取 → 工具栏弹出 全链路串起来的中枢</summary>
 internal sealed class SelectionSessionManager : IDisposable
 {
+    private static readonly int OwnProcessId = Process.GetCurrentProcess().Id;
+
     private readonly ILog _log;
     private readonly InputWatcher _watcher;
     private readonly SelectionStateMachine _machine;
@@ -98,6 +101,10 @@ internal sealed class SelectionSessionManager : IDisposable
                         _toolbar.DismissExternal("click-outside");
                     }
                 }
+                if (IsOwnForegroundInput(ev))
+                {
+                    continue;
+                }
                 _machine.Process(ev);
             }
         }
@@ -151,10 +158,10 @@ internal sealed class SelectionSessionManager : IDisposable
 
         var mouseRect = ResolveAnchorRect(candidate);
 
-        // Ctrl+Click：用户明确表达"想粘贴"，跳过文本采集，直接弹"粘贴"按钮
-        if (candidate.Trigger == SelectionTrigger.MouseCtrlClick)
+        // 修饰键 + Click：用户明确表达"想操作剪贴板"，跳过文本采集
+        if (candidate.Trigger == SelectionTrigger.MouseModifierClick)
         {
-            await ShowPasteOnlyAsync(foreground, mouseRect).ConfigureAwait(false);
+            await ShowClipboardLauncherAsync(foreground, mouseRect).ConfigureAwait(false);
             return;
         }
 
@@ -214,36 +221,81 @@ internal sealed class SelectionSessionManager : IDisposable
         });
     }
 
-    /// <summary>Ctrl+Click 触发的简化工具条：只暴露"粘贴"。
-    /// 剪贴板为空时直接放弃，避免给用户一个永远不响应的按钮</summary>
-    private async Task ShowPasteOnlyAsync(ForegroundWindowInfo foreground, SelectionRect mouseRect)
+    /// <summary>修饰键 + Click 触发的简化工具条：暴露粘贴与剪贴板历史入口</summary>
+    private async Task ShowClipboardLauncherAsync(ForegroundWindowInfo foreground, SelectionRect mouseRect)
     {
-        var clipboardText = _clipboard.GetText();
-        if (string.IsNullOrEmpty(clipboardText))
+        var items = new List<ToolbarItem>();
+        var hwnd = foreground.Hwnd;
+        if (HasClipboardText())
         {
-            _log.Info("shift-click ignored: clipboard empty");
-            return;
+            items.Add(new ToolbarItem("粘贴", "Paste", new DelegateCommand(() =>
+            {
+                // 必须先关闭浮窗（释放焦点状态），再 SetForegroundWindow + Ctrl+V
+                _toolbar.DismissExternal("paste-invoked");
+                _ = Task.Run(() =>
+                {
+                    try { _pasteInjector.PasteCurrent(hwnd); }
+                    catch (Exception ex) { _log.Error("paste failed", ex); }
+                });
+            })));
         }
 
-        var hwnd = foreground.Hwnd;
-        var item = new ToolbarItem("粘贴", "Paste", new DelegateCommand(() =>
+        if (_actionHost.ClipboardHistory is not null)
         {
-            // 必须先关闭浮窗（释放焦点状态），再 SetForegroundWindow + Ctrl+V
-            _toolbar.DismissExternal("paste-invoked");
-            _ = Task.Run(() =>
+            var anchor = new SelectionContext(
+                "",
+                AcquisitionSource.Unknown,
+                foreground,
+                mouseRect,
+                IsLikelyEditable: true,
+                DateTime.UtcNow);
+            items.Add(new ToolbarItem("剪贴板", "ClipboardHistory", new DelegateCommand(() =>
             {
-                try { _pasteInjector.PasteCurrent(hwnd); }
-                catch (Exception ex) { _log.Error("paste failed", ex); }
-            });
-        }));
+                _toolbar.DismissExternal("clipboard-history-invoked");
+                _replacer.SetCurrentElement(null);
+                _actionHost.ClipboardHistory.Open(anchor);
+            })));
+        }
+
+        if (items.Count == 0)
+        {
+            _log.Info("modifier-click ignored: no clipboard actions available");
+            return;
+        }
 
         await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
         {
             _toolbar.ApplyAppearance(_settings);
             _toolbar.Items.Clear();
-            _toolbar.Items.Add(item);
+            foreach (var item in items) _toolbar.Items.Add(item);
             _toolbar.ShowAt(mouseRect, foreground);
         });
+    }
+
+    private bool HasClipboardText()
+    {
+        try { return _clipboard.HasText(); }
+        catch (Exception ex)
+        {
+            _log.Warn("modifier-click clipboard check failed", ("err", ex.Message));
+            return false;
+        }
+    }
+
+    private static bool IsOwnForegroundInput(InputEvent ev)
+    {
+        if (ev is not MouseDownEvent
+            && ev is not MouseUpEvent
+            && ev is not MouseMoveEvent
+            && ev is not KeyEvent)
+        {
+            return false;
+        }
+
+        var hwnd = NativeMethods.GetForegroundWindow();
+        if (hwnd == 0) return false;
+        NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
+        return pid == OwnProcessId;
     }
 
     public void ShowLauncherAtCursor()
@@ -254,7 +306,7 @@ internal sealed class SelectionSessionManager : IDisposable
         {
             pt = new NativeMethods.POINT { X = 0, Y = 0 };
         }
-        _ = ShowPasteOnlyAsync(foreground, SelectionRect.FromPoint(pt.X, pt.Y));
+        _ = ShowClipboardLauncherAsync(foreground, SelectionRect.FromPoint(pt.X, pt.Y));
     }
 
     private SelectionRect ResolveAnchorRect(SelectionCandidate candidate)
@@ -290,6 +342,7 @@ internal sealed class SelectionSessionManager : IDisposable
             PopupDelayMs = _settings.PopupDelayMs,
             HoverDelayMs = _settings.HoverDelayMs,
             RequiredModifier = _settings.RequiredModifier,
+            QuickClickModifier = _settings.QuickClickModifier,
             EnableSelectAllPopup = _settings.EnableSelectAllPopup,
         };
     }

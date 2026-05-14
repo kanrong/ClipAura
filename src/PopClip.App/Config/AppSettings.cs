@@ -92,6 +92,7 @@ public sealed class AppSettings
     public int PopupDelayMs { get; set; } = 200;
     public int HoverDelayMs { get; set; } = 300;
     public SelectionModifierKey RequiredModifier { get; set; } = SelectionModifierKey.Alt;
+    public SelectionModifierKey QuickClickModifier { get; set; } = SelectionModifierKey.Ctrl;
 
     /// <summary>Ctrl+A 全选时是否弹出浮窗。
     /// 默认 true：全选是有明确意图的键盘操作，保留弹窗便于后续动作；

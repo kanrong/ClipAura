@@ -11,7 +11,7 @@ public static class BuiltInActionIds
 {
     public const string Copy = "builtin.copy";
     /// <summary>把剪贴板内容粘贴到当前选区/光标位置。
-    /// 与 Ctrl+Click 触发的"只有粘贴"工具条不同，这是个普通可见动作：
+    /// 与快捷点击触发的剪贴板工具条不同，这是个普通可见动作：
     /// 浮窗里同时有"复制 / 粘贴"两个按钮，选择文本后既可以复制也可以直接替换</summary>
     public const string Paste = "builtin.paste";
     /// <summary>统一搜索动作；具体引擎 URL 通过 ISettingsProvider 注入，运行时从设置读取</summary>

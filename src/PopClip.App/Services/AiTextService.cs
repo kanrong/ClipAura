@@ -298,7 +298,8 @@ public sealed class AiTextService : IAiTextService
             apiKey,
             _settings.AiTimeoutSeconds,
             _settings.AiProviderPreset.ToString(),
-            _settings.AiThinkingMode.ToString());
+            _settings.AiThinkingMode.ToString(),
+            _settings.AiMaxOutputTokens);
 
     public string GetCurrentApiKey()
     {

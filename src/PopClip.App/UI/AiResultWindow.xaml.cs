@@ -22,7 +22,6 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
     private StackPanel? _streamingMessageStack;
     private Border? _streamingReasoningHost;
     private TextBox? _streamingReasoningTextBox;
-    private System.Windows.Controls.Primitives.ToggleButton? _streamingReasoningToggle;
     private TextBlock? _streamingReasoningStatus;
     private CancellationTokenSource? _sendCts;
     private string _latestAssistantText = "";
@@ -274,16 +273,23 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         _streamingMessageStack = null;
         _streamingReasoningHost = null;
         _streamingReasoningTextBox = null;
-        _streamingReasoningToggle = null;
         _streamingReasoningStatus = null;
     }
 
     private void UpdateMeta(AiCompletionResult result)
     {
         var markdown = MarkdownPreviewRenderer.LooksLikeMarkdown(result.Text) ? " · Markdown" : "";
-        var tokens = (result.PromptTokens > 0 || result.CompletionTokens > 0)
-            ? $" · {result.PromptTokens}→{result.CompletionTokens} tok"
-            : "";
+        // tok 行：思考模型把 reasoning 单独标出来，便于用户判断 reasoning 是否吃掉了多数 completion 额度
+        // 例：12→3408 tok (think 2800)
+        var tokens = "";
+        if (result.PromptTokens > 0 || result.CompletionTokens > 0)
+        {
+            tokens = $" · {result.PromptTokens}→{result.CompletionTokens} tok";
+            if (result.ReasoningTokens > 0)
+            {
+                tokens += $" (think {result.ReasoningTokens})";
+            }
+        }
         MetaText.Text = $"{result.Model} · {result.Elapsed.TotalSeconds:0.0}s{tokens}{markdown}";
     }
 
@@ -388,35 +394,8 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         });
         headerPanel.Children.Add(status);
 
-        var toggle = new System.Windows.Controls.Primitives.ToggleButton
-        {
-            Background = System.Windows.Media.Brushes.Transparent,
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(2, 2, 6, 2),
-            Cursor = System.Windows.Input.Cursors.Hand,
-            IsChecked = false,
-            Content = headerPanel,
-            HorizontalAlignment = HorizontalAlignment.Left,
-        };
-        toggle.SetResourceReference(System.Windows.Controls.Primitives.ToggleButton.ForegroundProperty, "Settings.SubtleForeground");
-        toggle.Checked += (_, _) =>
-        {
-            caret.RenderTransform = new RotateTransform(90, 4, 4);
-            if (_streamingReasoningTextBox is not null)
-            {
-                _streamingReasoningTextBox.Visibility = Visibility.Visible;
-            }
-        };
-        toggle.Unchecked += (_, _) =>
-        {
-            caret.RenderTransform = null;
-            if (_streamingReasoningTextBox is not null)
-            {
-                _streamingReasoningTextBox.Visibility = Visibility.Collapsed;
-            }
-        };
-        _streamingReasoningToggle = toggle;
-
+        // textBox 先声明，下面 header 的 lambda 用闭包持有它的引用，
+        // 这样即便流式结束后 _streamingReasoningTextBox 字段被置 null，header 上的点击切换依然有效
         var textBox = new TextBox
         {
             IsReadOnly = true,
@@ -432,6 +411,29 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         textBox.SetResourceReference(TextBox.ForegroundProperty, "Settings.Muted");
         _streamingReasoningTextBox = textBox;
 
+        // 用 Border + PreviewMouseLeftButtonDown 自实现折叠头，避免 ToggleButton 在 Wpf.Ui 全局样式下
+        // 对自定义子内容 hit-test 不可靠；用 Preview 阶段（tunneling）抢先处理，避免被任何下游控件抢占
+        // 关键点：Background = Transparent（非 null）才能让整个矩形参与 hit-test
+        var header = new Border
+        {
+            Background = System.Windows.Media.Brushes.Transparent,
+            Padding = new Thickness(2, 2, 6, 2),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Child = headerPanel,
+        };
+        // 闭包持有 textBox/caret 本地引用：不依赖 _streamingReasoningTextBox 字段，
+        // 流式结束后字段被清空也不影响这里的开合
+        header.PreviewMouseLeftButtonDown += (_, args) =>
+        {
+            args.Handled = true;
+            var expand = textBox.Visibility != Visibility.Visible;
+            textBox.Visibility = expand ? Visibility.Visible : Visibility.Collapsed;
+            // caret 三角朝向：折叠时向右（▶），展开时向下（▼）
+            caret.RenderTransform = expand ? new RotateTransform(90, 4, 4) : null;
+            if (expand) ScrollToEnd();
+        };
+
         var host = new Border
         {
             Margin = new Thickness(0, 0, 0, 6),
@@ -443,7 +445,7 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         host.SetResourceReference(Border.CornerRadiusProperty, "Settings.Radius.Sm");
 
         var inner = new StackPanel();
-        inner.Children.Add(toggle);
+        inner.Children.Add(header);
         inner.Children.Add(textBox);
         host.Child = inner;
 
@@ -501,7 +503,6 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         _streamingMessageStack = null;
         _streamingReasoningHost = null;
         _streamingReasoningTextBox = null;
-        _streamingReasoningToggle = null;
         _streamingReasoningStatus = null;
         ScrollToEnd();
     }

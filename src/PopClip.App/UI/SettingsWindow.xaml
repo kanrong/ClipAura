@@ -1096,6 +1096,27 @@
                                                    Margin="12,0,0,0" />
                                     </Grid>
 
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="220" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="单次最大输出 tokens" />
+                                        <ui:NumberBox Grid.Column="1"
+                                                      x:Name="AiMaxOutputTokensBox"
+                                                      Minimum="0"
+                                                      Maximum="262144"
+                                                      SmallChange="512"
+                                                      LargeChange="4096" />
+                                        <TextBlock Grid.Column="2"
+                                                   Style="{StaticResource Settings.HintText}"
+                                                   TextWrapping="Wrap"
+                                                   VerticalAlignment="Center"
+                                                   Margin="12,0,0,0"
+                                                   Text="0=自动（快速 4K / 自动 16K / 深度 32K）。思考模型 reasoning 与正文共用此额度，过低会导致只输出思考过程。" />
+                                    </Grid>
+
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                                         <ui:Button Appearance="Secondary"
                                                    Icon="{ui:SymbolIcon PlugConnected24}"

@@ -138,6 +138,11 @@ public sealed class AppSettings
     public string AiDefaultLanguage { get; set; } = "中文";
     public AiThinkingMode AiThinkingMode { get; set; } = AiThinkingMode.Auto;
 
+    /// <summary>AI 单次最大输出 token 数。0=自动按思考强度选取（推荐）。
+    /// DeepSeek V4 最大 384K；OpenAI o-series 也很宽松。思考模型 reasoning_tokens
+    /// 与 visible content 共用同一额度上限，给"长思考链"留足空间避免 content 被挤空</summary>
+    public int AiMaxOutputTokens { get; set; } = 0;
+
     public string AiDeepSeekApiKeyProtected { get; set; } = "";
     public string AiOpenAiApiKeyProtected { get; set; } = "";
     public string AiCustomApiKeyProtected { get; set; } = "";

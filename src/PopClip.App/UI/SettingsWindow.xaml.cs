@@ -281,6 +281,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         AiThinkingModeBox.DisplayMemberPath = nameof(AiThinkingModeChoice.Label);
         AiThinkingModeBox.SelectedValuePath = nameof(AiThinkingModeChoice.Value);
         AiThinkingModeBox.SelectedValue = _settings.AiThinkingMode;
+        AiMaxOutputTokensBox.Value = _settings.AiMaxOutputTokens;
         _currentAiKeyBucket = CurrentAiProvider().KeyBucket;
         AiApiKeyBox.Password = "";
         _syncingAiProvider = false;
@@ -554,7 +555,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             key,
             NumberBoxInt(AiTimeoutBox, 30, 5, 180),
             provider.Preset.ToString(),
-            SelectedAiThinkingMode().ToString());
+            SelectedAiThinkingMode().ToString(),
+            NumberBoxInt(AiMaxOutputTokensBox, 0, 0, 262144));
         AiTestInfo.Severity = Wpf.Ui.Controls.InfoBarSeverity.Informational;
         AiTestInfo.Title = "测试中";
         AiTestInfo.Message = "正在连接当前模型服务...";
@@ -953,6 +955,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         var language = AiDefaultLanguageBox.Text.Trim();
         _settings.AiDefaultLanguage = language.Length > 0 ? language : "中文";
         _settings.AiThinkingMode = SelectedAiThinkingMode();
+        _settings.AiMaxOutputTokens = NumberBoxInt(AiMaxOutputTokensBox, _settings.AiMaxOutputTokens, 0, 262144);
 
         foreach (var (bucket, plain) in _pendingAiKeys)
         {

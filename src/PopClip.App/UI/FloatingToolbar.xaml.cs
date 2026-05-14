@@ -434,25 +434,25 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             }
         }
 
-        if (_keyboardShortcutsEnabled && Items.Count > 0 && key.VirtualKey is NativeMethods.VK_LEFT or NativeMethods.VK_UP)
+        // 键盘选择（导航 + 触发）由 _tabNavigationEnabled 统一控制：
+        // Tab / 方向键 / Enter / 空格 共同构成"键盘选中并触发"的交互；用户关掉这一开关时浮窗完全不响应键盘选择
+        var navEnabled = _keyboardShortcutsEnabled && _tabNavigationEnabled && Items.Count > 0;
+        if (navEnabled && key.VirtualKey is NativeMethods.VK_LEFT or NativeMethods.VK_UP)
         {
             MoveSelection(-1);
             return true;
         }
-        if (_keyboardShortcutsEnabled && Items.Count > 0 && key.VirtualKey is NativeMethods.VK_RIGHT or NativeMethods.VK_DOWN)
+        if (navEnabled && key.VirtualKey is NativeMethods.VK_RIGHT or NativeMethods.VK_DOWN)
         {
             MoveSelection(1);
             return true;
         }
-        if (_keyboardShortcutsEnabled
-            && _tabNavigationEnabled
-            && Items.Count > 0
-            && key.VirtualKey == NativeMethods.VK_TAB)
+        if (navEnabled && key.VirtualKey == NativeMethods.VK_TAB)
         {
             MoveSelection(key.Shift ? -1 : 1);
             return true;
         }
-        if (_keyboardShortcutsEnabled && Items.Count > 0 && key.VirtualKey is NativeMethods.VK_RETURN or NativeMethods.VK_SPACE)
+        if (navEnabled && key.VirtualKey is NativeMethods.VK_RETURN or NativeMethods.VK_SPACE)
         {
             var index = _selectedIndex >= 0 ? _selectedIndex : 0;
             SelectIndex(index);
@@ -505,6 +505,9 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         }
     }
 
+    /// <summary>是否在显示浮窗时自动用键盘高亮第一项。
+    /// 仅当用户开启了"键盘选择"（_tabNavigationEnabled）时才有意义；关闭时浮窗以纯鼠标方式呈现，
+    /// 没有键盘焦点高亮也避免误导用户按方向键无效</summary>
     private bool ShouldAutoSelectFirstItem()
         => _keyboardShortcutsEnabled && _tabNavigationEnabled && Items.Count > 0;
 

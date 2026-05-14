@@ -101,5 +101,41 @@ public static class PromptTemplateLibrary
             Description = "根据消息生成一段礼貌、正式的回复",
             Prompt = "下面是一段消息。请根据消息内容用{language}起草一段可直接发送的正式、礼貌、具体的回复：\n\n{text}",
         },
+        new PromptTemplateDefinition
+        {
+            Id = "tpl.explain",
+            Title = "解释",
+            Icon = "AiExplain",
+            OutputMode = "chat",
+            BuiltIn = true,
+            Description = "面向非专家解释下文，先结论后细节",
+            Prompt = "用{language}解释下面的文本，面向不熟悉背景的人，先给一句话结论，再补充必要细节：\n\n{text}",
+        },
+        new PromptTemplateDefinition
+        {
+            Id = "tpl.tidy",
+            Title = "整理格式",
+            Icon = "AiTidy",
+            OutputMode = "replace",
+            BuiltIn = true,
+            Description = "只调整空白与换行，不改动任何文字内容",
+            // 这里特意写明"不得修改任何文字"，避免一些模型把 tidy 当成全文重写
+            Prompt = "请整理下面文本的格式，只调整空白与换行，不得修改、增删、翻译任何文字。要求：\n"
+                   + "1. 删除多余空行：正文段落之间最多保留 1 个空行；3 个及以上连续空行一律压缩为 1 个。\n"
+                   + "2. 标题与其下方正文之间允许保留 1 个空行作为视觉分隔。\n"
+                   + "3. 不要改动每行内部的内容、字符顺序、大小写、标点；不要重新断行长段落。\n"
+                   + "4. 保留代码块、列表、引用块、表格等结构原样。\n"
+                   + "只输出整理后的纯文本，不要任何额外解释、不要用 ``` 包裹整段输出。\n\n{text}",
+        },
+        new PromptTemplateDefinition
+        {
+            Id = "tpl.quick-reply",
+            Title = "口语回复",
+            Icon = "AiReply",
+            OutputMode = "chat",
+            BuiltIn = true,
+            Description = "用日常口语风格起草一段简短回复",
+            Prompt = "下面是一段消息。请用{language}口语化风格起草一段自然、简短、礼貌的回复，可直接发送：\n\n{text}",
+        },
     };
 }

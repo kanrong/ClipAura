@@ -32,13 +32,26 @@ public sealed class ConfigStore
         try
         {
             using var stream = File.OpenRead(path);
-            var s = JsonSerializer.Deserialize<AppSettings>(stream, Json);
-            return s ?? new AppSettings();
+            var s = JsonSerializer.Deserialize<AppSettings>(stream, Json) ?? new AppSettings();
+            MigrateLoadedSettings(s);
+            return s;
         }
         catch (Exception ex)
         {
             _log.Warn("settings load failed, using defaults", ("err", ex.Message));
             return new AppSettings();
+        }
+    }
+
+    /// <summary>加载后做一次幂等迁移。当前只处理一项：
+    /// 若 AiEnabled=true 但 AiDefaultActionsSeeded 字段缺失/为 false（旧版本写出的 settings.json），
+    /// 视为"已经走过 AI 引导阶段"，把 seeded 直接置 true，
+    /// 防止用户后续在设置里删除某条默认 AI 动作再保存时被强制补回</summary>
+    private static void MigrateLoadedSettings(AppSettings s)
+    {
+        if (s.AiEnabled && !s.AiDefaultActionsSeeded)
+        {
+            s.AiDefaultActionsSeeded = true;
         }
     }
 

@@ -22,14 +22,16 @@
         <local:IconKeyToMaterialDesignKindConverter x:Key="MaterialIconConv" />
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
 
-        <!-- 每条 Action 卡片的 DataTemplate -->
+        <!-- 每条 Action 卡片的 DataTemplate。
+             去掉了"展开/折叠"和"类型下拉"：卡片在创建时就根据入口决定了 Type，
+             所有可编辑字段平铺显示，仅根据 IconLocked / IsAiType / IsUrlType 做条件可见 -->
         <DataTemplate x:Key="ActionItemTemplate" DataType="{x:Type local:ActionEditorItem}">
             <Border Background="{DynamicResource Settings.Card.Background}"
                     BorderBrush="{DynamicResource Settings.Card.Border}"
                     BorderThickness="1"
                     CornerRadius="{StaticResource Settings.Radius.Md}"
-                    Padding="14"
-                    Margin="0,0,0,10"
+                    Padding="14,12,14,12"
+                    Margin="0,0,0,8"
                     SnapsToDevicePixels="True">
                 <Border.Style>
                     <Style TargetType="Border">
@@ -41,18 +43,16 @@
                     </Style>
                 </Border.Style>
                 <StackPanel>
-                    <!-- 主行 -->
+                    <!-- 主行：拖拽柄 + 图标 + 名称 + 启用 + 操作按钮 -->
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="22" />
-                            <ColumnDefinition Width="40" />
+                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="148" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
 
-                        <!-- 拖拽柄 -->
                         <ui:SymbolIcon Grid.Column="0"
                                        Symbol="ReOrderDotsVertical24"
                                        FontSize="14"
@@ -61,54 +61,56 @@
                                        Cursor="SizeAll"
                                        ToolTip="拖拽以重排" />
 
-                        <!-- 图标预览 -->
-                        <Border Grid.Column="1"
-                                Width="32" Height="32"
-                                Background="{DynamicResource Settings.AccentSoft}"
-                                CornerRadius="{StaticResource Settings.Radius.Sm}"
-                                Margin="0,0,12,0">
-                            <iconPacks:PackIconMaterialDesign Kind="{Binding Icon, Converter={StaticResource MaterialIconConv}}"
-                                                              Width="17"
-                                                              Height="17"
-                                                              Foreground="{DynamicResource Settings.Accent}"
-                                                              VerticalAlignment="Center"
-                                                              HorizontalAlignment="Center" />
-                        </Border>
+                        <!-- 图标区：锁定时只显示预览，未锁定时显示带预览的下拉 -->
+                        <Grid Grid.Column="1" Width="40" Height="32" Margin="0,0,12,0">
+                            <Border Background="{DynamicResource Settings.AccentSoft}"
+                                    CornerRadius="{StaticResource Settings.Radius.Sm}"
+                                    Width="32" Height="32"
+                                    HorizontalAlignment="Left"
+                                    Visibility="{Binding IconLocked, Converter={StaticResource BoolToVis}}"
+                                    ToolTip="此动作的图标由系统语义决定，不可修改">
+                                <iconPacks:PackIconMaterialDesign Kind="{Binding Icon, Converter={StaticResource MaterialIconConv}}"
+                                                                  Width="17"
+                                                                  Height="17"
+                                                                  Foreground="{DynamicResource Settings.Accent}"
+                                                                  VerticalAlignment="Center"
+                                                                  HorizontalAlignment="Center" />
+                            </Border>
+                            <ComboBox Width="56" Height="32"
+                                      HorizontalAlignment="Left"
+                                      VerticalContentAlignment="Center"
+                                      Visibility="{Binding IsIconEditable, Converter={StaticResource BoolToVis}}"
+                                      ItemsSource="{Binding DataContext.IconChoices, RelativeSource={RelativeSource AncestorType=Window}}"
+                                      SelectedValuePath="IconKey"
+                                      SelectedValue="{Binding Icon, UpdateSourceTrigger=PropertyChanged}"
+                                      ToolTip="选择图标">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal">
+                                            <iconPacks:PackIconMaterialDesign Kind="{Binding IconKey, Converter={StaticResource MaterialIconConv}}"
+                                                                              Width="14" Height="14"
+                                                                              VerticalAlignment="Center"
+                                                                              Margin="0,0,8,0" />
+                                            <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </Grid>
 
-                        <!-- 标题 + ID -->
-                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,12,0">
-                            <ui:TextBox Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}"
-                                        FontWeight="SemiBold"
-                                        BorderThickness="0"
-                                        Background="Transparent"
-                                        Padding="0,2" />
-                            <ui:TextBox Text="{Binding Id, UpdateSourceTrigger=PropertyChanged}"
-                                        FontSize="11"
-                                        BorderThickness="0"
-                                        Background="Transparent"
-                                        Foreground="{DynamicResource Settings.Muted}"
-                                        Padding="0,2"
-                                        ToolTip="动作 ID（用于 actions.json）" />
-                        </StackPanel>
+                        <ui:TextBox Grid.Column="2"
+                                    Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}"
+                                    FontWeight="SemiBold"
+                                    VerticalAlignment="Center"
+                                    PlaceholderText="动作名称" />
 
-                        <!-- 类型下拉 -->
-                        <ComboBox Grid.Column="3"
-                                  ItemsSource="{Binding DataContext.ActionTypeChoices, RelativeSource={RelativeSource AncestorType=Window}}"
-                                  DisplayMemberPath="Label"
-                                  SelectedValuePath="Value"
-                                  SelectedValue="{Binding Type, UpdateSourceTrigger=PropertyChanged}"
-                                  VerticalAlignment="Center"
-                                  Margin="0,0,12,0" />
-
-                        <!-- 启用开关 -->
-                        <ui:ToggleSwitch Grid.Column="4"
+                        <ui:ToggleSwitch Grid.Column="3"
                                          IsChecked="{Binding Enabled}"
                                          VerticalAlignment="Center"
-                                         Margin="0,0,12,0"
+                                         Margin="12,0,8,0"
                                          ToolTip="启用此动作" />
 
-                        <!-- 操作按钮 -->
-                        <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
+                        <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
                             <ui:Button Appearance="Transparent"
                                        Icon="{ui:SymbolIcon ArrowUp24}"
                                        Tag="{Binding}"
@@ -130,220 +132,53 @@
                                        Margin="2,0,0,0"
                                        Foreground="{DynamicResource Settings.Danger}"
                                        ToolTip="删除" />
-                            <ToggleButton IsChecked="{Binding IsExpanded, Mode=TwoWay}"
-                                          Background="Transparent"
-                                          BorderThickness="0"
-                                          Padding="6"
-                                          Margin="2,0,0,0"
-                                          ToolTip="展开 / 折叠详情">
-                                <ToggleButton.Style>
-                                    <Style TargetType="ToggleButton">
-                                        <Setter Property="Cursor" Value="Hand" />
-                                        <Setter Property="Template">
-                                            <Setter.Value>
-                                                <ControlTemplate TargetType="ToggleButton">
-                                                    <Border Background="{TemplateBinding Background}"
-                                                            CornerRadius="4"
-                                                            Padding="{TemplateBinding Padding}">
-                                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                    </Border>
-                                                </ControlTemplate>
-                                            </Setter.Value>
-                                        </Setter>
-                                        <Style.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter Property="Background" Value="{DynamicResource Settings.Hover}" />
-                                            </Trigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </ToggleButton.Style>
-                                <ToggleButton.Content>
-                                    <ui:SymbolIcon x:Name="ChevronIcon"
-                                                   Symbol="ChevronDown24"
-                                                   FontSize="13">
-                                        <ui:SymbolIcon.Style>
-                                            <Style TargetType="ui:SymbolIcon">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsExpanded}" Value="True">
-                                                        <Setter Property="Symbol" Value="ChevronUp24" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </ui:SymbolIcon.Style>
-                                    </ui:SymbolIcon>
-                                </ToggleButton.Content>
-                            </ToggleButton>
                         </StackPanel>
                     </Grid>
 
-                    <!-- 详情区 -->
-                    <StackPanel Margin="32,12,0,0"
-                                Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
+                    <!-- URL 模板字段：仅当 Type=url-template 时显示 -->
+                    <StackPanel Margin="34,10,0,0"
+                                Visibility="{Binding IsUrlType, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="URL 模板" />
+                        <ui:TextBox Text="{Binding UrlTemplate, UpdateSourceTrigger=PropertyChanged}"
+                                    PlaceholderText="https://example.com/search?q={q}" />
+                        <TextBlock Style="{StaticResource Settings.HintText}"
+                                   Margin="0,4,0,0"
+                                   Text="占位符：{q} = 选中文本（URL 编码后）；{text} = 原始选中文本" />
+                    </StackPanel>
 
-                        <!-- 类型相关字段：builtin -->
-                        <StackPanel Margin="0,0,0,12">
-                            <StackPanel.Style>
-                                <Style TargetType="StackPanel">
-                                    <Setter Property="Visibility" Value="Collapsed" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Type}" Value="builtin">
-                                            <Setter Property="Visibility" Value="Visible" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </StackPanel.Style>
-                            <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="内置实现" />
-                            <ComboBox ItemsSource="{Binding DataContext.BuiltInChoices, RelativeSource={RelativeSource AncestorType=Window}}"
-                                      DisplayMemberPath="Title"
-                                      SelectedValuePath="Id"
-                                      SelectedValue="{Binding BuiltIn, UpdateSourceTrigger=PropertyChanged}"
-                                      Width="280"
-                                      HorizontalAlignment="Left" />
-                        </StackPanel>
-
-                        <!-- 类型相关字段：url-template -->
-                        <StackPanel Margin="0,0,0,12">
-                            <StackPanel.Style>
-                                <Style TargetType="StackPanel">
-                                    <Setter Property="Visibility" Value="Collapsed" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Type}" Value="url-template">
-                                            <Setter Property="Visibility" Value="Visible" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </StackPanel.Style>
-                            <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="URL 模板" />
-                            <ui:TextBox Text="{Binding UrlTemplate, UpdateSourceTrigger=PropertyChanged}"
-                                        PlaceholderText="https://example.com/search?q={q}" />
-                            <TextBlock Style="{StaticResource Settings.HintText}"
-                                       Margin="0,4,0,0"
-                                       Text="占位符：{q} = UrlEncode 后的选区；{text} = 原始文本；{urlencoded} 等同 {q}" />
-                        </StackPanel>
-
-                        <!-- 类型相关字段：script -->
-                        <StackPanel Margin="0,0,0,12">
-                            <StackPanel.Style>
-                                <Style TargetType="StackPanel">
-                                    <Setter Property="Visibility" Value="Collapsed" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Type}" Value="script">
-                                            <Setter Property="Visibility" Value="Visible" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </StackPanel.Style>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="240" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                    <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="脚本路径" />
-                                    <ui:TextBox Text="{Binding ScriptPath, UpdateSourceTrigger=PropertyChanged}"
-                                                PlaceholderText="C:\Tools\my.ps1" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="1">
-                                    <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="参数模板" />
-                                    <ui:TextBox Text="{Binding Arguments, UpdateSourceTrigger=PropertyChanged}"
-                                                PlaceholderText="{}{text}" />
-                                </StackPanel>
-                            </Grid>
-                            <TextBlock Style="{StaticResource Settings.HintText}"
-                                       Margin="0,4,0,0"
-                                       Text="参数中 {text} 会被替换为选区文本；脚本通过 stdin 也可以接收文本（v2 支持）" />
-                        </StackPanel>
-
-                        <!-- 类型相关字段：ai -->
-                        <StackPanel Margin="0,0,0,12">
-                            <StackPanel.Style>
-                                <Style TargetType="StackPanel">
-                                    <Setter Property="Visibility" Value="Collapsed" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Type}" Value="ai">
-                                            <Setter Property="Visibility" Value="Visible" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </StackPanel.Style>
-                            <Grid Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="240" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                    <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="结果落点" />
-                                    <ComboBox ItemsSource="{Binding DataContext.AiOutputModeChoices, RelativeSource={RelativeSource AncestorType=Window}}"
-                                              DisplayMemberPath="Label"
-                                              SelectedValuePath="Value"
-                                              SelectedValue="{Binding OutputMode, UpdateSourceTrigger=PropertyChanged}" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="1">
-                                    <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="System Prompt（可选）" />
-                                    <ui:TextBox Text="{Binding SystemPrompt, UpdateSourceTrigger=PropertyChanged}"
-                                                PlaceholderText="留空使用 ClipAura 默认助手 system prompt" />
-                                </StackPanel>
-                            </Grid>
-                            <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="Prompt 模板" />
-                            <ui:TextBox Text="{Binding Prompt, UpdateSourceTrigger=PropertyChanged}"
-                                        AcceptsReturn="True"
-                                        TextWrapping="Wrap"
-                                        MinHeight="80"
-                                        MaxHeight="220"
-                                        VerticalScrollBarVisibility="Auto"
-                                        PlaceholderText="例如：只输出修正语法后的{language}文本：&#x0a;&#x0a;{text}" />
-                            <TextBlock Style="{StaticResource Settings.HintText}"
-                                       Margin="0,4,0,0"
-                                       TextWrapping="Wrap"
-                                       Text="可用变量：{text} {language} {clipboard} {foreground_proc} {selection_len} {date} {time}。&#x0a;若 prompt 中不含 {text}，运行时会自动把选区追加到末尾。" />
-                        </StackPanel>
-
-                        <!-- 共用：图标键 + 触发正则 -->
-                        <Grid Margin="0,4,0,0">
+                    <!-- AI Prompt 字段：仅当 Type=ai 时显示 -->
+                    <StackPanel Margin="34,10,0,0"
+                                Visibility="{Binding IsAiType, Converter={StaticResource BoolToVis}}">
+                        <Grid Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="220" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="图标键" />
-                                <ui:TextBox Text="{Binding Icon, UpdateSourceTrigger=PropertyChanged}"
-                                            ToolTip="如 Copy / Search / Url（参见 IconKeyToGlyphConverter）" />
+                                <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="结果展示方式" />
+                                <ComboBox ItemsSource="{Binding DataContext.AiOutputModeChoices, RelativeSource={RelativeSource AncestorType=Window}}"
+                                          DisplayMemberPath="Label"
+                                          SelectedValuePath="Value"
+                                          SelectedValue="{Binding OutputMode, UpdateSourceTrigger=PropertyChanged}" />
                             </StackPanel>
                             <StackPanel Grid.Column="1">
-                                <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="触发正则 (matchRegex)" />
-                                <ui:TextBox Text="{Binding MatchRegex, UpdateSourceTrigger=PropertyChanged}"
-                                            PlaceholderText="留空则永远显示" />
+                                <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="System Prompt（可选）" />
+                                <ui:TextBox Text="{Binding SystemPrompt, UpdateSourceTrigger=PropertyChanged}"
+                                            PlaceholderText="留空使用 ClipAura 默认助手提示词" />
                             </StackPanel>
                         </Grid>
-
-                        <!-- 正则匹配测试 -->
-                        <Border Background="{DynamicResource Settings.Card.SubtleBackground}"
-                                BorderBrush="{DynamicResource Settings.Stroke}"
-                                BorderThickness="1"
-                                CornerRadius="{StaticResource Settings.Radius.Sm}"
-                                Padding="10"
-                                Margin="0,12,0,0">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                    <TextBlock Style="{StaticResource Settings.FieldLabel}"
-                                               Text="测试文本（针对本动作）"
-                                               Margin="0,0,0,4" />
-                                    <ui:TextBox Text="{Binding RegexTestText, UpdateSourceTrigger=PropertyChanged}" />
-                                </StackPanel>
-                                <ui:Badge Grid.Column="1"
-                                          VerticalAlignment="Bottom"
-                                          Appearance="Success"
-                                          Padding="10,5">
-                                    <TextBlock Text="{Binding RegexResult}"
-                                               FontSize="12"
-                                               FontWeight="SemiBold" />
-                                </ui:Badge>
-                            </Grid>
-                        </Border>
+                        <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="Prompt 模板" />
+                        <ui:TextBox Text="{Binding Prompt, UpdateSourceTrigger=PropertyChanged}"
+                                    AcceptsReturn="True"
+                                    TextWrapping="Wrap"
+                                    MinHeight="80"
+                                    MaxHeight="220"
+                                    VerticalScrollBarVisibility="Auto"
+                                    PlaceholderText="例如：只输出修正语法后的{language}文本：&#x0a;&#x0a;{text}" />
+                        <TextBlock Style="{StaticResource Settings.HintText}"
+                                   Margin="0,4,0,0"
+                                   TextWrapping="Wrap"
+                                   Text="可用变量：{text} 选中文本，{language} 目标语言，{clipboard} 剪贴板内容。&#x0a;若 Prompt 中不含 {text}，运行时会自动把选中文本追加到末尾。" />
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -774,7 +609,7 @@
                                             Margin="0,0,16,0">
                                     <TextBlock Style="{StaticResource Settings.PageTitle}" Text="动作" />
                                     <TextBlock Style="{StaticResource Settings.PageDescription}"
-                                               Text="工具栏中显示的动作清单。可拖拽排序、按类型切换字段，并通过正则按上下文显示"
+                                               Text="选中文字后浮窗里显示的按钮。可拖拽调整顺序，开关右侧切换是否启用。"
                                                TextWrapping="Wrap" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="1"
@@ -783,22 +618,17 @@
                                             HorizontalAlignment="Right">
                                     <ui:Button Appearance="Secondary"
                                                Icon="{ui:SymbolIcon Add24}"
-                                               Content="内置"
+                                               Content="添加内置动作"
                                                Margin="0,0,6,0"
                                                Click="OnAddBuiltInAction" />
                                     <ui:Button Appearance="Secondary"
                                                Icon="{ui:SymbolIcon Link24}"
-                                               Content="URL"
+                                               Content="添加 URL"
                                                Margin="0,0,6,0"
                                                Click="OnAddUrlAction" />
-                                    <ui:Button Appearance="Secondary"
-                                               Icon="{ui:SymbolIcon Code24}"
-                                               Content="脚本"
-                                               Margin="0,0,6,0"
-                                               Click="OnAddScriptAction" />
                                     <ui:Button Appearance="Primary"
                                                Icon="{ui:SymbolIcon Sparkle24}"
-                                               Content="AI Prompt"
+                                               Content="添加 AI 动作"
                                                Click="OnAddAiPromptAction" />
                                 </StackPanel>
                             </Grid>
@@ -807,7 +637,7 @@
                             <Border Style="{StaticResource Settings.SubCard}" Margin="0,0,0,12">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource Settings.FieldLabel}"
-                                               Text="从内置 Prompt 模板快速添加为动作："
+                                               Text="从内置 AI 模板快速添加："
                                                Margin="0,0,0,6" />
                                     <ItemsControl ItemsSource="{Binding BuiltinPromptTemplates}">
                                         <ItemsControl.ItemsPanel>
@@ -846,21 +676,6 @@
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
                                 </StackPanel>
-                            </Border>
-
-                            <Border Style="{StaticResource Settings.SubCard}">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}"
-                                               Text="公共测试文本"
-                                               Margin="4,0,12,0" />
-                                    <ui:TextBox Grid.Column="1" x:Name="ActionGlobalTestText"
-                                                PlaceholderText="输入示例文本：每条动作会用它即时显示正则匹配结果"
-                                                TextChanged="OnActionGlobalTestChanged" />
-                                </Grid>
                             </Border>
 
                             <ItemsControl x:Name="ActionsList"

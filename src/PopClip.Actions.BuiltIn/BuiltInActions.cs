@@ -28,13 +28,8 @@ public static class BuiltInActionIds
     public const string Mailto = "builtin.open.mailto";
     public const string Calculate = "builtin.calculate";
     public const string WordCount = "builtin.wordcount";
+    /// <summary>仅保留 AI 对话入口；其它 AI 文本操作统一改走 actions.json 中 type:ai 的 prompt 模板</summary>
     public const string AiChat = "builtin.ai.chat";
-    public const string AiSummarize = "builtin.ai.summarize";
-    public const string AiRewrite = "builtin.ai.rewrite";
-    public const string AiTranslate = "builtin.ai.translate";
-    public const string AiExplain = "builtin.ai.explain";
-    public const string AiReply = "builtin.ai.reply";
-    public const string AiTidy = "builtin.ai.tidy";
     /// <summary>从浮动工具栏唤起"剪贴板历史"面板。运行时由 IClipboardHistoryLauncher 提供具体实现</summary>
     public const string ClipboardHistory = "builtin.clipboard.history";
 }
@@ -278,30 +273,16 @@ internal sealed class WordCountAction : BuiltInAction
     }
 }
 
-internal sealed class AiTextAction : BuiltInAction
+/// <summary>"AI 对话"入口动作：把选中文本作为参考送入 AI 对话窗口。
+/// 这是唯一保留的硬编码 AI 动作；其它 AI 文本操作（总结/改写/解释/翻译/回复 等）统一走 type:ai 的 prompt 模板</summary>
+internal sealed class AiChatAction : BuiltInAction
 {
-    private readonly AiTextActionKind _kind;
-    private readonly string _id;
-    private readonly string _title;
-    private readonly string _iconKey;
+    public override string Id => BuiltInActionIds.AiChat;
+    public override string Title => "AI 对话";
+    public override string IconKey => "AiChat";
 
-    public AiTextAction(string id, string title, string iconKey, AiTextActionKind kind)
-    {
-        _id = id;
-        _title = title;
-        _iconKey = iconKey;
-        _kind = kind;
-    }
-
-    public override string Id => _id;
-    public override string Title => _title;
-    public override string IconKey => _iconKey;
-
-    public override bool CanRun(SelectionContext context)
-        => !context.IsEmpty;
-
-    public override async Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
-        => await host.Ai.RunActionAsync(new AiTextActionRequest(_kind, _title), context, ct).ConfigureAwait(false);
+    public override Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
+        => host.Ai.OpenConversationAsync(new AiConversationRequest(Title, context.Text), ct);
 }
 
 /// <summary>由 actions.json 中 type:ai 动作派生的运行时动作。

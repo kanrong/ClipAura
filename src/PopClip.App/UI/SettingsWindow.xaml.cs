@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -52,13 +51,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         new AiThinkingModeChoice(AiThinkingMode.Fast, "快速", "DeepSeek 关闭 thinking；OpenAI 使用 low reasoning"),
         new AiThinkingModeChoice(AiThinkingMode.Deep, "深度", "DeepSeek 启用 thinking + max；OpenAI 使用 high reasoning"),
     };
-    public IReadOnlyList<ActionTypeChoice> ActionTypeChoices { get; } = new[]
-    {
-        new ActionTypeChoice("builtin", "内置"),
-        new ActionTypeChoice("url-template", "URL 模板"),
-        new ActionTypeChoice("script", "脚本"),
-        new ActionTypeChoice("ai", "AI Prompt"),
-    };
+    /// <summary>"添加用户自定义动作"图标下拉的可选项。
+    /// 严格剔除被内置功能/预定义模板占用的图标，避免不同语义复用同一图形</summary>
+    public IReadOnlyList<IconChoice> IconChoices { get; } = IconChoiceCatalog.UserSelectable;
 
     public IReadOnlyList<AiOutputModeChoice> AiOutputModeChoices { get; } = new[]
     {
@@ -69,6 +64,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
     };
 
     public IReadOnlyList<PromptTemplateDefinition> BuiltinPromptTemplates => PromptTemplateLibrary.Builtin;
+
+    /// <summary>"添加内置动作"下拉里的全部选项；保持与 BuiltInActionIds 一一对应。
+    /// AI 系列除"对话"外都已迁移为 Prompt 模板（见 PromptTemplateLibrary），不再以内置动作呈现</summary>
     public IReadOnlyList<BuiltInChoice> BuiltInChoices { get; } = new[]
     {
         new BuiltInChoice(BuiltInActionIds.Copy, "复制"),
@@ -82,13 +80,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         new BuiltInChoice(BuiltInActionIds.ToTitle, "标题大小写"),
         new BuiltInChoice(BuiltInActionIds.Calculate, "计算"),
         new BuiltInChoice(BuiltInActionIds.WordCount, "字数统计"),
+        new BuiltInChoice(BuiltInActionIds.ClipboardHistory, "剪贴板历史"),
         new BuiltInChoice(BuiltInActionIds.AiChat, "AI 对话"),
-        new BuiltInChoice(BuiltInActionIds.AiSummarize, "AI 总结"),
-        new BuiltInChoice(BuiltInActionIds.AiRewrite, "AI 改写"),
-        new BuiltInChoice(BuiltInActionIds.AiTranslate, "AI 翻译"),
-        new BuiltInChoice(BuiltInActionIds.AiExplain, "AI 解释"),
-        new BuiltInChoice(BuiltInActionIds.AiReply, "AI 回复"),
-        new BuiltInChoice(BuiltInActionIds.AiTidy, "AI 整理"),
     };
 
     public event Action? Saved;
@@ -446,7 +439,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         {
             ("General", "通用 全屏 开机 自启 触发 延迟 悬停 修饰键 快捷键"),
             ("Appearance", "外观 主题 深色 浅色 自动 强调色 阴影 边框 圆角 间距 字号"),
-            ("Actions", "动作 添加 内置 URL 脚本 正则 matchRegex 排序"),
+            ("Actions", "动作 添加 内置 URL AI Prompt 模板 图标 排序"),
             ("Processes", "进程 过滤 黑名单 白名单 最近活动窗口"),
             ("Search", "搜索 引擎 Google Bing 百度 URL 模板"),
             ("Hotkeys", "快捷键 热键 暂停 恢复 唤起 工具栏"),
@@ -643,14 +636,6 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         return trimmed.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? trimmed : trimmed + ".exe";
     }
 
-    private void OnActionGlobalTestChanged(object sender, TextChangedEventArgs e)
-    {
-        foreach (var item in ActionItems)
-        {
-            item.RegexTestText = ActionGlobalTestText.Text;
-        }
-    }
-
     private void OnAddBuiltInAction(object sender, RoutedEventArgs e)
     {
         var choice = BuiltInChoices.FirstOrDefault(x => ActionItems.All(a => !string.Equals(a.BuiltIn, x.Id, StringComparison.OrdinalIgnoreCase)))
@@ -662,8 +647,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             BuiltIn = choice.Id,
             Title = choice.Title,
             Icon = SuggestIcon(choice.Id),
+            IconLocked = true,
             Enabled = true,
-            RegexTestText = ActionGlobalTestText.Text,
         });
     }
 
@@ -674,25 +659,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             Id = UniqueActionId("url"),
             Type = "url-template",
             Title = "打开 URL",
-            Icon = "Url",
+            Icon = IconChoiceCatalog.UserSelectable[0].IconKey,
             UrlTemplate = "https://www.google.com/search?q={urlencoded}",
             Enabled = true,
-            RegexTestText = ActionGlobalTestText.Text,
-        });
-    }
-
-    private void OnAddScriptAction(object sender, RoutedEventArgs e)
-    {
-        AddAction(new ActionEditorItem
-        {
-            Id = UniqueActionId("script"),
-            Type = "script",
-            Title = "脚本",
-            Icon = "Script",
-            ScriptPath = "",
-            Arguments = "{text}",
-            Enabled = true,
-            RegexTestText = ActionGlobalTestText.Text,
         });
     }
 
@@ -703,15 +672,15 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             Id = UniqueActionId("ai"),
             Type = "ai",
             Title = "AI 自定义",
-            Icon = "Ai",
+            Icon = IconChoiceCatalog.UserSelectable[0].IconKey,
             Prompt = "请用{language}处理下面的文本：\n\n{text}",
             OutputMode = "chat",
             Enabled = true,
-            RegexTestText = ActionGlobalTestText.Text,
         });
     }
 
-    /// <summary>从内置模板生成一个 ai 类型动作</summary>
+    /// <summary>从内置 Prompt 模板派生 ai 动作。
+    /// 模板代表"预定义功能"，图标承载语义，因此 IconLocked=true 不允许后续在 UI 中改图标</summary>
     private void OnAddFromTemplate(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement fe || fe.Tag is not PromptTemplateDefinition tpl) return;
@@ -724,23 +693,19 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             Prompt = tpl.Prompt,
             SystemPrompt = tpl.SystemPrompt,
             OutputMode = string.IsNullOrWhiteSpace(tpl.OutputMode) ? "chat" : tpl.OutputMode,
+            IconLocked = true,
             Enabled = true,
-            RegexTestText = ActionGlobalTestText.Text,
         });
     }
 
     private void AddAction(ActionEditorItem item)
     {
-        // 新建动作默认展开，方便用户立刻填字段
-        item.IsExpanded = true;
         ActionItems.Add(item);
     }
 
     private string UniqueActionId(string seed)
     {
-        var id = seed.Replace("builtin-", "", StringComparison.OrdinalIgnoreCase)
-            .Replace("builtin.", "", StringComparison.OrdinalIgnoreCase)
-            .Replace(".", "-", StringComparison.Ordinal);
+        var id = NormalizeIdSeed(seed);
         if (ActionItems.All(x => !string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase))) return id;
         for (var i = 2; i < 1000; i++)
         {
@@ -750,9 +715,12 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         return $"{id}-{Guid.NewGuid():N}";
     }
 
+    /// <summary>根据内置动作 ID 给出与其语义匹配的图标 key。
+    /// 这些图标都在 IconKeyToMaterialDesignKindConverter.Map 中保留，但被排除在用户选择器之外</summary>
     private static string SuggestIcon(string builtIn) => builtIn switch
     {
         BuiltInActionIds.Copy => "Copy",
+        BuiltInActionIds.Paste => "Paste",
         BuiltInActionIds.OpenUrl => "Url",
         BuiltInActionIds.Mailto => "Mail",
         BuiltInActionIds.Search => "Search",
@@ -762,14 +730,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         BuiltInActionIds.ToTitle => "Title",
         BuiltInActionIds.Calculate => "Calc",
         BuiltInActionIds.WordCount => "Count",
+        BuiltInActionIds.ClipboardHistory => "ClipboardHistory",
         BuiltInActionIds.AiChat => "AiChat",
-        BuiltInActionIds.AiSummarize => "AiSummary",
-        BuiltInActionIds.AiRewrite => "AiRewrite",
-        BuiltInActionIds.AiTranslate => "AiTranslate",
-        BuiltInActionIds.AiExplain => "AiExplain",
-        BuiltInActionIds.AiReply => "AiReply",
-        BuiltInActionIds.AiTidy => "AiTidy",
-        _ => "Script",
+        _ => "Ai",
     };
 
     /// <summary>卡片内"上移"按钮：通过 sender.Tag 拿到目标 item，避免依赖 ListBox 选中状态</summary>
@@ -930,9 +893,12 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         SaveAiSettings();
         _settings.FirstRunCompleted = true;
 
-        if (_settings.AiEnabled)
+        // 仅在"AI 首次启用"那一次播种默认动作；后续保存不再触发，
+        // 这样用户删了"修语法/润色/三句话总结"再保存就不会被强制补回
+        if (_settings.AiEnabled && !_settings.AiDefaultActionsSeeded)
         {
             EnsureDefaultAiActions();
+            _settings.AiDefaultActionsSeeded = true;
         }
 
         _store.SaveSettings(_settings);
@@ -966,50 +932,63 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         }
     }
 
+    /// <summary>启用 AI 后补齐"AI 对话 + 几条常用 prompt 模板"对应的动作。
+    /// 其它 prompt 模板（总结/解释/翻译/...）用户随时可以从右侧的"从模板添加"按钮按需加入</summary>
     private void EnsureDefaultAiActions()
     {
-        AddDefaultAiAction("ai-chat", BuiltInActionIds.AiChat, "AI 对话");
-        AddDefaultAiAction("ai-summary", BuiltInActionIds.AiSummarize, "AI 总结");
-        AddDefaultAiAction("ai-rewrite", BuiltInActionIds.AiRewrite, "AI 改写");
-        AddDefaultAiAction("ai-translate", BuiltInActionIds.AiTranslate, "AI 翻译");
-        AddDefaultAiAction("ai-explain", BuiltInActionIds.AiExplain, "AI 解释");
-        AddDefaultAiAction("ai-reply", BuiltInActionIds.AiReply, "AI 回复");
-        AddDefaultAiAction("ai-tidy", BuiltInActionIds.AiTidy, "AI 整理");
-        AddDefaultAiPromptAction("ai-fix-grammar", "修语法", "AiRewrite",
-            "只修正下面文本中的语法、标点和明显拼写错误，不要改写表达、不要解释、保留原语言：\n\n{text}",
-            "replace");
+        AddDefaultAiChatAction();
+        AddDefaultPromptAction("tpl.fix-grammar");
+        AddDefaultPromptAction("tpl.polish");
+        AddDefaultPromptAction("tpl.summarize");
     }
 
-    private void AddDefaultAiAction(string id, string builtIn, string title)
+    private void AddDefaultAiChatAction()
     {
-        if (ActionItems.Any(x => string.Equals(x.BuiltIn, builtIn, StringComparison.OrdinalIgnoreCase))) return;
+        if (ActionItems.Any(x => string.Equals(x.BuiltIn, BuiltInActionIds.AiChat, StringComparison.OrdinalIgnoreCase))) return;
         ActionItems.Add(new ActionEditorItem
         {
-            Id = UniqueActionId(id),
+            Id = UniqueActionId("ai-chat"),
             Type = "builtin",
-            BuiltIn = builtIn,
-            Title = title,
-            Icon = SuggestIcon(builtIn),
+            BuiltIn = BuiltInActionIds.AiChat,
+            Title = "AI 对话",
+            Icon = SuggestIcon(BuiltInActionIds.AiChat),
+            IconLocked = true,
             Enabled = true,
-            RegexTestText = ActionGlobalTestText.Text,
         });
     }
 
-    private void AddDefaultAiPromptAction(string id, string title, string icon, string prompt, string outputMode)
+    /// <summary>从内置 Prompt 模板派生动作。
+    /// 已有同 id 时跳过；图标永久跟随模板（IconLocked=true）。
+    /// 注意：ActionEditorItem.Id 经过 UniqueActionId 归一化（点号变短横线），
+    /// 因此查重必须比较"模板归一化后的 id"而不是原始 tpl.Id（含点号），
+    /// 否则点号源永远比不上短横线源会被重复添加</summary>
+    private void AddDefaultPromptAction(string templateId)
     {
-        if (ActionItems.Any(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase))) return;
+        var tpl = PromptTemplateLibrary.Builtin.FirstOrDefault(t =>
+            string.Equals(t.Id, templateId, StringComparison.OrdinalIgnoreCase));
+        if (tpl is null) return;
+        var normalizedId = NormalizeIdSeed(tpl.Id);
+        if (ActionItems.Any(x => string.Equals(x.Id, normalizedId, StringComparison.OrdinalIgnoreCase))) return;
         ActionItems.Add(new ActionEditorItem
         {
-            Id = UniqueActionId(id),
+            Id = UniqueActionId(tpl.Id),
             Type = "ai",
-            Title = title,
-            Icon = icon,
-            Prompt = prompt,
-            OutputMode = outputMode,
+            Title = tpl.Title,
+            Icon = string.IsNullOrWhiteSpace(tpl.Icon) ? "Ai" : tpl.Icon,
+            Prompt = tpl.Prompt,
+            SystemPrompt = tpl.SystemPrompt,
+            OutputMode = string.IsNullOrWhiteSpace(tpl.OutputMode) ? "chat" : tpl.OutputMode,
+            IconLocked = true,
             Enabled = true,
-            RegexTestText = ActionGlobalTestText.Text,
         });
     }
+
+    /// <summary>UniqueActionId 内部的归一化逻辑提炼出来，供"查重 + 生成"两条路径共享。
+    /// 入参例如 "tpl.fix-grammar" → "tpl-fix-grammar"</summary>
+    private static string NormalizeIdSeed(string seed)
+        => seed.Replace("builtin-", "", StringComparison.OrdinalIgnoreCase)
+               .Replace("builtin.", "", StringComparison.OrdinalIgnoreCase)
+               .Replace(".", "-", StringComparison.Ordinal);
 
     private static int ParseInt(string text, int fallback, int min, int max)
         => int.TryParse(text, out var value) ? Math.Clamp(value, min, max) : fallback;
@@ -1050,8 +1029,6 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
 
 public sealed record BuiltInChoice(string Id, string Title);
 
-public sealed record ActionTypeChoice(string Value, string Label);
-
 public sealed record AiOutputModeChoice(string Value, string Label);
 
 public sealed record ConversationListItem(string Id, string Title, string MetaText)
@@ -1075,6 +1052,10 @@ public sealed record RecentProcessItem(string ProcessName, string WindowTitle)
         : $"{ProcessName} - {WindowTitle}";
 }
 
+/// <summary>动作卡片在设置界面中的可编辑视图。
+/// 字段仅保留普通用户能在 GUI 里直观填写的内容；
+/// Type/BuiltIn 用作内部分发不在 UI 直接显示（创建动作的入口已经决定它们的取值）。
+/// IconLocked=true 时 UI 中的图标选择器隐藏，用于内置/预定义模板等"图标绑定语义"的动作</summary>
 public sealed class ActionEditorItem : INotifyPropertyChanged
 {
     private string _id = "";
@@ -1082,17 +1063,12 @@ public sealed class ActionEditorItem : INotifyPropertyChanged
     private string _icon = "";
     private string _type = "builtin";
     private string? _builtIn;
-    private string? _matchRegex;
     private string? _urlTemplate;
-    private string? _scriptPath;
-    private string? _arguments;
     private string? _prompt;
     private string? _systemPrompt;
     private string _outputMode = "chat";
-    private string _regexTestText = "";
-    private string _regexResult = "始终显示";
     private bool _enabled = true;
-    private bool _isExpanded;
+    private bool _iconLocked;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -1101,60 +1077,49 @@ public sealed class ActionEditorItem : INotifyPropertyChanged
     public string Icon { get => _icon; set => Set(ref _icon, value); }
     public string Type { get => _type; set => Set(ref _type, value); }
     public string? BuiltIn { get => _builtIn; set => Set(ref _builtIn, value); }
-
-    public string? MatchRegex
-    {
-        get => _matchRegex;
-        set
-        {
-            if (Set(ref _matchRegex, value)) RefreshRegexResult();
-        }
-    }
-
     public string? UrlTemplate { get => _urlTemplate; set => Set(ref _urlTemplate, value); }
-    public string? ScriptPath { get => _scriptPath; set => Set(ref _scriptPath, value); }
-    public string? Arguments { get => _arguments; set => Set(ref _arguments, value); }
     public string? Prompt { get => _prompt; set => Set(ref _prompt, value); }
     public string? SystemPrompt { get => _systemPrompt; set => Set(ref _systemPrompt, value); }
     public string OutputMode { get => _outputMode; set => Set(ref _outputMode, value); }
     public bool Enabled { get => _enabled; set => Set(ref _enabled, value); }
-    public bool IsExpanded { get => _isExpanded; set => Set(ref _isExpanded, value); }
 
-    public string RegexTestText
+    public bool IconLocked
     {
-        get => _regexTestText;
+        get => _iconLocked;
         set
         {
-            if (Set(ref _regexTestText, value)) RefreshRegexResult();
+            if (Set(ref _iconLocked, value))
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsIconEditable)));
+            }
         }
     }
 
-    public string RegexResult
-    {
-        get => _regexResult;
-        private set => Set(ref _regexResult, value);
-    }
+    /// <summary>给 XAML 直接 Visibility 绑定的辅助属性。IconLocked 取反即可</summary>
+    public bool IsIconEditable => !_iconLocked;
+
+    /// <summary>"是否 AI 动作"。XAML 用它决定 Prompt/SystemPrompt/OutputMode 这一组字段是否显示</summary>
+    public bool IsAiType => string.Equals(_type, "ai", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>"是否 URL 模板动作"。XAML 用它决定 UrlTemplate 输入框是否显示</summary>
+    public bool IsUrlType => string.Equals(_type, "url-template", StringComparison.OrdinalIgnoreCase);
 
     public static ActionEditorItem FromDescriptor(ActionDescriptor descriptor)
     {
-        var item = new ActionEditorItem
+        return new ActionEditorItem
         {
             Id = descriptor.Id,
             Title = descriptor.Title,
             Icon = descriptor.Icon,
             Type = descriptor.Type,
             BuiltIn = descriptor.BuiltIn,
-            MatchRegex = descriptor.MatchRegex,
             UrlTemplate = descriptor.UrlTemplate,
-            ScriptPath = descriptor.ScriptPath,
-            Arguments = descriptor.Arguments,
             Prompt = descriptor.Prompt,
             SystemPrompt = descriptor.SystemPrompt,
             OutputMode = string.IsNullOrWhiteSpace(descriptor.OutputMode) ? "chat" : descriptor.OutputMode,
             Enabled = descriptor.Enabled,
+            IconLocked = descriptor.IconLocked,
         };
-        item.RefreshRegexResult();
-        return item;
     }
 
     public ActionDescriptor ToDescriptor()
@@ -1166,36 +1131,15 @@ public sealed class ActionEditorItem : INotifyPropertyChanged
             Icon = Icon.Trim(),
             Type = Type.Trim(),
             BuiltIn = string.IsNullOrWhiteSpace(BuiltIn) ? null : BuiltIn,
-            MatchRegex = string.IsNullOrWhiteSpace(MatchRegex) ? null : MatchRegex,
             UrlTemplate = string.IsNullOrWhiteSpace(UrlTemplate) ? null : UrlTemplate,
-            ScriptPath = string.IsNullOrWhiteSpace(ScriptPath) ? null : ScriptPath,
-            Arguments = string.IsNullOrWhiteSpace(Arguments) ? null : Arguments,
             Prompt = string.IsNullOrWhiteSpace(Prompt) ? null : Prompt,
             SystemPrompt = string.IsNullOrWhiteSpace(SystemPrompt) ? null : SystemPrompt,
             OutputMode = string.Equals(Type, "ai", StringComparison.OrdinalIgnoreCase)
                 ? (string.IsNullOrWhiteSpace(OutputMode) ? "chat" : OutputMode)
                 : null,
+            IconLocked = IconLocked,
             Enabled = Enabled,
         };
-    }
-
-    private void RefreshRegexResult()
-    {
-        if (string.IsNullOrWhiteSpace(MatchRegex))
-        {
-            RegexResult = "始终显示";
-            return;
-        }
-
-        try
-        {
-            var matched = Regex.IsMatch(RegexTestText ?? "", MatchRegex, RegexOptions.CultureInvariant);
-            RegexResult = matched ? "匹配" : "不匹配";
-        }
-        catch (Exception ex)
-        {
-            RegexResult = "正则错误：" + ex.Message;
-        }
     }
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)

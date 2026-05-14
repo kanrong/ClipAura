@@ -1,27 +1,15 @@
 {
   "schemaVersion": 1,
   "actions": [
-    { "id": "copy",      "type": "builtin", "builtIn": "builtin.copy",            "title": "复制",       "icon": "Copy",      "enabled": true },
-    { "id": "paste",     "type": "builtin", "builtIn": "builtin.paste",           "title": "粘贴",       "icon": "Paste",     "enabled": true },
-    { "id": "open-url",  "type": "builtin", "builtIn": "builtin.open.url",        "title": "打开链接",   "icon": "Url",       "enabled": true },
-    { "id": "mailto",    "type": "builtin", "builtIn": "builtin.open.mailto",     "title": "邮件",       "icon": "Mail",      "enabled": true },
-    { "id": "search",    "type": "builtin", "builtIn": "builtin.search",          "title": "搜索",       "icon": "Search",    "enabled": true },
-    { "id": "translate", "type": "builtin", "builtIn": "builtin.translate.bing",  "title": "翻译",       "icon": "Translate", "enabled": true },
-    { "id": "upper",     "type": "builtin", "builtIn": "builtin.case.upper",      "title": "大写",       "icon": "Upper",     "enabled": true },
-    { "id": "lower",     "type": "builtin", "builtIn": "builtin.case.lower",      "title": "小写",       "icon": "Lower",     "enabled": true },
-    { "id": "title",     "type": "builtin", "builtIn": "builtin.case.title",      "title": "Title",      "icon": "Title",     "enabled": true },
-    { "id": "calc",      "type": "builtin", "builtIn": "builtin.calculate",       "title": "计算",       "icon": "Calc",      "enabled": true },
-    { "id": "wc",        "type": "builtin", "builtIn": "builtin.wordcount",       "title": "字数",       "icon": "Count",     "enabled": true },
-    {
-      "id": "ai-fix-grammar",
-      "type": "ai",
-      "title": "修语法",
-      "icon": "AiRewrite",
-      "outputMode": "replace",
-      "prompt": "只修正下面文本中的语法、标点和明显拼写错误，不要改写表达、不要解释、保留原语言：\n\n{text}",
-      "enabled": true
-    },
-    { "id": "ai-tidy", "type": "builtin", "builtIn": "builtin.ai.tidy", "title": "AI 整理", "icon": "AiTidy", "enabled": true },
-    { "id": "clipboard-history", "type": "builtin", "builtIn": "builtin.clipboard.history", "title": "历史", "icon": "ClipboardHistory", "enabled": false }
+    { "id": "copy",              "type": "builtin", "builtIn": "builtin.copy",              "title": "复制",       "icon": "Copy",             "iconLocked": true, "enabled": true },
+    { "id": "paste",             "type": "builtin", "builtIn": "builtin.paste",             "title": "粘贴",       "icon": "Paste",            "iconLocked": true, "enabled": true },
+    { "id": "search",            "type": "builtin", "builtIn": "builtin.search",            "title": "搜索",       "icon": "Search",           "iconLocked": true, "enabled": true },
+    { "id": "open-url",          "type": "builtin", "builtIn": "builtin.open.url",          "title": "打开链接",   "icon": "Url",              "iconLocked": true, "enabled": true },
+    { "id": "mailto",            "type": "builtin", "builtIn": "builtin.open.mailto",       "title": "发送邮件",   "icon": "Mail",             "iconLocked": true, "enabled": true },
+    { "id": "translate",         "type": "builtin", "builtIn": "builtin.translate.bing",    "title": "翻译",       "icon": "Translate",        "iconLocked": true, "enabled": true },
+    { "id": "calc",              "type": "builtin", "builtIn": "builtin.calculate",         "title": "计算",       "icon": "Calc",             "iconLocked": true, "enabled": true },
+    { "id": "wc",                "type": "builtin", "builtIn": "builtin.wordcount",         "title": "字数",       "icon": "Count",            "iconLocked": true, "enabled": false },
+    { "id": "clipboard-history", "type": "builtin", "builtIn": "builtin.clipboard.history", "title": "历史",       "icon": "ClipboardHistory", "iconLocked": true, "enabled": false },
+    { "id": "ai-chat",           "type": "builtin", "builtIn": "builtin.ai.chat",           "title": "AI 对话",    "icon": "AiChat",           "iconLocked": true, "enabled": true }
   ]
 }

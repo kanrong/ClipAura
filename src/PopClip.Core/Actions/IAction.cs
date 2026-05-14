@@ -73,18 +73,6 @@ public interface ISettingsProvider
     bool HasAiApiKey { get; }
 }
 
-public enum AiTextActionKind
-{
-    Chat,
-    Summarize,
-    Rewrite,
-    Translate,
-    Explain,
-    Reply,
-    /// <summary>整理文本格式：合并多余空行，保留标题与正文之间的视觉分隔，不改动任何文字内容</summary>
-    Tidy,
-}
-
 /// <summary>AI 动作的输出落点。
 /// Chat=进入对话窗口（默认）；Replace=不弹窗直接替换选区；
 /// Clipboard=不弹窗只写剪贴板；InlineToast=不弹窗只显示在浮窗 toast</summary>
@@ -96,9 +84,7 @@ public enum AiOutputMode
     InlineToast,
 }
 
-public sealed record AiTextActionRequest(AiTextActionKind Kind, string Title);
-
-public sealed record AiConversationRequest(string Title, string ReferenceText, AiTextActionRequest? InitialAction = null);
+public sealed record AiConversationRequest(string Title, string ReferenceText);
 
 /// <summary>由 actions.json 中的 type:ai 动作触发的运行时请求。
 /// Prompt 已经包含变量占位符的原模板，由 IAiTextService 在调用前展开</summary>
@@ -111,8 +97,8 @@ public sealed record AiPromptRequest(
 public interface IAiTextService
 {
     bool CanRun { get; }
+    /// <summary>打开 AI 对话窗，把选区文本作为参考。用于"AI 对话"入口动作</summary>
     Task OpenConversationAsync(AiConversationRequest request, CancellationToken ct);
-    Task RunActionAsync(AiTextActionRequest request, SelectionContext context, CancellationToken ct);
 
     /// <summary>执行自定义 prompt 动作。根据 OutputMode 决定是否弹窗</summary>
     Task RunPromptAsync(AiPromptRequest request, SelectionContext context, CancellationToken ct);

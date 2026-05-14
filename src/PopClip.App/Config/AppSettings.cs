@@ -131,6 +131,13 @@ public sealed class AppSettings
     public string SearchUrlTemplate { get; set; } = "https://www.google.com/search?q={q}";
 
     public bool AiEnabled { get; set; }
+
+    /// <summary>是否已经把内置默认 AI 动作（AI 对话 / 修语法 / 润色 / 三句话总结）一次性写入过 actions。
+    /// 仅在"用户首次启用 AI 的那一次保存"时为 false→true 切换并补齐动作；
+    /// 之后即便用户手动删除这些动作，再次保存也不会被强制补回。
+    /// 这样既保留"开箱即用"的引导，又把后续的动作集合主控权完全交给用户</summary>
+    public bool AiDefaultActionsSeeded { get; set; }
+
     public AiProviderPreset AiProviderPreset { get; set; } = AiProviderPreset.DeepSeekV4Flash;
     public string AiBaseUrl { get; set; } = "https://api.deepseek.com";
     public string AiModel { get; set; } = "deepseek-v4-flash";

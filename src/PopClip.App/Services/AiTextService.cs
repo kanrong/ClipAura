@@ -57,21 +57,6 @@ public sealed class AiTextService : IAiTextService
             ct).ConfigureAwait(false);
     }
 
-    public async Task RunActionAsync(AiTextActionRequest request, SelectionContext context, CancellationToken ct)
-    {
-        var initialPrompt = request.Kind == AiTextActionKind.Chat
-            ? null
-            : BuildBuiltinPrompt(request, _settings.AiDefaultLanguage);
-
-        await OpenChatWindowAsync(
-            request.Title,
-            context.Text ?? "",
-            initialPrompt,
-            customSystemPrompt: null,
-            replaceCallback: BuildReplaceCallback(context),
-            ct).ConfigureAwait(false);
-    }
-
     public async Task RunPromptAsync(AiPromptRequest request, SelectionContext context, CancellationToken ct)
     {
         if (!CanRun)
@@ -347,28 +332,6 @@ public sealed class AiTextService : IAiTextService
         };
     }
 
-    private static string BuildBuiltinPrompt(
-        AiTextActionRequest request,
-        string language)
-    {
-        var targetLanguage = string.IsNullOrWhiteSpace(language) ? "中文" : language.Trim();
-        return request.Kind switch
-        {
-            AiTextActionKind.Summarize => $"请用{targetLanguage}总结引用文本，保留关键事实，输出 3-6 条要点。",
-            AiTextActionKind.Rewrite => $"请用{targetLanguage}改写引用文本，让表达更清晰、自然、专业。只输出改写后的正文。",
-            AiTextActionKind.Translate => $"请把引用文本翻译成{targetLanguage}。只输出译文。",
-            AiTextActionKind.Explain => $"请用{targetLanguage}解释引用文本，面向不熟悉背景的人，先给结论再补充必要细节。",
-            AiTextActionKind.Reply => $"请根据引用文本，用{targetLanguage}生成一段可以直接发送的回复。语气自然、礼貌、具体。",
-            AiTextActionKind.Tidy =>
-                "请整理引用文本的格式，只调整空白与换行，不得修改、增删、翻译任何文字。要求：\n"
-                + "1. 删除多余空行：正文段落之间最多保留 1 个空行；3 个及以上连续空行一律压缩为 1 个。\n"
-                + "2. 标题（Markdown 标题、明显的章节小标题、章节序号独立成行等）与其下方正文之间允许保留 1 个空行作为视觉分隔。\n"
-                + "3. 不要改动每行内部的内容、字符顺序、大小写、标点；不要重新断行长段落。\n"
-                + "4. 保留代码块（``` 包裹或缩进式）、列表、引用块、表格等结构原样。\n"
-                + "只输出整理后的纯文本，不要任何额外解释、不要用 ``` 包裹整段输出。",
-            _ => $"请用{targetLanguage}处理引用文本。",
-        };
-    }
 }
 
 /// <summary>会话窗关闭时回传给 service 的快照，用于持久化历史</summary>

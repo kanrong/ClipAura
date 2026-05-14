@@ -54,6 +54,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     private CancellationTokenSource? _dismissTimeoutCts;
     private string? _toastCopyText;
     private const int ShadowPaddingDip = 9;
+    private const int OuterMarginDip = 18;
     private const double ToolbarButtonPaddingX = 12;
     private const double ToolbarButtonPaddingY = 9;
     // 外圆角半径，与阴影底板/描边层的 CornerRadius 完全一致；
@@ -363,11 +364,12 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         Top = -32000;
         // 显示前先按 idle 透明度生效；鼠标进入浮窗后由 OnMouseEnterRestoreOpacity 切到 1.0
         Opacity = _idleOpacity;
+        InvalidateToolbarMeasure();
+        SizeToContent = SizeToContent.WidthAndHeight;
         base.Show();
         UpdateLayout();
 
-        var widthDip = ActualWidth;
-        var heightDip = ActualHeight;
+        var (widthDip, heightDip) = GetPreferredWindowSizeDip();
         if (widthDip <= 10 || heightDip <= 10)
         {
             _log.Warn("toolbar size suspiciously small",
@@ -375,6 +377,13 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
                 ("items", Items.Count));
             // 即便很小也尝试显示，至少能看到痕迹便于排错
         }
+
+        // 先让 WPF 用 SizeToContent 完成一次"测量"，再切到手动尺寸锁住最终窗口宽高。
+        // 首次显示时否则会出现 native SetWindowPos 已传入 94px，但 WPF 又把旧的 136px 自动尺寸写回 HWND。
+        SizeToContent = SizeToContent.Manual;
+        Width = widthDip;
+        Height = heightDip;
+        UpdateLayout();
 
         var monitor = MonitorQuery.FromPoint(anchorRect.Right, anchorRect.Bottom);
         var widthPx = (int)Math.Ceiling(widthDip * monitor.DpiX / 96.0);
@@ -389,11 +398,39 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             ("x", x), ("y", y),
             ("dpiX", monitor.DpiX));
 
-        // SWP_NOSIZE 保留 SizeToContent 算出的大小
-        WindowStyleHelper.ShowNoActivate(_hwnd, x, y);
+        // 显式写回当前测量尺寸，避免首次显示沿用 HWND 创建/预热阶段的旧尺寸
+        WindowStyleHelper.ShowNoActivate(_hwnd, x, y, widthPx, heightPx);
         _isShown = true;
         _lastShownAtUtc = DateTime.UtcNow;
         ScheduleTimeoutDismiss();
+    }
+
+    private (double WidthDip, double HeightDip) GetPreferredWindowSizeDip()
+    {
+        // 首次显示时 Window/Root Grid 偶尔会把阴影层的 effect 外扩算进 Desired/Actual，
+        // 导致宽度像多出一个按钮位。定位尺寸改为直接取内容层期望尺寸 + 外层固定 margin，
+        // 让窗口大小只由真实按钮/Toast 内容决定。
+        var contentWidth = ContentClipHost.DesiredSize.Width > 0
+            ? ContentClipHost.DesiredSize.Width
+            : ContentClipHost.ActualWidth;
+        var contentHeight = ContentClipHost.DesiredSize.Height > 0
+            ? ContentClipHost.DesiredSize.Height
+            : ContentClipHost.ActualHeight;
+
+        return (contentWidth + OuterMarginDip, contentHeight + OuterMarginDip);
+    }
+
+    private void InvalidateToolbarMeasure()
+    {
+        ClearValue(WidthProperty);
+        ClearValue(HeightProperty);
+        ItemsHost.ClearValue(WidthProperty);
+        ItemsHost.InvalidateMeasure();
+        ItemsHost.InvalidateArrange();
+        ContentClipHost.InvalidateMeasure();
+        ContentClipHost.InvalidateArrange();
+        InvalidateMeasure();
+        InvalidateArrange();
     }
 
     public bool TryHandleGlobalKey(KeyEvent key)
@@ -694,7 +731,6 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
                     });
                     if (!shouldHide)
                     {
-                        _log.Debug("toolbar timeout postponed: mouse still over");
                         continue;
                     }
                     Dispatcher.Invoke(() =>

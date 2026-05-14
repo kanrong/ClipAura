@@ -1,4 +1,5 @@
 using PopClip.Core.Session;
+using PopClip.Core.Logging;
 
 namespace PopClip.App.Config;
 
@@ -65,6 +66,7 @@ public sealed class AppSettings
     public int MaxTextLength { get; set; } = 100_000;
     public bool LaunchAtStartup { get; set; }
     public bool FirstRunCompleted { get; set; }
+    public LogLevel LogLevel { get; set; } = LogLevel.Debug;
 
     /// <summary>浮窗按钮显示方式，默认图标+文字</summary>
     public ToolbarDisplayMode ToolbarDisplay { get; set; } = ToolbarDisplayMode.IconAndText;

@@ -9,9 +9,7 @@ using PopClip.Uia;
 using PopClip.Uia.Clipboard;
 using Microsoft.Win32;
 using System.Diagnostics;
-using System.Security.Principal;
 using System.Windows;
-using System.Windows.Automation;
 using WpfApplication = System.Windows.Application;
 
 namespace PopClip.App.Hosting;
@@ -58,6 +56,7 @@ internal sealed class AppHost : IDisposable
 
         _store = new ConfigStore(_log);
         _settings = _store.LoadSettings();
+        ConsoleLog.Instance.SetMinimumLevel(_settings.LogLevel);
 
         _clipboardThread = new ClipboardThread();
         _clipboardThread.Start();
@@ -87,7 +86,6 @@ internal sealed class AppHost : IDisposable
         _pause = new PauseState();
         _tray = new TrayController(_log, _pause);
         _tray.OnSettingsRequested += tag => ShowSettingsWindow(tag);
-        _tray.OnDiagnosticsRequested += ShowDiagnostics;
         _tray.OnClipboardHistoryRequested += OpenClipboardHistory;
         _tray.OnExitRequested += () => WpfApplication.Current.Shutdown();
         _tray.Show();
@@ -208,6 +206,7 @@ internal sealed class AppHost : IDisposable
     private void ApplyRuntimeSettings(bool reloadActions)
     {
         if (_settings is null) return;
+        ConsoleLog.Instance.SetMinimumLevel(_settings.LogLevel);
         _toolbar?.ApplyAppearance(_settings);
         if (reloadActions && _store is not null && _catalog is not null)
         {
@@ -260,32 +259,6 @@ internal sealed class AppHost : IDisposable
     private void OpenClipboardHistory()
     {
         _clipHistoryLauncher?.Open(null);
-    }
-
-    private void ShowDiagnostics()
-    {
-        WpfApplication.Current?.Dispatcher.Invoke(() =>
-        {
-            var uia = "不可用";
-            try
-            {
-                _ = AutomationElement.FocusedElement;
-                uia = "可用";
-            }
-            catch (Exception ex)
-            {
-                uia = "不可用：" + ex.Message;
-            }
-
-            var identity = WindowsIdentity.GetCurrent();
-            var principal = new WindowsPrincipal(identity);
-            var admin = principal.IsInRole(WindowsBuiltInRole.Administrator) ? "管理员" : "普通用户";
-            System.Windows.MessageBox.Show(
-                $"UIA：{uia}\n进程权限：{admin}\n全局钩子：已注册低级鼠标/键盘监听",
-                "ClipAura 诊断",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-        });
     }
 
     public void Dispose()

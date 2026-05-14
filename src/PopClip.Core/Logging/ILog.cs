@@ -1,5 +1,14 @@
 namespace PopClip.Core.Logging;
 
+public enum LogLevel
+{
+    Trace = 0,
+    Debug = 1,
+    Info = 2,
+    Warn = 3,
+    Error = 4,
+}
+
 /// <summary>极简结构化日志接口，便于后续接入诊断面板</summary>
 public interface ILog
 {
@@ -18,9 +27,13 @@ public sealed class ConsoleLog : ILog
     public static readonly ConsoleLog Instance = new();
 
     private readonly string _filePath;
+    private readonly string _directoryPath;
     private readonly object _gate = new();
+    private volatile LogLevel _minimumLevel = LogLevel.Debug;
 
     public string FilePath => _filePath;
+    public string DirectoryPath => _directoryPath;
+    public LogLevel MinimumLevel => _minimumLevel;
 
     public ConsoleLog()
     {
@@ -30,16 +43,21 @@ public sealed class ConsoleLog : ILog
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "ClipAura", "logs");
             Directory.CreateDirectory(dir);
+            _directoryPath = dir;
             _filePath = Path.Combine(dir, $"diag-{DateTime.Now:yyyyMMdd}.log");
         }
         catch
         {
+            _directoryPath = "";
             _filePath = "";
         }
     }
 
+    public void SetMinimumLevel(LogLevel level) => _minimumLevel = level;
+
     private void Write(string level, string message, (string Key, object? Value)[] fields, Exception? ex = null)
     {
+        if (!ShouldWrite(level)) return;
         var fieldsText = fields.Length > 0
             ? " " + string.Join(" ", fields.Select(f => $"{f.Key}={f.Value}"))
             : "";
@@ -63,6 +81,20 @@ public sealed class ConsoleLog : ILog
                 catch { }
             }
         }
+    }
+
+    private bool ShouldWrite(string level)
+    {
+        var current = level switch
+        {
+            "TRC" => LogLevel.Trace,
+            "DBG" => LogLevel.Debug,
+            "INF" => LogLevel.Info,
+            "WRN" => LogLevel.Warn,
+            "ERR" => LogLevel.Error,
+            _ => LogLevel.Info,
+        };
+        return current >= _minimumLevel;
     }
 
     public void Trace(string m, params (string Key, object? Value)[] f) => Write("TRC", m, f);

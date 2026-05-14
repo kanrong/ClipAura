@@ -5,7 +5,8 @@
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  xmlns:local="clr-namespace:PopClip.App.UI"
                  Title="ClipAura 设置"
-                 Width="1020" Height="700"
+                 Icon="pack://application:,,,/Assets/AppIcon.ico"
+                 Width="1020" Height="820"
                  MinWidth="880" MinHeight="600"
                  ShowInTaskbar="True"
                  WindowStartupLocation="CenterScreen"
@@ -194,13 +195,10 @@
         <!-- 自定义标题栏（ExtendsContentIntoTitleBar=True 时需要） -->
         <ui:TitleBar Grid.Row="0"
                      Title="ClipAura 设置"
+                     Icon="{ui:ImageIcon 'pack://application:,,,/Assets/AppIcon.ico'}"
                      Style="{StaticResource Settings.CompactTitleBar}"
                      ShowMaximize="True"
-                     ShowMinimize="True">
-            <ui:TitleBar.Icon>
-                <ui:SymbolIcon Symbol="ClipboardPaste24" />
-            </ui:TitleBar.Icon>
-        </ui:TitleBar>
+                     ShowMinimize="True" />
 
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
@@ -613,8 +611,16 @@
                         </StackPanel>
 
                         <!-- ===================== 动作 ===================== -->
-                        <StackPanel x:Name="ActionsPage" Visibility="Collapsed">
-                            <Grid Margin="0,0,0,6">
+                        <Grid x:Name="ActionsPage"
+                              Visibility="Collapsed"
+                              Height="{Binding ActualHeight, RelativeSource={RelativeSource AncestorType=ScrollViewer}}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0" Margin="0,0,0,6">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" MinWidth="240" />
                                     <ColumnDefinition Width="Auto" />
@@ -648,7 +654,7 @@
                             </Grid>
 
                             <!-- 模板速搭：从内置 Prompt 模板一键创建 ai 动作 -->
-                            <Border Style="{StaticResource Settings.SubCard}" Margin="0,0,0,12">
+                            <Border Grid.Row="1" Style="{StaticResource Settings.SubCard}" Margin="0,0,0,12">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource Settings.FieldLabel}"
                                                Text="从内置 AI 模板快速添加："
@@ -692,15 +698,20 @@
                                 </StackPanel>
                             </Border>
 
-                            <ItemsControl x:Name="ActionsList"
-                                          ItemsSource="{Binding ActionItems}"
-                                          ItemTemplate="{StaticResource ActionItemTemplate}"
-                                          AllowDrop="True"
-                                          PreviewMouseLeftButtonDown="OnActionDragStart"
-                                          MouseMove="OnActionMouseMove"
-                                          Drop="OnActionDrop"
-                                          Margin="0,8,0,0" />
-                        </StackPanel>
+                            <ScrollViewer Grid.Row="2"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          Margin="0,8,0,0"
+                                          CanContentScroll="False">
+                                <ItemsControl x:Name="ActionsList"
+                                              ItemsSource="{Binding ActionItems}"
+                                              ItemTemplate="{StaticResource ActionItemTemplate}"
+                                              AllowDrop="True"
+                                              PreviewMouseLeftButtonDown="OnActionDragStart"
+                                              MouseMove="OnActionMouseMove"
+                                              Drop="OnActionDrop" />
+                            </ScrollViewer>
+                        </Grid>
 
                         <!-- ===================== 进程过滤 ===================== -->
                         <StackPanel x:Name="ProcessesPage" Visibility="Collapsed">
@@ -735,17 +746,21 @@
                                             <ColumnDefinition Width="16" />
                                             <ColumnDefinition Width="1*" />
                                         </Grid.ColumnDefinitions>
-                                        <Border Grid.Column="0"
-                                                BorderBrush="{DynamicResource Settings.Stroke}"
-                                                BorderThickness="1"
-                                                CornerRadius="{StaticResource Settings.Radius.Sm}">
-                                            <ListBox x:Name="ProcessList"
-                                                     ItemsSource="{Binding ProcessFilters}"
-                                                     BorderThickness="0"
-                                                     Background="Transparent"
-                                                     SelectionChanged="OnProcessSelected"
-                                                     MinHeight="260" />
-                                        </Border>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="过滤名单"
+                                                       Style="{StaticResource Settings.FieldLabel}"
+                                                       Margin="0,0,0,6" />
+                                            <Border BorderBrush="{DynamicResource Settings.Stroke}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="{StaticResource Settings.Radius.Sm}">
+                                                <ListBox x:Name="ProcessList"
+                                                         ItemsSource="{Binding ProcessFilters}"
+                                                         BorderThickness="0"
+                                                         Background="Transparent"
+                                                         SelectionChanged="OnProcessSelected"
+                                                         MinHeight="340" />
+                                            </Border>
+                                        </StackPanel>
                                         <StackPanel Grid.Column="2">
                                             <TextBlock Text="最近活动窗口"
                                                        Style="{StaticResource Settings.FieldLabel}"
@@ -758,7 +773,7 @@
                                                          BorderThickness="0"
                                                          Background="Transparent"
                                                          SelectionChanged="OnRecentProcessPicked"
-                                                         MinHeight="260" />
+                                                         MinHeight="340" />
                                             </Border>
                                         </StackPanel>
                                     </Grid>
@@ -1180,21 +1195,23 @@
                         <StackPanel x:Name="AboutPage" Visibility="Collapsed">
                             <TextBlock Style="{StaticResource Settings.PageTitle}" Text="关于" />
                             <TextBlock Style="{StaticResource Settings.PageDescription}"
-                                       Text="版本信息与配置目录" />
+                                       Text="应用状态、日志记录与本地目录" />
 
                             <Border Style="{StaticResource Settings.Card}">
                                 <StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
                                         <Border Width="56" Height="56"
-                                                Background="{DynamicResource Settings.Accent}"
+                                                Background="{DynamicResource Settings.Card.SubtleBackground}"
+                                                BorderBrush="{DynamicResource Settings.Stroke}"
+                                                BorderThickness="1"
                                                 CornerRadius="{StaticResource Settings.Radius.Md}"
                                                 Margin="0,0,16,0">
-                                            <TextBlock Text="C"
-                                                       Foreground="White"
-                                                       FontSize="32"
-                                                       FontWeight="Bold"
-                                                       HorizontalAlignment="Center"
-                                                       VerticalAlignment="Center" />
+                                            <Image Source="pack://application:,,,/Assets/AppIcon.ico"
+                                                   Width="40"
+                                                   Height="40"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   Stretch="Uniform" />
                                         </Border>
                                         <StackPanel VerticalAlignment="Center">
                                             <TextBlock Text="ClipAura" FontSize="22" FontWeight="SemiBold"
@@ -1204,15 +1221,72 @@
                                                        Margin="0,2,0,0" />
                                         </StackPanel>
                                     </StackPanel>
-                                    <Grid>
+                                    <Grid Margin="0,0,0,12">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="140" />
                                             <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="配置目录" />
-                                        <TextBlock Grid.Column="1" Text="%LOCALAPPDATA%\ClipAura"
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="UIA 状态" />
+                                        <TextBlock x:Name="AboutUiaStatusText"
+                                                   Grid.Row="0" Grid.Column="1"
                                                    Foreground="{DynamicResource Settings.Foreground}"
                                                    VerticalAlignment="Center" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="进程权限" />
+                                        <TextBlock x:Name="AboutPrivilegeStatusText"
+                                                   Grid.Row="1" Grid.Column="1"
+                                                   Foreground="{DynamicResource Settings.Foreground}"
+                                                   VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="日志等级" />
+                                        <ComboBox x:Name="LogLevelBox"
+                                                  Grid.Column="1"
+                                                  Width="180"
+                                                  HorizontalAlignment="Left" />
+                                    </Grid>
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="日志目录" />
+                                        <TextBlock x:Name="LogDirectoryPathText"
+                                                   Grid.Column="1"
+                                                   Foreground="{DynamicResource Settings.Foreground}"
+                                                   VerticalAlignment="Center"
+                                                   TextWrapping="Wrap" />
+                                        <ui:Button Grid.Column="2"
+                                                   Margin="12,0,0,0"
+                                                   Appearance="Secondary"
+                                                   Content="打开"
+                                                   Click="OnOpenLogDirectory" />
+                                    </Grid>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="配置目录" />
+                                        <TextBlock x:Name="ConfigDirectoryPathText"
+                                                   Grid.Column="1"
+                                                   Foreground="{DynamicResource Settings.Foreground}"
+                                                   VerticalAlignment="Center"
+                                                   TextWrapping="Wrap" />
+                                        <ui:Button Grid.Column="2"
+                                                   Margin="12,0,0,0"
+                                                   Appearance="Secondary"
+                                                   Content="打开"
+                                                   Click="OnOpenConfigDirectory" />
                                     </Grid>
                                 </StackPanel>
                             </Border>

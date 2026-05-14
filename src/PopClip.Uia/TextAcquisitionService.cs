@@ -1,5 +1,6 @@
 using PopClip.Core.Logging;
 using PopClip.Core.Model;
+using PopClip.Core.Session;
 using PopClip.Uia.Clipboard;
 
 namespace PopClip.Uia;
@@ -18,7 +19,7 @@ public sealed class TextAcquisitionService
         _clipboard = clipboard;
     }
 
-    public AcquisitionOutcome? Acquire(ForegroundWindowInfo foreground, SelectionRect mouseHintRect)
+    public AcquisitionOutcome? Acquire(ForegroundWindowInfo foreground, SelectionRect mouseHintRect, SelectionTrigger trigger)
     {
         // 先 UIA：成功就直接用
         var uiaResult = _uia.TryAcquire();
@@ -36,6 +37,14 @@ public sealed class TextAcquisitionService
         if (_uia.LastFocusedElementWasPassword)
         {
             _log.Info("clipboard fallback skipped: password element");
+            return null;
+        }
+        if (trigger == SelectionTrigger.MouseDoubleClick
+            && _uia.LastFocusedElementRejectsClipboardFallbackOnDoubleClick)
+        {
+            _log.Info("clipboard fallback skipped: double-click on action control",
+                ("controlType", _uia.LastFocusedControlTypeName),
+                ("foreground", foreground.ProcessName));
             return null;
         }
 

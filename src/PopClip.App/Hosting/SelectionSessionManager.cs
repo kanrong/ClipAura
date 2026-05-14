@@ -165,7 +165,7 @@ internal sealed class SelectionSessionManager : IDisposable
             return;
         }
 
-        var outcome = await Task.Run(() => _acquisition.Acquire(foreground, mouseRect)).ConfigureAwait(false);
+        var outcome = await Task.Run(() => _acquisition.Acquire(foreground, mouseRect, candidate.Trigger)).ConfigureAwait(false);
         if (outcome is null)
         {
             _log.Info("acquisition failed: no text from UIA nor clipboard");

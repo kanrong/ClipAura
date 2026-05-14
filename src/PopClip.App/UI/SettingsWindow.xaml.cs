@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Diagnostics;
+using System.Security.Principal;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -12,6 +14,7 @@ using PopClip.Core.Actions;
 using PopClip.Core.Logging;
 using PopClip.Core.Session;
 using PopClip.Hooks;
+using System.Windows.Automation;
 using WpfComboBox = System.Windows.Controls.ComboBox;
 using WpfDragEventArgs = System.Windows.DragEventArgs;
 using WpfKeyEventArgs = System.Windows.Input.KeyEventArgs;
@@ -51,6 +54,15 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         new AiThinkingModeChoice(AiThinkingMode.Fast, "快速", "DeepSeek 关闭 thinking；OpenAI 使用 low reasoning"),
         new AiThinkingModeChoice(AiThinkingMode.Deep, "深度", "DeepSeek 启用 thinking + max；OpenAI 使用 high reasoning"),
     };
+    public IReadOnlyList<LogLevelChoice> LogLevelChoices { get; } = new[]
+    {
+        new LogLevelChoice(LogLevel.Debug, "调试"),
+        new LogLevelChoice(LogLevel.Info, "信息"),
+        new LogLevelChoice(LogLevel.Warn, "警告"),
+        new LogLevelChoice(LogLevel.Error, "错误"),
+    };
+    public string LogDirectoryPath => ConsoleLog.Instance.DirectoryPath;
+    public string ConfigDirectoryPath => ConfigPaths.ConfigDir;
     /// <summary>"添加用户自定义动作"图标下拉的可选项。
     /// 严格剔除被内置功能/预定义模板占用的图标，避免不同语义复用同一图形</summary>
     public IReadOnlyList<IconChoice> IconChoices { get; } = IconChoiceCatalog.UserSelectable;
@@ -243,6 +255,14 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         DismissMouseLeaveDelayBox.Value = _settings.DismissMouseLeaveDelayMs;
         DismissOnTimeoutBox.IsChecked = _settings.DismissOnTimeout;
         DismissTimeoutMsBox.Value = _settings.DismissTimeoutMs;
+        AboutUiaStatusText.Text = DetectUiaStatus();
+        AboutPrivilegeStatusText.Text = DetectPrivilegeStatus();
+        LogLevelBox.ItemsSource = LogLevelChoices;
+        LogLevelBox.DisplayMemberPath = nameof(LogLevelChoice.Label);
+        LogLevelBox.SelectedValuePath = nameof(LogLevelChoice.Value);
+        LogLevelBox.SelectedValue = _settings.LogLevel;
+        LogDirectoryPathText.Text = string.IsNullOrWhiteSpace(LogDirectoryPath) ? "不可用" : LogDirectoryPath;
+        ConfigDirectoryPathText.Text = ConfigDirectoryPath;
 
         SearchEngineName.Text = _settings.SearchEngineName;
         SearchUrlTemplate.Text = _settings.SearchUrlTemplate;
@@ -883,6 +903,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         _settings.DismissMouseLeaveDelayMs = NumberBoxInt(DismissMouseLeaveDelayBox, _settings.DismissMouseLeaveDelayMs, 0, 5000);
         _settings.DismissOnTimeout = DismissOnTimeoutBox.IsChecked == true;
         _settings.DismissTimeoutMs = NumberBoxInt(DismissTimeoutMsBox, _settings.DismissTimeoutMs, 100, 120000);
+        _settings.LogLevel = LogLevelBox.SelectedValue is LogLevel logLevel ? logLevel : LogLevel.Debug;
 
         var name = SearchEngineName.Text?.Trim() ?? "";
         var url = SearchUrlTemplate.Text?.Trim() ?? "";
@@ -1023,6 +1044,52 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
     private static string SelectedTag(WpfComboBox combo)
         => combo.SelectedItem is ComboBoxItem item && item.Tag is string tag ? tag : "";
 
+    private static string DetectUiaStatus()
+    {
+        try
+        {
+            _ = AutomationElement.FocusedElement;
+            return "可用";
+        }
+        catch (Exception ex)
+        {
+            return "不可用：" + ex.Message;
+        }
+    }
+
+    private static string DetectPrivilegeStatus()
+    {
+        try
+        {
+            var identity = WindowsIdentity.GetCurrent();
+            var principal = new WindowsPrincipal(identity);
+            return principal.IsInRole(WindowsBuiltInRole.Administrator) ? "管理员" : "普通用户";
+        }
+        catch
+        {
+            return "未知";
+        }
+    }
+
+    private void OnOpenLogDirectory(object sender, RoutedEventArgs e)
+        => OpenPath(LogDirectoryPath);
+
+    private void OnOpenConfigDirectory(object sender, RoutedEventArgs e)
+        => OpenPath(ConfigDirectoryPath);
+
+    private void OpenPath(string path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path)) return;
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show("打开目录失败：" + ex.Message, "ClipAura", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
     private AiThinkingMode SelectedAiThinkingMode()
         => AiThinkingModeBox.SelectedValue is AiThinkingMode mode
             ? mode
@@ -1048,6 +1115,7 @@ public sealed record ConversationListItem(string Id, string Title, string MetaTe
 public sealed record UsageRow(string DateLabel, string CallsLabel, string PromptLabel, string CompletionLabel);
 
 public sealed record AiThinkingModeChoice(AiThinkingMode Value, string Label, string Description);
+public sealed record LogLevelChoice(LogLevel Value, string Label);
 
 public sealed record RecentProcessItem(string ProcessName, string WindowTitle)
 {

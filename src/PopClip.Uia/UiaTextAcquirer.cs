@@ -17,10 +17,14 @@ public sealed class UiaTextAcquirer
     public UiaTextAcquirer(ILog log) => _log = log;
 
     public bool LastFocusedElementWasPassword { get; private set; }
+    public string LastFocusedControlTypeName { get; private set; } = "";
+    public bool LastFocusedElementRejectsClipboardFallbackOnDoubleClick { get; private set; }
 
     public AcquisitionResult? TryAcquire()
     {
         LastFocusedElementWasPassword = false;
+        LastFocusedControlTypeName = "";
+        LastFocusedElementRejectsClipboardFallbackOnDoubleClick = false;
         AutomationElement? focused = null;
         try
         {
@@ -32,6 +36,8 @@ public sealed class UiaTextAcquirer
             return null;
         }
         if (focused is null) return null;
+        LastFocusedControlTypeName = SafeControlTypeName(focused);
+        LastFocusedElementRejectsClipboardFallbackOnDoubleClick = RejectsClipboardFallbackOnDoubleClick(focused);
         LastFocusedElementWasPassword = IsPasswordElement(focused);
         if (LastFocusedElementWasPassword)
         {
@@ -119,6 +125,38 @@ public sealed class UiaTextAcquirer
         {
             if (element.Current.IsPassword) return true;
             return element.Current.ControlType == ControlType.Edit && element.Current.IsPassword;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string SafeControlTypeName(AutomationElement element)
+    {
+        try { return element.Current.ControlType?.ProgrammaticName ?? ""; }
+        catch { return ""; }
+    }
+
+    private static bool RejectsClipboardFallbackOnDoubleClick(AutomationElement element)
+    {
+        try
+        {
+            var ct = element.Current.ControlType;
+            return ct == ControlType.Menu
+                || ct == ControlType.MenuBar
+                || ct == ControlType.MenuItem
+                || ct == ControlType.Tree
+                || ct == ControlType.TreeItem
+                || ct == ControlType.List
+                || ct == ControlType.ListItem
+                || ct == ControlType.Tab
+                || ct == ControlType.TabItem
+                || ct == ControlType.ToolBar
+                || ct == ControlType.Button
+                || ct == ControlType.CheckBox
+                || ct == ControlType.RadioButton
+                || ct == ControlType.ComboBox;
         }
         catch
         {

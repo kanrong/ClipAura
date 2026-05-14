@@ -22,6 +22,15 @@ public static class WindowStyleHelper
         NativeMethods.ShowWindow(hwnd, NativeMethods.SW_SHOWNOACTIVATE);
     }
 
+    public static void ShowNoActivate(nint hwnd, int x, int y, int width, int height)
+    {
+        NativeMethods.SetWindowPos(
+            hwnd, NativeMethods.HWND_TOPMOST,
+            x, y, Math.Max(1, width), Math.Max(1, height),
+            NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
+        NativeMethods.ShowWindow(hwnd, NativeMethods.SW_SHOWNOACTIVATE);
+    }
+
     public static void Hide(nint hwnd)
     {
         NativeMethods.ShowWindow(hwnd, NativeMethods.SW_HIDE);

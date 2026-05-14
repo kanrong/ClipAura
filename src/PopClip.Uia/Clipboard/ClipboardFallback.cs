@@ -33,7 +33,7 @@ public sealed class ClipboardFallback
         try
         {
             var snapshot = _clipboard.Capture();
-            var originalText = _clipboard.GetText();
+            var beforeSeq = NativeMethods.GetClipboardSequenceNumber();
 
             try
             {
@@ -50,12 +50,13 @@ public sealed class ClipboardFallback
                 while (DateTime.UtcNow < deadline)
                 {
                     Thread.Sleep(15);
-                    var t = _clipboard.GetText();
-                    if (t is not null && !string.Equals(t, originalText, StringComparison.Ordinal))
+                    if (NativeMethods.GetClipboardSequenceNumber() == beforeSeq)
                     {
-                        newText = t;
-                        break;
+                        continue;
                     }
+
+                    newText = _clipboard.GetText();
+                    break;
                 }
                 return newText;
             }

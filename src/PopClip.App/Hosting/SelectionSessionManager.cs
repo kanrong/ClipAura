@@ -178,13 +178,13 @@ internal sealed class SelectionSessionManager : IDisposable
             return;
         }
 
-        var preview = outcome.Context.Text.Length > 40
-            ? outcome.Context.Text.Substring(0, 40) + "..."
-            : outcome.Context.Text;
         _log.Info("acquired",
+            ("trigger", candidate.Trigger),
             ("source", outcome.Context.Source),
+            ("proc", outcome.Context.Foreground.ProcessName),
+            ("class", outcome.Context.Foreground.WindowClassName),
             ("len", outcome.Context.Text.Length),
-            ("preview", preview));
+            ("editable", outcome.Context.IsLikelyEditable));
 
         _replacer.SetCurrentElement(outcome.Element);
 

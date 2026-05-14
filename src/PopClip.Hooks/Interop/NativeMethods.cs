@@ -322,6 +322,9 @@ public static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool RemoveClipboardFormatListener(nint hwnd);
 
+    [DllImport("user32.dll")]
+    public static extern uint GetClipboardSequenceNumber();
+
     // === SHQueryUserNotificationState (全屏抑制) ===
     public enum QUERY_USER_NOTIFICATION_STATE
     {

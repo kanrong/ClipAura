@@ -14,12 +14,18 @@ public sealed class LowLevelKeyboardHook
     private readonly Channel<InputEvent> _channel;
     private readonly NativeMethods.HookProc _proc;
     private Func<KeyEvent, bool>? _interceptor;
+    private long _lastEventTicks;
+
+    public DateTime LastEventUtc => new(Volatile.Read(ref _lastEventTicks), DateTimeKind.Utc);
+
+    public void ResetHeartbeat() => Volatile.Write(ref _lastEventTicks, DateTime.UtcNow.Ticks);
 
     public LowLevelKeyboardHook(ILog log, Channel<InputEvent> channel)
     {
         _log = log;
         _channel = channel;
         _proc = HookCallback;
+        ResetHeartbeat();
     }
 
     public nint Install()
@@ -46,7 +52,9 @@ public sealed class LowLevelKeyboardHook
             var ctrl = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_CONTROL) & 0x8000) != 0;
             var alt = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_MENU) & 0x8000) != 0;
 
-            var ev = new KeyEvent((int)data.vkCode, isDown, shift, ctrl, alt, DateTime.UtcNow);
+            var now = DateTime.UtcNow;
+            Volatile.Write(ref _lastEventTicks, now.Ticks);
+            var ev = new KeyEvent((int)data.vkCode, isDown, shift, ctrl, alt, now);
             if (_interceptor?.Invoke(ev) == true)
             {
                 return 1;

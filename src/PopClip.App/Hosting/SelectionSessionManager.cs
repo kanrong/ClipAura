@@ -171,6 +171,17 @@ internal sealed class SelectionSessionManager : IDisposable
             _log.Info("acquisition failed: no text from UIA nor clipboard");
             return;
         }
+        if (candidate.Trigger == SelectionTrigger.MouseDoubleClick
+            && outcome.Context.Source == AcquisitionSource.ClipboardFallback)
+        {
+            _log.Info("double-click clipboard fallback captured",
+                ("proc", outcome.Context.Foreground.ProcessName),
+                ("class", outcome.Context.Foreground.WindowClassName),
+                ("focusedClass", outcome.FocusedWindowClassName),
+                ("controlType", outcome.FocusedControlTypeName),
+                ("len", outcome.Context.Text.Length),
+                ("head", BuildLogHead(outcome.Context.Text)));
+        }
         if (outcome.Context.IsEmpty)
         {
             _log.Info("acquisition empty text", ("source", outcome.Context.Source));
@@ -190,6 +201,8 @@ internal sealed class SelectionSessionManager : IDisposable
             ("source", outcome.Context.Source),
             ("proc", outcome.Context.Foreground.ProcessName),
             ("class", outcome.Context.Foreground.WindowClassName),
+            ("focusedClass", outcome.FocusedWindowClassName),
+            ("controlType", outcome.FocusedControlTypeName),
             ("len", outcome.Context.Text.Length),
             ("editable", outcome.Context.IsLikelyEditable));
 
@@ -395,6 +408,17 @@ internal sealed class SelectionSessionManager : IDisposable
     private static bool IsAiAction(IAction action)
         => action is AiPromptAction
            || action.Id.StartsWith("builtin.ai.", StringComparison.OrdinalIgnoreCase);
+
+    private static string BuildLogHead(string text)
+    {
+        var collapsed = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ").Trim();
+        if (string.IsNullOrEmpty(collapsed)) return "";
+
+        const int maxLen = 200;
+        return collapsed.Length <= maxLen
+            ? collapsed
+            : collapsed[..maxLen] + "…";
+    }
 
     public void Dispose()
     {

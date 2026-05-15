@@ -1,6 +1,8 @@
+using System.Text;
 using PopClip.Core.Logging;
 using PopClip.Core.Model;
 using PopClip.Core.Session;
+using PopClip.Hooks.Interop;
 using PopClip.Uia.Clipboard;
 
 namespace PopClip.Uia;
@@ -23,6 +25,8 @@ public sealed class TextAcquisitionService
     {
         // 先 UIA：成功就直接用
         var uiaResult = _uia.TryAcquire();
+        var focusedWindowClassName = TryGetFocusedWindowClassName(foreground.Hwnd);
+        var focusedControlTypeName = _uia.LastFocusedControlTypeName;
         if (uiaResult is not null)
         {
             var ctx = new SelectionContext(
@@ -32,18 +36,21 @@ public sealed class TextAcquisitionService
                 uiaResult.Rect,
                 uiaResult.IsEditable,
                 DateTime.UtcNow);
-            return new AcquisitionOutcome(ctx, uiaResult.Element);
+            return new AcquisitionOutcome(ctx, uiaResult.Element, focusedWindowClassName, focusedControlTypeName);
         }
         if (_uia.LastFocusedElementWasPassword)
         {
-            _log.Info("clipboard fallback skipped: password element");
+            _log.Info("clipboard fallback skipped: password element",
+                ("focusedClass", focusedWindowClassName),
+                ("controlType", focusedControlTypeName));
             return null;
         }
         if (trigger == SelectionTrigger.MouseDoubleClick
             && _uia.LastFocusedElementRejectsClipboardFallbackOnDoubleClick)
         {
             _log.Info("clipboard fallback skipped: double-click on action control",
-                ("controlType", _uia.LastFocusedControlTypeName),
+                ("focusedClass", focusedWindowClassName),
+                ("controlType", focusedControlTypeName),
                 ("foreground", foreground.ProcessName));
             return null;
         }
@@ -59,14 +66,49 @@ public sealed class TextAcquisitionService
                 mouseHintRect,
                 IsLikelyEditable: false, // 兜底路径无法可靠判断
                 DateTime.UtcNow);
-            return new AcquisitionOutcome(ctx, null);
+            return new AcquisitionOutcome(ctx, null, focusedWindowClassName, focusedControlTypeName);
         }
 
         _log.Debug("acquisition exhausted all paths",
             ("foreground", foreground.ProcessName),
-            ("class", foreground.WindowClassName));
+            ("class", foreground.WindowClassName),
+            ("focusedClass", focusedWindowClassName),
+            ("controlType", focusedControlTypeName));
         return null;
+    }
+
+    private static string TryGetFocusedWindowClassName(nint foregroundHwnd)
+    {
+        if (foregroundHwnd == 0) return "";
+
+        try
+        {
+            var threadId = NativeMethods.GetWindowThreadProcessId(foregroundHwnd, out _);
+            if (threadId == 0) return "";
+
+            var info = new NativeMethods.GUITHREADINFO
+            {
+                cbSize = System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.GUITHREADINFO>(),
+            };
+            if (!NativeMethods.GetGUIThreadInfo(threadId, ref info) || info.hwndFocus == 0)
+            {
+                return "";
+            }
+
+            var clsBuf = new StringBuilder(256);
+            return NativeMethods.GetClassName(info.hwndFocus, clsBuf, clsBuf.Capacity) > 0
+                ? clsBuf.ToString()
+                : "";
+        }
+        catch
+        {
+            return "";
+        }
     }
 }
 
-public sealed record AcquisitionOutcome(SelectionContext Context, System.Windows.Automation.AutomationElement? Element);
+public sealed record AcquisitionOutcome(
+    SelectionContext Context,
+    System.Windows.Automation.AutomationElement? Element,
+    string FocusedWindowClassName,
+    string FocusedControlTypeName);

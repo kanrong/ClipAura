@@ -5,9 +5,11 @@ using PopClip.Core.Session;
 namespace PopClip.Hooks;
 
 /// <summary>整合三类监听，提供单一异步事件流。
-/// 通过 _lastMouseEventUtc 心跳触发 watchdog 重装，应对低级钩子被系统超时摘除</summary>
+/// 通过低级 hook 心跳 + 系统 idle 状态触发 watchdog 重装，应对低级钩子被系统超时摘除</summary>
 public sealed class InputWatcher : IDisposable
 {
+    private static readonly TimeSpan HookWatchdogThreshold = TimeSpan.FromMinutes(2);
+
     private readonly ILog _log;
     private readonly Channel<InputEvent> _channel;
     private HookThread _thread;
@@ -73,10 +75,15 @@ public sealed class InputWatcher : IDisposable
                 try
                 {
                     await Task.Delay(TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
-                    var idle = DateTime.UtcNow - _mouseHook.LastEventUtc;
-                    if (idle > TimeSpan.FromMinutes(2))
+                    var idle = GetHookIdleDuration();
+                    if (idle > HookWatchdogThreshold)
                     {
-                        _log.Warn("hook watchdog: idle too long, reinstalling",
+                        if (GetSystemIdleDuration() > HookWatchdogThreshold)
+                        {
+                            continue;
+                        }
+
+                        _log.Debug("hook watchdog: idle too long, reinstalling",
                             ("idleSec", (int)idle.TotalSeconds));
                         Reinstall();
                     }
@@ -95,11 +102,43 @@ public sealed class InputWatcher : IDisposable
             _thread = NewThread();
             _thread.Start();
             _mouseHook.ResetHeartbeat();
-            _log.Info("hooks reinstalled");
+            _kbdHook.ResetHeartbeat();
+            _log.Debug("hooks reinstalled");
         }
         catch (Exception ex)
         {
             _log.Error("hook reinstall failed", ex);
+        }
+    }
+
+    private TimeSpan GetHookIdleDuration()
+    {
+        var lastHookEventUtc = _mouseHook.LastEventUtc > _kbdHook.LastEventUtc
+            ? _mouseHook.LastEventUtc
+            : _kbdHook.LastEventUtc;
+        return DateTime.UtcNow - lastHookEventUtc;
+    }
+
+    private static TimeSpan GetSystemIdleDuration()
+    {
+        try
+        {
+            var info = new Interop.NativeMethods.LASTINPUTINFO
+            {
+                cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<Interop.NativeMethods.LASTINPUTINFO>(),
+            };
+            if (!Interop.NativeMethods.GetLastInputInfo(ref info))
+            {
+                return TimeSpan.Zero;
+            }
+
+            var elapsedMs = unchecked((uint)Environment.TickCount) - info.dwTime;
+            return TimeSpan.FromMilliseconds(elapsedMs);
+        }
+        catch
+        {
+            // 取不到系统 idle 时宁可保守重装，也不要静默放过可能失活的 hook。
+            return TimeSpan.Zero;
         }
     }
 

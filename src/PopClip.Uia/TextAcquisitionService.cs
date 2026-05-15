@@ -21,7 +21,7 @@ public sealed class TextAcquisitionService
         _clipboard = clipboard;
     }
 
-    public AcquisitionOutcome? Acquire(ForegroundWindowInfo foreground, SelectionRect mouseHintRect, SelectionTrigger trigger)
+    public AcquisitionAttempt Acquire(ForegroundWindowInfo foreground, SelectionRect mouseHintRect, SelectionTrigger trigger)
     {
         // 先 UIA：成功就直接用
         var uiaResult = _uia.TryAcquire();
@@ -36,14 +36,15 @@ public sealed class TextAcquisitionService
                 uiaResult.Rect,
                 uiaResult.IsEditable,
                 DateTime.UtcNow);
-            return new AcquisitionOutcome(ctx, uiaResult.Element, focusedWindowClassName, focusedControlTypeName);
+            return AcquisitionAttempt.Success(
+                new AcquisitionOutcome(ctx, uiaResult.Element, focusedWindowClassName, focusedControlTypeName));
         }
         if (_uia.LastFocusedElementWasPassword)
         {
             _log.Info("clipboard fallback skipped: password element",
                 ("focusedClass", focusedWindowClassName),
                 ("controlType", focusedControlTypeName));
-            return null;
+            return AcquisitionAttempt.Skipped;
         }
         if (trigger == SelectionTrigger.MouseDoubleClick
             && _uia.LastFocusedElementRejectsClipboardFallbackOnDoubleClick)
@@ -52,7 +53,7 @@ public sealed class TextAcquisitionService
                 ("focusedClass", focusedWindowClassName),
                 ("controlType", focusedControlTypeName),
                 ("foreground", foreground.ProcessName));
-            return null;
+            return AcquisitionAttempt.Skipped;
         }
 
         // 剪贴板兜底
@@ -66,7 +67,8 @@ public sealed class TextAcquisitionService
                 mouseHintRect,
                 IsLikelyEditable: false, // 兜底路径无法可靠判断
                 DateTime.UtcNow);
-            return new AcquisitionOutcome(ctx, null, focusedWindowClassName, focusedControlTypeName);
+            return AcquisitionAttempt.Success(
+                new AcquisitionOutcome(ctx, null, focusedWindowClassName, focusedControlTypeName));
         }
 
         _log.Debug("acquisition exhausted all paths",
@@ -74,7 +76,7 @@ public sealed class TextAcquisitionService
             ("class", foreground.WindowClassName),
             ("focusedClass", focusedWindowClassName),
             ("controlType", focusedControlTypeName));
-        return null;
+        return AcquisitionAttempt.Failed;
     }
 
     private static string TryGetFocusedWindowClassName(nint foregroundHwnd)
@@ -105,6 +107,13 @@ public sealed class TextAcquisitionService
             return "";
         }
     }
+}
+
+public sealed record AcquisitionAttempt(AcquisitionOutcome? Outcome, bool WasSkipped)
+{
+    public static AcquisitionAttempt Success(AcquisitionOutcome outcome) => new(outcome, WasSkipped: false);
+    public static AcquisitionAttempt Skipped { get; } = new(null, WasSkipped: true);
+    public static AcquisitionAttempt Failed { get; } = new(null, WasSkipped: false);
 }
 
 public sealed record AcquisitionOutcome(

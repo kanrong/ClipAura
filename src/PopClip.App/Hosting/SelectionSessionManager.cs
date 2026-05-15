@@ -165,10 +165,14 @@ internal sealed class SelectionSessionManager : IDisposable
             return;
         }
 
-        var outcome = await Task.Run(() => _acquisition.Acquire(foreground, mouseRect, candidate.Trigger)).ConfigureAwait(false);
+        var attempt = await Task.Run(() => _acquisition.Acquire(foreground, mouseRect, candidate.Trigger)).ConfigureAwait(false);
+        var outcome = attempt.Outcome;
         if (outcome is null)
         {
-            _log.Info("acquisition failed: no text from UIA nor clipboard");
+            if (!attempt.WasSkipped)
+            {
+                _log.Info("acquisition failed: no text from UIA nor clipboard");
+            }
             return;
         }
         if (candidate.Trigger == SelectionTrigger.MouseDoubleClick

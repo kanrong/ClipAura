@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using PopClip.Core.Logging;
 using PopClip.Core.Session;
 using PopClip.Hooks.Interop;
+using PopClip.Hooks.Window;
 
 namespace PopClip.Hooks;
 
@@ -13,6 +14,7 @@ public sealed class LowLevelMouseHook
     private readonly ILog _log;
     private readonly Channel<InputEvent> _channel;
     private readonly NativeMethods.HookProc _proc;
+    private readonly WindowDragSampler _dragSampler = new();
     private long _lastEventTicks;
 
     public DateTime LastEventUtc => new(Volatile.Read(ref _lastEventTicks), DateTimeKind.Utc);
@@ -52,10 +54,16 @@ public sealed class LowLevelMouseHook
             var shift = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_SHIFT) & 0x8000) != 0;
             var ctrl = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_CONTROL) & 0x8000) != 0;
             var alt = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_MENU) & 0x8000) != 0;
+            // 在 hook 线程里采样窗口 RECT：WindowFromPoint / GetAncestor / GetWindowRect 都是
+            // 本进程的 USER 表查询，单次开销 us 级，不会触发 LowLevelHooksTimeout
+            if (msg == NativeMethods.WM_LBUTTONDOWN)
+            {
+                _dragSampler.OnMouseDown(data.pt.X, data.pt.Y);
+            }
             InputEvent? ev = msg switch
             {
                 NativeMethods.WM_LBUTTONDOWN => new MouseDownEvent(data.pt.X, data.pt.Y, shift, ctrl, alt, now),
-                NativeMethods.WM_LBUTTONUP => new MouseUpEvent(data.pt.X, data.pt.Y, shift, ctrl, alt, now),
+                NativeMethods.WM_LBUTTONUP => new MouseUpEvent(data.pt.X, data.pt.Y, shift, ctrl, alt, _dragSampler.OnMouseUpDetectMoved(), now),
                 NativeMethods.WM_MOUSEMOVE => new MouseMoveEvent(data.pt.X, data.pt.Y, IsLeftDown(), now),
                 _ => null,
             };

@@ -251,6 +251,15 @@ public static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GetWindowRect(nint hWnd, out RECT lpRect);
 
+    [DllImport("user32.dll")]
+    public static extern nint WindowFromPoint(POINT pt);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern nint GetAncestor(nint hwnd, uint gaFlags);
+
+    /// <summary>GetAncestor flag：获取顶层根窗口（穿透子控件层）</summary>
+    public const uint GA_ROOT = 2;
+
     // === DWM ===
     public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     public const int DWMWA_SYSTEMBACKDROP_TYPE = 38;

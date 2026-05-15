@@ -81,8 +81,10 @@ public sealed class SelectionStateMachine
                 }
                 else if (_movedFarEnough)
                 {
-                    // Shift+拖动也归入此分支（扩展选区是用户的主要意图）
-                    TryScheduleSelection(new SelectionCandidate(SelectionTrigger.MouseDrag, mu.X, mu.Y, mu.TimestampUtc), mu);
+                    // Shift+拖动也归入此分支（扩展选区是用户的主要意图）。
+                    // 仅此分支传递 IsLikelyWindowDrag：只有"鼠标移动超过阈值"的拖动才可能是拖窗体，
+                    // 其他分支（修饰键点击、Shift 原地点击、双击）鼠标几乎没动，必然不是窗体拖动
+                    TryScheduleSelection(new SelectionCandidate(SelectionTrigger.MouseDrag, mu.X, mu.Y, mu.TimestampUtc, mu.IsLikelyWindowDrag), mu);
                     _lastUpAtUtc = DateTime.MinValue;
                 }
                 else if (_downWithShift || mu.Shift)

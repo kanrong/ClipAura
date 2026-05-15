@@ -4,7 +4,10 @@ namespace PopClip.Core.Session;
 public abstract record InputEvent(DateTime TimestampUtc);
 
 public sealed record MouseDownEvent(int X, int Y, bool Shift, bool Ctrl, bool Alt, DateTime TimestampUtc) : InputEvent(TimestampUtc);
-public sealed record MouseUpEvent(int X, int Y, bool Shift, bool Ctrl, bool Alt, DateTime TimestampUtc) : InputEvent(TimestampUtc);
+
+/// <summary>IsLikelyWindowDrag：在 down→up 期间检测到鼠标所在顶层窗口发生了位移/缩放，
+/// 说明本次是"拖动窗体本身"而非选中文本，上层用以跳过剪贴板兜底</summary>
+public sealed record MouseUpEvent(int X, int Y, bool Shift, bool Ctrl, bool Alt, bool IsLikelyWindowDrag, DateTime TimestampUtc) : InputEvent(TimestampUtc);
 public sealed record MouseMoveEvent(int X, int Y, bool LeftDown, DateTime TimestampUtc) : InputEvent(TimestampUtc);
 
 /// <summary>键盘事件：仅关心可能产生/破坏选区的按键</summary>

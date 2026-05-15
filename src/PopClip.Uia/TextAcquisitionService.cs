@@ -21,7 +21,11 @@ public sealed class TextAcquisitionService
         _clipboard = clipboard;
     }
 
-    public AcquisitionAttempt Acquire(ForegroundWindowInfo foreground, SelectionRect mouseHintRect, SelectionTrigger trigger)
+    public AcquisitionAttempt Acquire(
+        ForegroundWindowInfo foreground,
+        SelectionRect mouseHintRect,
+        SelectionTrigger trigger,
+        bool isLikelyWindowDrag = false)
     {
         // 先 UIA：成功就直接用
         var uiaResult = _uia.TryAcquire();
@@ -50,6 +54,28 @@ public sealed class TextAcquisitionService
             && _uia.LastFocusedElementRejectsClipboardFallbackOnDoubleClick)
         {
             _log.Info("clipboard fallback skipped: double-click on action control",
+                ("focusedClass", focusedWindowClassName),
+                ("controlType", focusedControlTypeName),
+                ("foreground", foreground.ProcessName));
+            return AcquisitionAttempt.Skipped;
+        }
+        // 拖动期间顶层窗口位置/大小变化 → 这是拖窗体，不是选文本。
+        // 直接跳过兜底，避免向前台进程合成 Ctrl+C（自绘编辑器 Zed/VSCode 等无选区时会复制整行污染剪贴板）
+        if (isLikelyWindowDrag)
+        {
+            _log.Info("clipboard fallback skipped: window drag detected",
+                ("foreground", foreground.ProcessName),
+                ("class", foreground.WindowClassName),
+                ("focusedClass", focusedWindowClassName),
+                ("controlType", focusedControlTypeName));
+            return AcquisitionAttempt.Skipped;
+        }
+        // 拖动 ListItem/TreeItem/TabItem 等"项目类"控件 = OLE 拖放（拖文件/节点/标签页），
+        // 不存在文本选区可言。典型场景：explorer.exe 拖文件、Chrome 拖标签页
+        if (trigger == SelectionTrigger.MouseDrag
+            && _uia.LastFocusedElementRejectsClipboardFallbackOnDrag)
+        {
+            _log.Info("clipboard fallback skipped: drag on item control",
                 ("focusedClass", focusedWindowClassName),
                 ("controlType", focusedControlTypeName),
                 ("foreground", foreground.ProcessName));

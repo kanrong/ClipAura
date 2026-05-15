@@ -19,12 +19,14 @@ public sealed class UiaTextAcquirer
     public bool LastFocusedElementWasPassword { get; private set; }
     public string LastFocusedControlTypeName { get; private set; } = "";
     public bool LastFocusedElementRejectsClipboardFallbackOnDoubleClick { get; private set; }
+    public bool LastFocusedElementRejectsClipboardFallbackOnDrag { get; private set; }
 
     public AcquisitionResult? TryAcquire()
     {
         LastFocusedElementWasPassword = false;
         LastFocusedControlTypeName = "";
         LastFocusedElementRejectsClipboardFallbackOnDoubleClick = false;
+        LastFocusedElementRejectsClipboardFallbackOnDrag = false;
         AutomationElement? focused = null;
         try
         {
@@ -38,6 +40,7 @@ public sealed class UiaTextAcquirer
         if (focused is null) return null;
         LastFocusedControlTypeName = SafeControlTypeName(focused);
         LastFocusedElementRejectsClipboardFallbackOnDoubleClick = RejectsClipboardFallbackOnDoubleClick(focused);
+        LastFocusedElementRejectsClipboardFallbackOnDrag = RejectsClipboardFallbackOnDrag(focused);
         LastFocusedElementWasPassword = IsPasswordElement(focused);
         if (LastFocusedElementWasPassword)
         {
@@ -157,6 +160,25 @@ public sealed class UiaTextAcquirer
                 || ct == ControlType.CheckBox
                 || ct == ControlType.RadioButton
                 || ct == ControlType.ComboBox;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>拖动这些控件 = OLE 拖放（拖文件、拖节点、拖标签页），不可能是文本选区。
+    /// 比双击列表更克制：仅包含真正会被用户拖动的控件，避免把"拖按钮"这种几乎不存在的边界场景一刀切</summary>
+    private static bool RejectsClipboardFallbackOnDrag(AutomationElement element)
+    {
+        try
+        {
+            var ct = element.Current.ControlType;
+            return ct == ControlType.ListItem
+                || ct == ControlType.TreeItem
+                || ct == ControlType.TabItem
+                || ct == ControlType.List
+                || ct == ControlType.Tree;
         }
         catch
         {

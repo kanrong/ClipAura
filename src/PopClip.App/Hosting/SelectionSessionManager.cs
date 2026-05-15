@@ -165,7 +165,7 @@ internal sealed class SelectionSessionManager : IDisposable
             return;
         }
 
-        var attempt = await Task.Run(() => _acquisition.Acquire(foreground, mouseRect, candidate.Trigger, candidate.IsLikelyWindowDrag)).ConfigureAwait(false);
+        var attempt = await Task.Run(() => _acquisition.Acquire(foreground, mouseRect, candidate.Trigger, candidate.IsLikelyWindowDrag, candidate.IsLikelyScrollBarDrag)).ConfigureAwait(false);
         var outcome = attempt.Outcome;
         if (outcome is null)
         {

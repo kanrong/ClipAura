@@ -60,13 +60,21 @@ public sealed class LowLevelMouseHook
             {
                 _dragSampler.OnMouseDown(data.pt.X, data.pt.Y);
             }
-            InputEvent? ev = msg switch
+            InputEvent? ev;
+            if (msg == NativeMethods.WM_LBUTTONUP)
             {
-                NativeMethods.WM_LBUTTONDOWN => new MouseDownEvent(data.pt.X, data.pt.Y, shift, ctrl, alt, now),
-                NativeMethods.WM_LBUTTONUP => new MouseUpEvent(data.pt.X, data.pt.Y, shift, ctrl, alt, _dragSampler.OnMouseUpDetectMoved(), now),
-                NativeMethods.WM_MOUSEMOVE => new MouseMoveEvent(data.pt.X, data.pt.Y, IsLeftDown(), now),
-                _ => null,
-            };
+                var sample = _dragSampler.OnMouseUp(data.pt.X, data.pt.Y);
+                ev = new MouseUpEvent(data.pt.X, data.pt.Y, shift, ctrl, alt, sample.WindowMoved, sample.ScrollBarLikely, now);
+            }
+            else
+            {
+                ev = msg switch
+                {
+                    NativeMethods.WM_LBUTTONDOWN => new MouseDownEvent(data.pt.X, data.pt.Y, shift, ctrl, alt, now),
+                    NativeMethods.WM_MOUSEMOVE => new MouseMoveEvent(data.pt.X, data.pt.Y, IsLeftDown(), now),
+                    _ => null,
+                };
+            }
             if (ev is not null && !_channel.Writer.TryWrite(ev))
             {
                 _log.Warn("mouse event channel full", ("msg", msg));

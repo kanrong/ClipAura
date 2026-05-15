@@ -25,7 +25,8 @@ public sealed class TextAcquisitionService
         ForegroundWindowInfo foreground,
         SelectionRect mouseHintRect,
         SelectionTrigger trigger,
-        bool isLikelyWindowDrag = false)
+        bool isLikelyWindowDrag = false,
+        bool isLikelyScrollBarDrag = false)
     {
         // 先 UIA：成功就直接用
         var uiaResult = _uia.TryAcquire();
@@ -64,6 +65,17 @@ public sealed class TextAcquisitionService
         if (isLikelyWindowDrag)
         {
             _log.Info("clipboard fallback skipped: window drag detected",
+                ("foreground", foreground.ProcessName),
+                ("class", foreground.WindowClassName),
+                ("focusedClass", focusedWindowClassName),
+                ("controlType", focusedControlTypeName));
+            return AcquisitionAttempt.Skipped;
+        }
+        // 起点在窗口边缘 + 拖动严格轴对齐 → 启发式判定为拖（自绘）滚动条。
+        // 覆盖屏幕极右/极左/极下的滚动条；中部内嵌滚动条（如 diff 视图）无法识别，等用户反馈再加进取版
+        if (isLikelyScrollBarDrag)
+        {
+            _log.Info("clipboard fallback skipped: scrollbar drag heuristic",
                 ("foreground", foreground.ProcessName),
                 ("class", foreground.WindowClassName),
                 ("focusedClass", focusedWindowClassName),

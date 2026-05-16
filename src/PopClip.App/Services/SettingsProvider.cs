@@ -29,4 +29,7 @@ internal sealed class SettingsProvider : ISettingsProvider
             return !string.IsNullOrWhiteSpace(AiProviderCatalog.GetProtectedKey(_settings, preset.KeyBucket));
         }
     }
+
+    public bool TranslateInlineWhenAiEnabled => _settings.TranslateInlineWhenAiEnabled;
+    public bool ExplainActionEnabled => _settings.ExplainActionEnabled;
 }

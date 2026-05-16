@@ -18,6 +18,7 @@ public sealed class AiTextService : IAiTextService
     private readonly ITextReplacer _replacer;
     private readonly IClipboardWriter _clipboard;
     private readonly INotificationSink _notifier;
+    private readonly FloatingToolbar? _toolbar;
     private readonly ClipboardAccess? _clipboardAccess;
     private readonly IConversationStore? _historyStore;
     private readonly IUsageRecorder? _usage;
@@ -37,6 +38,9 @@ public sealed class AiTextService : IAiTextService
         _replacer = replacer;
         _clipboard = clipboard;
         _notifier = notifier;
+        // notifier 实际上就是 FloatingToolbar；用模式匹配做安全转换，
+        // 拿到具体类型才能查询气泡锚点。Core 层接口仍保持只暴露 Notify 的窄抽象
+        _toolbar = notifier as FloatingToolbar;
         _clipboardAccess = clipboardAccess;
         _historyStore = historyStore;
         _usage = usage;
@@ -97,7 +101,8 @@ public sealed class AiTextService : IAiTextService
         string? initialPrompt,
         string? customSystemPrompt,
         Func<string, Task>? replaceCallback,
-        CancellationToken ct)
+        CancellationToken ct,
+        (string UserPrompt, string AssistantText)? seededTurn = null)
     {
         if (!CanRun)
         {
@@ -136,7 +141,17 @@ public sealed class AiTextService : IAiTextService
             return created;
         });
 
-        if (!string.IsNullOrWhiteSpace(initialPrompt))
+        // 三种入口语义：
+        // 1) seededTurn 非空 → 由气泡承接而来：把已有的 user/assistant 对话直接灌入，不再调 AI
+        // 2) initialPrompt 非空（且无 seed） → 老的"打开就跑一遍"语义，仅在没有气泡结果时回退使用
+        // 3) 都没有 → 空白对话，光标聚焦到输入框等用户提问
+        if (seededTurn.HasValue)
+        {
+            await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
+                window.SeedAssistantTurn(seededTurn.Value.UserPrompt, seededTurn.Value.AssistantText));
+            await WpfApplication.Current.Dispatcher.InvokeAsync(window.FocusQuestionBox);
+        }
+        else if (!string.IsNullOrWhiteSpace(initialPrompt))
         {
             await WpfApplication.Current.Dispatcher.InvokeAsync(() => window.StartInitialPrompt(initialPrompt));
         }
@@ -148,7 +163,11 @@ public sealed class AiTextService : IAiTextService
 
     /// <summary>原地替换 / 写剪贴板 / inline toast 三种"不弹窗"模式。
     /// 流式累积到 StringBuilder，过程中只在浮窗 toast 显示进度指示，
-    /// 完成后按输出模式落地结果，并在失败时上抛由 SessionManager 显示错误 toast</summary>
+    /// 完成后按输出模式落地结果，并在失败时上抛由 SessionManager 显示错误 toast。
+    ///
+    /// InlineToast + UseInteractiveBubble=true 走独立的气泡分支：
+    /// 创建一个 AiBubbleWindow，订阅流式回调实时填充正文；用户在气泡上自行决定"插入/替换/复制/打开完整对话"。
+    /// 该分支不走 _notifier.Notify，让浮窗 toast 区域留给"处理中"等过程提示，避免与气泡叠加</summary>
     private async Task RunInlineAsync(
         AiPromptRequest request,
         SelectionContext context,
@@ -158,6 +177,12 @@ public sealed class AiTextService : IAiTextService
     {
         var options = CreateOptions(GetCurrentApiKey());
         var messages = BuildPromptMessages(_settings.AiDefaultLanguage, expandedSystem, expandedPrompt);
+
+        if (request.OutputMode == AiOutputMode.InlineToast && request.UseInteractiveBubble)
+        {
+            await RunInteractiveBubbleAsync(request, context, options, messages, ct).ConfigureAwait(false);
+            return;
+        }
 
         AiCompletionResult result;
         try
@@ -209,6 +234,130 @@ public sealed class AiTextService : IAiTextService
                 break;
         }
     }
+
+    /// <summary>气泡分支：把流式 delta 实时投递到 AiBubbleWindow，
+    /// 完成 / 取消 / 失败分别调对应方法切换按钮可用态与状态文字。
+    /// 调度上把窗口创建、状态切换都 marshal 到 UI 线程，不要在后台线程直接动 WPF 控件</summary>
+    private async Task RunInteractiveBubbleAsync(
+        AiPromptRequest request,
+        SelectionContext context,
+        AiClientOptions options,
+        IReadOnlyList<(string Role, string Content)> messages,
+        CancellationToken ct)
+    {
+        AiBubbleWindow? bubble = null;
+        await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
+        {
+            // 同一刻只允许一个气泡：未 Pin 时，旧的先关，新的按 anchor 重新定位接管；
+            // Pin 着的气泡复用本体（保留位置 / Pin 视觉状态），仅刷新标题 + 流式正文
+            var anchor = _toolbar?.GetCurrentBubbleAnchor();
+            if (AiBubbleWindow.Current is { IsPinned: true } pinned)
+            {
+                bubble = pinned;
+            }
+            else
+            {
+                AiBubbleWindow.DismissCurrent();
+                bubble = new AiBubbleWindow(_log);
+            }
+
+            // 替换原文需要"有原选区"。OCR 来源的 context.Foreground 是截图时的前台窗口，
+            // 不是用户当前可编辑目标，剪贴板兜底粘贴会粘到错误位置，因此 OCR 选区禁用替换
+            var canReplace = !context.IsEmpty && context.Source != PopClip.Core.Model.AcquisitionSource.Ocr;
+            var insertCallback = canReplace ? BuildReplaceCallback(context) : null;
+            var openInChat = BuildOpenChatCallback(request, context);
+
+            // 浮窗已隐藏（用户极快关掉浮窗）时取屏幕中央作为兜底锚点，不阻断气泡显示
+            var (cx, ty, mb, mt) = anchor.HasValue
+                ? (anchor.Value.CenterX, anchor.Value.TopY, anchor.Value.MonitorBottomDip, anchor.Value.MonitorTopDip)
+                : (SystemParameters.PrimaryScreenWidth / 2, SystemParameters.PrimaryScreenHeight / 2, double.PositiveInfinity, 0.0);
+
+            bubble.ShowAt(
+                request.Title,
+                options.Model,
+                canReplace,
+                onInsert: insertCallback,
+                onReplace: insertCallback,
+                onOpenInChat: openInChat,
+                anchorCenterX: cx,
+                anchorTopY: ty,
+                monitorBottomY: mb,
+                monitorTopY: mt);
+        });
+
+        if (bubble is null)
+        {
+            return;
+        }
+
+        AiCompletionResult? result = null;
+        Exception? failure = null;
+        try
+        {
+            // delta 回调里再次跳回 UI 线程把文字 append 进 TextBox。
+            // 不直接 dispatch invoke 而是用 InvokeAsync 让请求线程不被 UI 同步阻塞
+            var callbacks = new AiStreamCallbacks(
+                delta => WpfApplication.Current.Dispatcher.InvokeAsync(() => bubble.AppendDelta(delta)).Task);
+            result = await _client.StreamAsync(options, messages, callbacks, ct).ConfigureAwait(false);
+            RecordUsage(options, result);
+        }
+        catch (OperationCanceledException)
+        {
+            await WpfApplication.Current.Dispatcher.InvokeAsync(bubble.SetCancelled);
+            return;
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+            _log.Warn("ai bubble run failed", ("err", ex.Message), ("title", request.Title));
+        }
+
+        if (failure is not null)
+        {
+            await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
+                bubble.SetFailed(failure.Message));
+            return;
+        }
+
+        if (result is not null)
+        {
+            await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
+                bubble.SetCompleted(
+                    result.Text,
+                    result.Model,
+                    result.Elapsed,
+                    result.PromptTokens,
+                    result.CompletionTokens));
+        }
+    }
+
+    /// <summary>从气泡里点"打开完整对话"时的回调。
+    /// 两条路径：
+    /// - 气泡里已经有了 assistant 结果 → 直接 seed 进对话窗，不再调用 AI（节省 token / 等待时间）
+    /// - 气泡尚未拿到结果（bubbleText 为空，理论上按钮也禁用，但保留兜底）→ 老路径：传 initialPrompt 让对话窗重跑一次</summary>
+    private Action<string> BuildOpenChatCallback(AiPromptRequest request, SelectionContext context)
+        => bubbleText =>
+        {
+            try
+            {
+                var expandedPrompt = PromptTemplate.Expand(
+                    request.Prompt,
+                    PromptVariables.From(context, _settings.AiDefaultLanguage, GetClipboardText()));
+                var hasBubbleResult = !string.IsNullOrWhiteSpace(bubbleText);
+                _ = OpenChatWindowAsync(
+                    request.Title,
+                    context.Text ?? "",
+                    initialPrompt: hasBubbleResult ? null : expandedPrompt,
+                    customSystemPrompt: request.SystemPrompt,
+                    replaceCallback: BuildReplaceCallback(context),
+                    CancellationToken.None,
+                    seededTurn: hasBubbleResult ? (expandedPrompt, bubbleText) : null);
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("open in chat failed", ("err", ex.Message));
+            }
+        };
 
     private Func<string, Task> BuildReplaceCallback(SelectionContext context)
         => async text =>

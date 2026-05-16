@@ -86,6 +86,26 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
         _ = SubmitPromptAsync(prompt, clearInput: false);
     }
 
+    /// <summary>把"已经在气泡里完成的一轮 user→assistant"直接灌进对话，
+    /// 不重新调用 AI。语义：用户在 AiBubbleWindow 看到结果后点"打开完整对话"，
+    /// 完整窗口应该承接气泡的已有内容，让用户在此基础上继续追问，
+    /// 而不是重头跑一遍相同的 prompt（既浪费 token，又会让用户多等一次流式时间）</summary>
+    public void SeedAssistantTurn(string userPrompt, string assistantText)
+    {
+        if (string.IsNullOrWhiteSpace(userPrompt) || string.IsNullOrWhiteSpace(assistantText)) return;
+
+        AddUserMessage(userPrompt);
+        _history.Add(("user", userPrompt));
+        AddAssistantMessage(assistantText);
+        _history.Add(("assistant", assistantText));
+
+        _latestAssistantText = assistantText;
+        CopyButton.IsEnabled = true;
+        ReplaceButton.IsEnabled = _canReplace;
+        MetaText.Text = $"{_modelLabel} · 已迁移自气泡 · 引用 {ReferenceText.Text?.Length ?? 0} 字符";
+        ScrollToEnd();
+    }
+
     public void FocusQuestionBox()
     {
         QuestionBox.Focus();

@@ -21,6 +21,15 @@
         <local:IconKeyToFontFamilyConverter x:Key="IconFontConv" />
         <local:IconKeyToMaterialDesignKindConverter x:Key="MaterialIconConv" />
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
+        <!-- 浮窗按钮悬停 tooltip 的样式：系统默认 Padding 偏大（约 8,4 + 行高 padding），
+             在 12 字号小提示上显得粗壮。这里收紧为 8,2，让 tooltip 紧贴文字，
+             并把字号显式收到 12 与浮窗一致。仅作用于浮窗自身的 ToolTip，不影响设置窗口 -->
+        <Style TargetType="ToolTip">
+            <Setter Property="Padding" Value="8,2,8,2" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="HasDropShadow" Value="True" />
+        </Style>
     </Window.Resources>
 
     <!-- Margin 与 FloatingToolbar.xaml.cs ShadowPaddingDip 必须严格相等，否则
@@ -54,49 +63,62 @@
               SizeChanged="OnContentClipHostSizeChanged"
               UseLayoutRounding="True"
               SnapsToDevicePixels="True">
-            <StackPanel>
-                <ItemsControl x:Name="ItemsHost" ItemsSource="{Binding Items, RelativeSource={RelativeSource AncestorType=Window}}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <WrapPanel Orientation="Horizontal"
-                                       Margin="{DynamicResource ToolbarItemsPanelMargin}" />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Button Style="{StaticResource ToolbarButtonStyle}"
-                                    Command="{Binding Command}"
-                                    ToolTip="{Binding Title}">
-                                <!-- 图标在上、文字在下：与"外观页实时预览"卡片保持完全一致；
-                                     IconOnly 模式时文字折叠，TextOnly 模式时图标折叠，按钮高度自适应 -->
-                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                    <iconPacks:PackIconMaterialDesign Kind="{Binding IconKey, Converter={StaticResource MaterialIconConv}}"
-                                                                      Width="{DynamicResource ToolbarIconFontSize}"
-                                                                      Height="{DynamicResource ToolbarIconFontSize}"
-                                                                      HorizontalAlignment="Center"
-                                                                      Visibility="{Binding DataContext.IsIconVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}">
-                                        <iconPacks:PackIconMaterialDesign.Style>
-                                            <Style TargetType="iconPacks:PackIconMaterialDesign">
-                                                <!-- 图标下方与文字之间留 2px：仅图标模式时清零，避免按钮多出空白边 -->
-                                                <Setter Property="Margin" Value="0,0,0,2" />
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}}" Value="False">
-                                                        <Setter Property="Margin" Value="0" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </iconPacks:PackIconMaterialDesign.Style>
-                                    </iconPacks:PackIconMaterialDesign>
-                                    <TextBlock Text="{Binding Title}"
-                                               HorizontalAlignment="Center"
-                                               Visibility="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
-                                </StackPanel>
-                            </Button>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-            </StackPanel>
+            <!-- 外层 ItemsControl 绑定 Rows（多行布局时 ≥2 个 row，单行布局始终 1 个），
+                 内层 ItemsControl 绑定 row.Items 用 WrapPanel 展示按钮。
+                 这样布局策略（默认 / 智能动作单独一行 / 按分组多行）只影响 Rows 的拆分，
+                 单个按钮 ItemTemplate 一份代码两层共用 -->
+            <ItemsControl x:Name="RowsHost"
+                          ItemsSource="{Binding Rows, RelativeSource={RelativeSource AncestorType=Window}}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Vertical" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <ItemsControl ItemsSource="{Binding Items}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal"
+                                               Margin="{DynamicResource ToolbarItemsPanelMargin}" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Style="{StaticResource ToolbarButtonStyle}"
+                                            Command="{Binding Command}"
+                                            ToolTip="{Binding Title}">
+                                        <!-- 图标在上、文字在下：与"外观页实时预览"卡片保持完全一致；
+                                             IconOnly 模式时文字折叠，TextOnly 模式时图标折叠，按钮高度自适应 -->
+                                        <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                            <iconPacks:PackIconMaterialDesign Kind="{Binding IconKey, Converter={StaticResource MaterialIconConv}}"
+                                                                              Width="{DynamicResource ToolbarIconFontSize}"
+                                                                              Height="{DynamicResource ToolbarIconFontSize}"
+                                                                              HorizontalAlignment="Center"
+                                                                              Visibility="{Binding DataContext.IsIconVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}">
+                                                <iconPacks:PackIconMaterialDesign.Style>
+                                                    <Style TargetType="iconPacks:PackIconMaterialDesign">
+                                                        <!-- 图标下方与文字之间留 2px：仅图标模式时清零，避免按钮多出空白边 -->
+                                                        <Setter Property="Margin" Value="0,0,0,2" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}}" Value="False">
+                                                                <Setter Property="Margin" Value="0" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </iconPacks:PackIconMaterialDesign.Style>
+                                            </iconPacks:PackIconMaterialDesign>
+                                            <TextBlock Text="{Binding Title}"
+                                                       HorizontalAlignment="Center"
+                                                       Visibility="{Binding DataContext.IsTextVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
         </Grid>
 
         <!-- 描边层：仅画 1px 圆角描边，IsHitTestVisible=False 不拦点击；

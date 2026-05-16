@@ -83,14 +83,17 @@ internal partial class ToolbarToastWindow : Window
             {
                 try
                 {
-                    await Task.Delay(durationMs, cts.Token).ConfigureAwait(false);
+                    // 不传 cts.Token 给 Task.Delay：toast 替换频率高，每次新 toast 触发旧 cts.Cancel 都会让
+                    // 正在 await 的 Task.Delay 抛 TaskCanceledException，造成 IDE 输出窗口噪音。
+                    // 改为 delay 自然完成后检查 IsCancellationRequested —— 取消时仅多等剩余 duration，无副作用
+                    await Task.Delay(durationMs).ConfigureAwait(false);
+                    if (cts.IsCancellationRequested) return;
                     await Dispatcher.InvokeAsync(() =>
                     {
                         if (cts.IsCancellationRequested) return;
                         Hide();
                     });
                 }
-                catch (OperationCanceledException) { }
                 catch (Exception ex)
                 {
                     _log.Warn("toast hide schedule failed", ("err", ex.Message));

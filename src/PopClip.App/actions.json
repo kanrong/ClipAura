@@ -10,6 +10,16 @@
     { "id": "calc",              "type": "builtin", "builtIn": "builtin.calculate",         "title": "计算",       "icon": "Calc",             "iconLocked": true, "enabled": true },
     { "id": "wc",                "type": "builtin", "builtIn": "builtin.wordcount",         "title": "字数",       "icon": "Count",            "iconLocked": true, "enabled": false },
     { "id": "clipboard-history", "type": "builtin", "builtIn": "builtin.clipboard.history", "title": "历史",       "icon": "ClipboardHistory", "iconLocked": true, "enabled": false },
-    { "id": "ai-chat",           "type": "builtin", "builtIn": "builtin.ai.chat",           "title": "AI 对话",    "icon": "AiChat",           "iconLocked": true, "enabled": true }
+    { "id": "ai-chat",           "type": "builtin", "builtIn": "builtin.ai.chat",           "title": "AI 对话",    "icon": "AiChat",           "iconLocked": true, "enabled": true },
+    { "id": "ai-explain",        "type": "builtin", "builtIn": "builtin.ai.explain",        "title": "解释",       "icon": "AiExplain",        "iconLocked": true, "enabled": true },
+    { "id": "json-format",       "type": "builtin", "builtIn": "builtin.text.json.format",  "title": "格式化 JSON","icon": "Json",             "iconLocked": true, "enabled": true },
+    { "id": "json-to-yaml",      "type": "builtin", "builtIn": "builtin.text.json.toyaml",  "title": "JSON → YAML","icon": "JsonToYaml",       "iconLocked": true, "enabled": true },
+    { "id": "color",             "type": "builtin", "builtIn": "builtin.text.color",        "title": "颜色",       "icon": "Color",            "iconLocked": true, "enabled": true },
+    { "id": "timestamp",         "type": "builtin", "builtIn": "builtin.text.timestamp",    "title": "时间戳",     "icon": "Time",             "iconLocked": true, "enabled": true },
+    { "id": "path-open",         "type": "builtin", "builtIn": "builtin.text.path",         "title": "打开路径",   "icon": "FolderOpen",       "iconLocked": true, "enabled": true },
+    { "id": "mdtable-to-csv",    "type": "builtin", "builtIn": "builtin.text.mdtable.tocsv","title": "MD 表→CSV",  "icon": "MdToCsv",          "iconLocked": true, "enabled": true },
+    { "id": "csv-to-mdtable",    "type": "builtin", "builtIn": "builtin.text.csv.tomd",     "title": "CSV→MD 表", "icon": "Table",            "iconLocked": true, "enabled": true },
+    { "id": "tsv-to-csv",        "type": "builtin", "builtIn": "builtin.text.tsv.tocsv",    "title": "TSV→CSV",   "icon": "TsvToCsv",         "iconLocked": true, "enabled": true },
+    { "id": "tsv-to-mdtable",    "type": "builtin", "builtIn": "builtin.text.tsv.tomd",     "title": "TSV→MD 表", "icon": "TsvToMd",          "iconLocked": true, "enabled": true }
   ]
 }

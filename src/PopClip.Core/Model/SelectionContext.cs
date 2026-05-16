@@ -14,6 +14,9 @@ public enum AcquisitionSource
     UiaTextPattern,
     UiaValuePattern,
     ClipboardFallback,
+    /// <summary>区域 OCR 截图识别。来源是位图无法回写到原始控件，所以 IsLikelyEditable 永远 false，
+    /// 翻译/AI 等"读"动作仍照常可用，"替换/插入"动作由 IActionHost 自动跳过</summary>
+    Ocr,
     Unknown,
 }
 

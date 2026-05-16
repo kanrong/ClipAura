@@ -40,6 +40,8 @@ internal sealed class AppHost : IDisposable
     private SqliteUsageRecorder? _usage;
     private ClipboardHistoryService? _clipHistory;
     private ClipboardHistoryLauncher? _clipHistoryLauncher;
+    private OcrService? _ocr;
+    private OcrCaptureCoordinator? _ocrCoordinator;
 
     public bool TryAcquireSingleInstance()
     {
@@ -77,8 +79,21 @@ internal sealed class AppHost : IDisposable
         var pasteService = new PasteService(_log, clipboardAccess, clipboardPaste);
         _catalog = new ActionCatalog(_log, pasteService);
         var cfg = _store.LoadActions();
-        if (cfg is not null) _catalog.Load(cfg);
-        else _catalog.LoadDefaults();
+        if (cfg is not null)
+        {
+            // 启动期做一次幂等 seed：把新版本新增的内置动作（智能识别 / AI 解释）追加到老用户 actions.json，
+            // 默认 enabled=false 不打扰；SeededBuiltInIds 保证用户删除后下次不会复活
+            if (_store.SeedMissingBuiltInActions(cfg, _settings))
+            {
+                _store.SaveActions(cfg);
+                _store.SaveSettings(_settings);
+            }
+            _catalog.Load(cfg);
+        }
+        else
+        {
+            _catalog.LoadDefaults();
+        }
 
         var urlLauncher = new UrlLauncher(_log);
         var clipboardWriter = new ClipboardWriter(_log, clipboardAccess);
@@ -111,9 +126,12 @@ internal sealed class AppHost : IDisposable
             historyStore: _historyStore,
             usage: _usage);
         _clipHistoryLauncher = new ClipboardHistoryLauncher(_clipHistory, clipboardWriter, _replacer, clipboardPaste);
+        var resultDialog = new SmartResultDialogPresenter();
+        var bubblePresenter = new FloatingToolbarBubblePresenter(_log, _toolbar);
         _actionHost = new ActionHost(
             _log, _replacer, urlLauncher, clipboardWriter, _toolbar,
-            settingsProvider, aiTextService, pasteService, _clipHistoryLauncher);
+            settingsProvider, aiTextService, pasteService, _clipHistoryLauncher,
+            resultDialog: resultDialog, bubble: bubblePresenter);
 
         _gate = new SuppressionGate(_log, _settings);
 
@@ -123,10 +141,26 @@ internal sealed class AppHost : IDisposable
 
         ApplyRuntimeSettings(reloadActions: false);
 
-        _watcher.GlobalKeyHandler = _toolbar.TryHandleGlobalKey;
+        _watcher.GlobalKeyHandler = key =>
+        {
+            // 优先级：浮窗 → AI 气泡。浮窗能处理（如 ESC 关浮窗、数字键触发动作）时短路；
+            // 浮窗未处理且气泡可见时，ESC 关闭气泡（VK_ESCAPE = 0x1B）
+            if (_toolbar!.TryHandleGlobalKey(key)) return true;
+            if (key.IsDown && key.VirtualKey == 0x1B) return AiBubbleWindow.TryHandleEscape();
+            return false;
+        };
+        // OCR 引擎：构造期不抛异常，未安装语言包时 IsAvailable=false 并在 trigger 时给用户清晰提示。
+        // OcrCaptureCoordinator 需要 ClipboardWriter 和 FloatingToolbar：
+        // 识别成功后会把文本写剪贴板兜底、再用 InlineToast 5s 给用户清晰反馈
+        _ocr = new OcrService(_log);
+        _ocrCoordinator = new OcrCaptureCoordinator(_log, _ocr, _session, clipboardWriter, _toolbar, bubblePresenter);
+        // 暴露给"剪贴板启动器"用作 OCR 按钮的点击回调
+        _session.OcrLauncher = () => _ocrCoordinator?.Trigger();
+
         _hotkeys = new HotKeyManager(_log);
         _hotkeys.PauseRequested += TogglePauseFromHotKey;
         _hotkeys.ToolbarRequested += () => _session?.ShowLauncherAtCursor();
+        _hotkeys.OcrRequested += () => _ocrCoordinator?.Trigger();
         _hotkeys.Apply(_settings);
 
         // toolbar 构造完成后才能注册依赖它的事件

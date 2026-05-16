@@ -11,6 +11,19 @@ public enum ToolbarDisplayMode
     TextOnly,
 }
 
+/// <summary>浮窗按钮的分行布局策略。
+/// 多行模式只在"实际有 ≥2 组可见动作"时才会真的换行：
+/// 只有一类动作可见时退化为 Single，避免把"翻译"或"格式化 JSON"单独丢一个孤行</summary>
+public enum ToolbarLayoutMode
+{
+    /// <summary>单行紧凑，完全按用户在动作页配置的顺序排（默认）</summary>
+    Single,
+    /// <summary>智能动作单独成行：在 Single 基础上把 Smart 一组挑到第二行</summary>
+    SmartOnSeparateRow,
+    /// <summary>按 基础 / 智能 / AI 三组各占一行</summary>
+    GroupRows,
+}
+
 /// <summary>浮窗颜色主题。
 /// Auto/Light/Dark 为基础三档，跟随系统或强制明暗；
 /// 之后的枚举值为彩色预设，仅作用于浮窗，不读系统明暗，避免预设被反向覆盖。
@@ -123,6 +136,11 @@ public sealed class AppSettings
     public bool EnableToolbarTabNavigation { get; set; } = true;
     public bool EnableToolbarNumberShortcuts { get; set; } = true;
 
+    /// <summary>浮窗按钮的分行策略。Single=完全按用户在动作页配置的顺序单行展示；
+    /// SmartOnSeparateRow=智能动作单独成行；GroupRows=按 基础/智能/AI 三组各占一行。
+    /// 后两种只在"实际有 ≥2 组可见动作"时才换行，单一类别仍走紧凑单行</summary>
+    public ToolbarLayoutMode ToolbarLayoutMode { get; set; } = ToolbarLayoutMode.Single;
+
     public SelectionPopupMode PopupMode { get; set; } = SelectionPopupMode.Immediate;
     public int PopupDelayMs { get; set; } = 200;
     public int HoverDelayMs { get; set; } = 300;
@@ -136,6 +154,10 @@ public sealed class AppSettings
 
     public string PauseHotKey { get; set; } = "Ctrl+Alt+P";
     public string ToolbarHotKey { get; set; } = "Ctrl+Alt+Space";
+
+    /// <summary>区域 OCR 截选热键。按下后弹出全屏蒙层让用户拉框，
+    /// 截图区域被 Windows.Media.Ocr 识别后走与正常选区相同的浮窗 + 动作链路</summary>
+    public string OcrHotKey { get; set; } = "Ctrl+Alt+Shift+O";
 
     // ================== 浮窗自动消失触发条件 ==================
     // 鼠标离开浮窗一段时间后自动关闭
@@ -189,6 +211,23 @@ public sealed class AppSettings
     public string AiDeepSeekApiKeyProtected { get; set; } = "";
     public string AiOpenAiApiKeyProtected { get; set; } = "";
     public string AiCustomApiKeyProtected { get; set; } = "";
+
+    /// <summary>启用 AI 后，浮窗"翻译"按钮是否走内联 AI 气泡。
+    /// 关闭则始终打开 Bing 网页翻译，保留旧行为兜底；
+    /// AI 未启用或未配置 API Key 时本开关无效，永远走网页翻译</summary>
+    public bool TranslateInlineWhenAiEnabled { get; set; } = true;
+
+    /// <summary>是否启用浮窗"AI 解释"按钮。
+    /// 仅在 AI 已启用且配置了 API Key 时按钮才会出现；
+    /// 该开关存在的意义是让习惯精简浮窗的用户能彻底关掉这个动作</summary>
+    public bool ExplainActionEnabled { get; set; } = true;
+
+    /// <summary>已经被"内置动作 seed 机制"补齐过的 builtin id 集合。
+    /// 用途：让新版本新增的内置动作（如智能动作、AI 解释）能在老用户的 actions.json 中
+    /// 以 enabled=false 形式自动出现一次。
+    /// 一旦某 id 进入此集合，无论 actions.json 中是否被用户删除，都视为"用户已知晓"，
+    /// 下次启动不会再次补齐，保证用户的删除行为是终态</summary>
+    public HashSet<string> SeededBuiltInIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>用户自建 Prompt 模板。内置模板不存这里，按需用 PromptTemplateLibrary.Builtin 合并</summary>
     public List<PromptTemplateDefinition> PromptTemplates { get; set; } = new();

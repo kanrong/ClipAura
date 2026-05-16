@@ -10,12 +10,14 @@ internal sealed class HotKeyManager : IDisposable
 {
     private const int PauseId = 101;
     private const int ToolbarId = 102;
+    private const int OcrId = 103;
 
     private readonly ILog _log;
     private bool _listening;
 
     public event Action? PauseRequested;
     public event Action? ToolbarRequested;
+    public event Action? OcrRequested;
 
     public HotKeyManager(ILog log) => _log = log;
 
@@ -25,6 +27,7 @@ internal sealed class HotKeyManager : IDisposable
         UnregisterAll();
         Register(PauseId, settings.PauseHotKey);
         Register(ToolbarId, settings.ToolbarHotKey);
+        Register(OcrId, settings.OcrHotKey);
     }
 
     private void EnsureListening()
@@ -63,6 +66,11 @@ internal sealed class HotKeyManager : IDisposable
         else if (id == ToolbarId)
         {
             ToolbarRequested?.Invoke();
+            handled = true;
+        }
+        else if (id == OcrId)
+        {
+            OcrRequested?.Invoke();
             handled = true;
         }
     }
@@ -132,6 +140,7 @@ internal sealed class HotKeyManager : IDisposable
     {
         NativeMethods.UnregisterHotKey(0, PauseId);
         NativeMethods.UnregisterHotKey(0, ToolbarId);
+        NativeMethods.UnregisterHotKey(0, OcrId);
     }
 
     public void Dispose()

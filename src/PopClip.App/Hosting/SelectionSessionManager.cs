@@ -37,6 +37,10 @@ internal sealed class SelectionSessionManager : IDisposable
     private readonly Channel<SelectionCandidate> _candidateChannel;
     private CancellationTokenSource? _cts;
 
+    /// <summary>外部注入的"OCR 截选"触发器；若为 null 则剪贴板启动器中不显示该按钮。
+    /// 由 AppHost 在初始化时挂到 OcrCaptureCoordinator.Trigger</summary>
+    public Action? OcrLauncher { get; set; }
+
     public SelectionSessionManager(
         ILog log,
         InputWatcher watcher,
@@ -93,12 +97,36 @@ internal sealed class SelectionSessionManager : IDisposable
                         _toolbar.DismissExternal("foreground-changed");
                     }
                 }
-                else if (ev is MouseDownEvent md && _toolbar.IsShown)
+                else if (ev is MouseDownEvent md)
                 {
-                    // 浮窗显示期间用户在浮窗外按下鼠标即关闭。命中浮窗内部留给 WPF 路由
-                    if (_settings.DismissOnClickOutside && !_toolbar.ContainsScreenPoint(md.X, md.Y))
+                    // 单个事件的处理异常不要让 InputPump 整体退出，
+                    // 否则后续 ForegroundChanged / 其它 MouseDown 都会丢失，全局鼠标钩子相当于失效
+                    try
                     {
-                        _toolbar.DismissExternal("click-outside");
+                        var isInToolbar = _toolbar.IsShown && _toolbar.ContainsScreenPoint(md.X, md.Y);
+                        var isInBubble = AiBubbleWindow.ContainsScreenPoint(md.X, md.Y);
+                        if (_toolbar.IsShown && _settings.DismissOnClickOutside && !isInToolbar && !isInBubble)
+                        {
+                            // 浮窗显示时，点在浮窗外又不在气泡里才关浮窗 —— 气泡是浮窗触发的次级 UI，
+                            // 点击它内部不应让浮窗连带消失，避免用户操作气泡时丢失上下文
+                            _toolbar.DismissExternal("click-outside");
+                        }
+                        if (_settings.DismissOnClickOutside
+                            && AiBubbleWindow.Current is not null
+                            && !isInBubble
+                            && !AiBubbleWindow.IsCurrentPinned)
+                        {
+                            // 点击在气泡外（包括点击在浮窗按钮触发新动作）时关掉旧气泡，避免叠加多张。
+                            // Pin 态下用户已经明确表示"不要被自动关掉"，跳过这条规则
+                            AiBubbleWindow.DismissCurrent();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // Warn 级别只记类型 + 消息（生产环境足够定位），
+                        // 完整堆栈走 Debug，避免 Info 级日志被高频鼠标事件污染
+                        _log.Warn("mouse-down click-outside check failed", ("err", ex.Message));
+                        _log.Debug("mouse-down click-outside detail", ("ex", ex.ToString()));
                     }
                 }
                 if (IsOwnForegroundInput(ev))
@@ -214,6 +242,10 @@ internal sealed class SelectionSessionManager : IDisposable
 
         var visible = _catalog.GetVisible(outcome.Context)
             .Where(v => !IsAiAction(v.Action) || _actionHost.Ai.CanRun)
+            // ExplainActionEnabled 是一个"独立可关"的细分开关：即使 AI 已启用，
+            // 仍允许用户隐藏"AI 解释"按钮以保持浮窗精简，不影响其它 AI 动作
+            .Where(v => !string.Equals(v.Action.Id, BuiltInActionIds.AiExplain, StringComparison.OrdinalIgnoreCase)
+                        || _settings.ExplainActionEnabled)
             .ToList();
         _log.Info("visible actions", ("count", visible.Count));
         if (visible.Count == 0) return;
@@ -225,17 +257,36 @@ internal sealed class SelectionSessionManager : IDisposable
                 ? _settings.SearchEngineName
                 : v.Descriptor.Title.Length > 0 ? v.Descriptor.Title : v.Action.Title;
             var icon = !string.IsNullOrEmpty(v.Descriptor.Icon) ? v.Descriptor.Icon : v.Action.IconKey;
-            return new ToolbarItem(title, icon, new DelegateCommand(() => RunAction(v.Action, outcome.Context, title)));
+            var group = ResolveToolbarGroup(v.Descriptor);
+            return new ToolbarItem(title, icon, new DelegateCommand(() => RunAction(v.Action, outcome.Context, title, v.Descriptor)), group);
         }).ToList();
 
-        // UI 线程上更新 ItemsControl + 显示窗口
         await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
         {
             _toolbar.ApplyAppearance(_settings);
-            _toolbar.Items.Clear();
-            foreach (var it in items) _toolbar.Items.Add(it);
+            _toolbar.ApplyItems(items, _settings.ToolbarLayoutMode);
             _toolbar.ShowAt(mouseRect, outcome.Context.Foreground);
         });
+    }
+
+    /// <summary>ActionDescriptor → ToolbarItemGroup 的统一转换。
+    /// 在浮窗布局模式下决定按钮归到哪一行（基础 / 智能 / AI）。
+    /// AI 模板（type=ai）一律归 AI 组；内置动作按 BuiltInActionSeeds 反查；其它（type=url-template 等）归 Basic</summary>
+    private static ToolbarItemGroup ResolveToolbarGroup(ActionDescriptor descriptor)
+    {
+        if (string.Equals(descriptor.Type, "ai", StringComparison.OrdinalIgnoreCase))
+            return ToolbarItemGroup.Ai;
+        if (string.Equals(descriptor.Type, "builtin", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrEmpty(descriptor.BuiltIn))
+        {
+            return BuiltInActionSeeds.GroupOf(descriptor.BuiltIn) switch
+            {
+                BuiltInActionGroup.Smart => ToolbarItemGroup.Smart,
+                BuiltInActionGroup.Ai => ToolbarItemGroup.Ai,
+                _ => ToolbarItemGroup.Basic,
+            };
+        }
+        return ToolbarItemGroup.Basic;
     }
 
     /// <summary>修饰键 + Click 触发的简化工具条：暴露粘贴与剪贴板历史入口</summary>
@@ -274,6 +325,17 @@ internal sealed class SelectionSessionManager : IDisposable
             })));
         }
 
+        if (OcrLauncher is not null)
+        {
+            // OCR 入口仅在剪贴板启动器里出现（不进正常选区流程），让用户从一个统一的"修饰键+点击"汇集点访问
+            items.Add(new ToolbarItem("OCR 截选", "Ocr", new DelegateCommand(() =>
+            {
+                _toolbar.DismissExternal("ocr-invoked");
+                try { OcrLauncher?.Invoke(); }
+                catch (Exception ex) { _log.Warn("ocr launcher failed", ("err", ex.Message)); }
+            })));
+        }
+
         if (items.Count == 0)
         {
             _log.Info("modifier-click ignored: no clipboard actions available");
@@ -283,8 +345,7 @@ internal sealed class SelectionSessionManager : IDisposable
         await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
         {
             _toolbar.ApplyAppearance(_settings);
-            _toolbar.Items.Clear();
-            foreach (var item in items) _toolbar.Items.Add(item);
+            _toolbar.ApplyItems(items, _settings.ToolbarLayoutMode);
             _toolbar.ShowAt(mouseRect, foreground);
         });
     }
@@ -326,6 +387,74 @@ internal sealed class SelectionSessionManager : IDisposable
         _ = ShowClipboardLauncherAsync(foreground, SelectionRect.FromPoint(pt.X, pt.Y));
     }
 
+    /// <summary>外部采集到文本（目前仅 OCR）后调用，跳过 UIA / 剪贴板兜底，
+    /// 直接复用浮窗 + 动作链路。anchorRect 应给出截图框的物理像素矩形，
+    /// 浮窗会以它的左下作为基准定位（与正常选区一致）。
+    ///
+    /// IsLikelyEditable 永远 false：OCR 来源无法回写源应用，"替换/插入"等动作由 IActionHost 的可见性逻辑自动屏蔽</summary>
+    public void ShowToolbarForExternalText(string text, SelectionRect anchorRect, AcquisitionSource source)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            WpfApplication.Current.Dispatcher.Invoke(() =>
+                _toolbar.ShowInlineToast("OCR 未识别到文本", isError: true));
+            return;
+        }
+        if (_pause.IsPaused)
+        {
+            _log.Info("external text dropped: paused");
+            return;
+        }
+
+        var foreground = ForegroundWatcher.Snapshot();
+        if (_gate.ShouldSuppress(foreground, out var reason))
+        {
+            _log.Info("external text suppressed", ("reason", reason), ("source", source));
+            return;
+        }
+
+        var ctx = new SelectionContext(
+            text.Trim(),
+            source,
+            foreground,
+            anchorRect,
+            IsLikelyEditable: false,
+            DateTime.UtcNow);
+
+        // OCR 路径没有 UIA element 可供 TextPattern 回写，主动清空，避免上一次的 element 被错误复用
+        _replacer.SetCurrentElement(null);
+
+        var visible = _catalog.GetVisible(ctx)
+            .Where(v => !IsAiAction(v.Action) || _actionHost.Ai.CanRun)
+            .Where(v => !string.Equals(v.Action.Id, BuiltInActionIds.AiExplain, StringComparison.OrdinalIgnoreCase)
+                        || _settings.ExplainActionEnabled)
+            .ToList();
+        _log.Info("external text visible actions", ("count", visible.Count), ("source", source));
+        if (visible.Count == 0)
+        {
+            WpfApplication.Current.Dispatcher.Invoke(() =>
+                _toolbar.ShowInlineToast("没有可用动作", isError: true));
+            return;
+        }
+
+        var items = visible.Select(v =>
+        {
+            var title = v.Action.Id == BuiltInActionIds.Search
+                ? _settings.SearchEngineName
+                : v.Descriptor.Title.Length > 0 ? v.Descriptor.Title : v.Action.Title;
+            var icon = !string.IsNullOrEmpty(v.Descriptor.Icon) ? v.Descriptor.Icon : v.Action.IconKey;
+            var group = ResolveToolbarGroup(v.Descriptor);
+            return new ToolbarItem(title, icon, new DelegateCommand(() => RunAction(v.Action, ctx, title, v.Descriptor)), group);
+        }).ToList();
+
+        WpfApplication.Current.Dispatcher.Invoke(() =>
+        {
+            _toolbar.ApplyAppearance(_settings);
+            _toolbar.ApplyItems(items, _settings.ToolbarLayoutMode);
+            _toolbar.ShowAt(anchorRect, foreground);
+        });
+    }
+
     private SelectionRect ResolveAnchorRect(SelectionCandidate candidate)
     {
         if (candidate.X >= 0 && candidate.Y >= 0)
@@ -364,29 +493,31 @@ internal sealed class SelectionSessionManager : IDisposable
         };
     }
 
-    private void RunAction(IAction action, SelectionContext context, string title)
+    private void RunAction(IAction action, SelectionContext context, string title, ActionDescriptor? descriptor = null)
     {
         var toastBefore = _toolbar.LastToastAtUtc;
         var isAiAction = IsAiAction(action);
+        // 注入 descriptor 上下文，让智能动作可读 host.Descriptor.OutputMode 决定输出落点
+        var scopedHost = new ScopedActionHost(_actionHost, descriptor);
         _ = Task.Run(async () =>
         {
             try
             {
-                if (isAiAction)
-                {
-                    await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
-                    {
-                        _toolbar.ShowInlineToast($"{title} 处理中...", durationMs: 6000);
-                    });
-                }
+                // AI 动作的"处理中"提示交给 AI 服务自身负责：
+                // - bubble 模式（翻译/解释）在创建 AiBubbleWindow 时显示"请求中…"状态
+                // - 非 bubble 模式（replace/clipboard/inlineToast）由 AiTextService.RunInlineAsync
+                //   主动发 Notify("处理中...")
+                // 这里不再统一弹长 6 秒 toast，避免在气泡正中央反复覆盖结果视线
                 var timeoutSeconds = isAiAction
                     ? Math.Clamp(_settings.AiTimeoutSeconds + 15, 20, 240)
                     : 15;
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
-                await action.RunAsync(context, _actionHost, cts.Token).ConfigureAwait(false);
+                await action.RunAsync(context, scopedHost, cts.Token).ConfigureAwait(false);
                 await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
                 {
-                    if (!isAiAction && _toolbar.LastToastAtUtc <= toastBefore)
+                    // toast 判定：动作执行后用户已经能"看见"结果的（气泡 / 对话窗 / 原地替换 / 自身已 Notify）
+                    // 一律不补 toast，避免遮挡结果或与气泡叠加；只有"仅复制"这种纯后台动作才需要补 ✓ 提示
+                    if (ShouldShowCompletionToast(action, descriptor) && _toolbar.LastToastAtUtc <= toastBefore)
                     {
                         var text = action.Id == BuiltInActionIds.Copy ? "已复制 ✓" : $"{title} ✓";
                         _toolbar.ShowInlineToast(text);
@@ -409,9 +540,61 @@ internal sealed class SelectionSessionManager : IDisposable
         });
     }
 
-    private static bool IsAiAction(IAction action)
-        => action is AiPromptAction
-           || action.Id.StartsWith("builtin.ai.", StringComparison.OrdinalIgnoreCase);
+    /// <summary>判定一个动作是否走 AI 路径。
+    /// 仅影响超时窗口长度（AI 调用慢，给 AiTimeoutSeconds+15 的余量）。
+    /// toast 是否补、bubble 是否处理 都不再依赖此判定 —— 那些由 ShouldShowCompletionToast 单独决定</summary>
+    private bool IsAiAction(IAction action)
+    {
+        if (action is AiPromptAction) return true;
+        if (action.Id.StartsWith("builtin.ai.", StringComparison.OrdinalIgnoreCase)) return true;
+        if (string.Equals(action.Id, BuiltInActionIds.Translate, StringComparison.OrdinalIgnoreCase)
+            && _actionHost.Ai.CanRun
+            && _settings.TranslateInlineWhenAiEnabled)
+        {
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>决定动作完成后是否补一个轻量"✓" toast。
+    /// 规则：只有当结果用户感知不到（纯剪贴板 / 静默写入）时才补 toast；
+    /// 一旦动作产出可见 UI（气泡 / 对话窗 / 原地替换 / inline toast）就保持安静，避免遮挡结果。
+    ///
+    /// 判定依据是 descriptor.OutputMode 字符串：
+    /// - 内置智能动作：BuiltInOutputMode 的 Bubble / CopyAndBubble / Dialog → 安静
+    /// - AI 动作：chat（独立对话窗）/ replace（原地）/ inlineToast（自身已 Notify） → 安静
+    /// - 其余（Copy / clipboard / 缺省）→ 补 toast，告诉用户"动作已执行"
+    ///
+    /// 特例：内置 Translate 在 AI 启用且开启内联翻译时会走 AI 气泡，
+    /// 但它的 descriptor.OutputMode 不会被填成 AI 那套（descriptor 是 Translate 自己的），
+    /// 所以单独按动作 id 判定一次</summary>
+    private bool ShouldShowCompletionToast(IAction action, ActionDescriptor? descriptor)
+    {
+        if (IsSilentOutputMode(descriptor?.OutputMode))
+        {
+            return false;
+        }
+        if (string.Equals(action.Id, BuiltInActionIds.Translate, StringComparison.OrdinalIgnoreCase)
+            && _actionHost.Ai.CanRun
+            && _settings.TranslateInlineWhenAiEnabled)
+        {
+            return false;
+        }
+        return true;
+    }
+
+    private static bool IsSilentOutputMode(string? mode)
+    {
+        if (string.IsNullOrWhiteSpace(mode)) return false;
+        var trimmed = mode.Trim();
+        return trimmed.Equals("Bubble", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("CopyAndBubble", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("Dialog", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("chat", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("replace", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("inlineToast", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("ai-bubble", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static string BuildLogHead(string text)
     {

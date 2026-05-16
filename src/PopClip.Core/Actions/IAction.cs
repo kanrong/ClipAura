@@ -31,6 +31,32 @@ public interface IActionHost
     /// <summary>剪贴板历史唤起器。可能为 null（如轻量化测试场景）</summary>
     IClipboardHistoryLauncher? ClipboardHistory { get; }
     Logging.ILog Log { get; }
+    /// <summary>当前正在执行的动作对应的 ActionDescriptor，可能为 null。
+    /// 智能动作通过 Descriptor.OutputMode 决定输出落点（仅复制 / 仅气泡 / 复制+气泡 / 独立对话窗口）。
+    /// 单例 ActionHost 自身永远返回 null，运行时由 ScopedActionHost 通过包装注入</summary>
+    ActionDescriptor? Descriptor { get; }
+    /// <summary>把"独立结果窗口"模式的请求传给宿主：宿主用 AiResultWindow 同款窗口展示结果文本。
+    /// 仅 OutputMode=Dialog 时调用；非 GUI 场景（测试 / 命令行）可为 null</summary>
+    IResultDialogPresenter? ResultDialog { get; }
+    /// <summary>展示 AiBubbleWindow 同款气泡（流式 / 静态）；
+    /// 智能动作用 ShowStaticAsync 把已就绪的整段文本直接送进气泡呈现</summary>
+    IInlineBubblePresenter? Bubble { get; }
+}
+
+/// <summary>"独立结果窗口"展示能力。
+/// 智能动作 OutputMode=Dialog 时，宿主用 AiResultWindow 同款窗口承载结果，
+/// 支持滚动多行、复制、关闭。窗口标题来自动作 Title，正文是动作产出的纯文本</summary>
+public interface IResultDialogPresenter
+{
+    void Show(string title, string referenceText, string resultText);
+}
+
+/// <summary>浮窗下方的"轻量气泡"展示能力。
+/// 智能动作 OutputMode=Bubble / CopyAndBubble 时调用 ShowStatic 把整段文本一次性投入气泡，
+/// 不走流式；气泡会负责锚点定位、滚动条、复制按钮等通用交互</summary>
+public interface IInlineBubblePresenter
+{
+    void ShowStatic(string title, string text, bool canReplace, System.Func<string, System.Threading.Tasks.Task>? onReplace = null);
 }
 
 /// <summary>抽象"代用户对目标窗口模拟剪贴板键盘动作"的能力（Ctrl+C / Ctrl+V）。
@@ -80,6 +106,14 @@ public interface ISettingsProvider
     string AiDefaultLanguage { get; }
     string AiThinkingMode { get; }
     bool HasAiApiKey { get; }
+
+    /// <summary>启用 AI 时是否把"翻译"动作改走内联气泡而非打开网页翻译。
+    /// 由 TranslateAction 在运行时读取，决定走内联或网页两条路径之一</summary>
+    bool TranslateInlineWhenAiEnabled { get; }
+
+    /// <summary>是否启用浮窗"AI 解释"按钮。
+    /// ExplainAction 把它纳入 CanRun 判断，关闭后该按钮在浮窗中不出现</summary>
+    bool ExplainActionEnabled { get; }
 }
 
 /// <summary>AI 动作的输出落点。
@@ -96,12 +130,16 @@ public enum AiOutputMode
 public sealed record AiConversationRequest(string Title, string ReferenceText);
 
 /// <summary>由 actions.json 中的 type:ai 动作触发的运行时请求。
-/// Prompt 已经包含变量占位符的原模板，由 IAiTextService 在调用前展开</summary>
+/// Prompt 已经包含变量占位符的原模板，由 IAiTextService 在调用前展开。
+/// UseInteractiveBubble 仅对 OutputMode=InlineToast 生效：
+/// true 时改用流式可交互气泡窗呈现（带插入/替换/复制/打开完整对话按钮），
+/// false 时维持旧的"一次性 toast"行为（结果转 preview 投到现有 toast 上）</summary>
 public sealed record AiPromptRequest(
     string Title,
     string Prompt,
     string? SystemPrompt,
-    AiOutputMode OutputMode);
+    AiOutputMode OutputMode,
+    bool UseInteractiveBubble = false);
 
 public interface IAiTextService
 {

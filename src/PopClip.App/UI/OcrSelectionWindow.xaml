@@ -1,0 +1,50 @@
+<Window x:Class="PopClip.App.UI.OcrSelectionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:ClassModifier="internal"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ShowActivated="True"
+        ResizeMode="NoResize"
+        UseLayoutRounding="True"
+        Cursor="Cross">
+    <Canvas x:Name="RootCanvas" Background="Transparent">
+        <!-- 选区四周的半透明黑色蒙层（上/下/左/右四块组合），让选区中心保持完全透明 -->
+        <Rectangle x:Name="MaskTop"    Fill="#99000000" IsHitTestVisible="False" />
+        <Rectangle x:Name="MaskBottom" Fill="#99000000" IsHitTestVisible="False" />
+        <Rectangle x:Name="MaskLeft"   Fill="#99000000" IsHitTestVisible="False" />
+        <Rectangle x:Name="MaskRight"  Fill="#99000000" IsHitTestVisible="False" />
+
+        <!-- 双层描边：外层白 + 内层黑，叠加后形成"白-黑-白"三段对比，
+             在任意背景（深色/浅色/彩图）上都能稳定区分选区边界。
+             选区内部完全透明，确保用户看到的是屏幕原始内容，不被色调干扰 -->
+        <Rectangle x:Name="SelectionRectOuter"
+                   Stroke="#FFFFFFFF"
+                   StrokeThickness="2"
+                   Fill="Transparent"
+                   IsHitTestVisible="False" />
+        <Rectangle x:Name="SelectionRect"
+                   Stroke="#FF000000"
+                   StrokeThickness="1"
+                   Fill="Transparent"
+                   IsHitTestVisible="False" />
+
+        <!-- 实时提示：尺寸 + 操作引导。深色底配亮文本 + 外侧白描边，
+             保证在浅色背景上也能清楚识别 -->
+        <Border x:Name="HintBorder"
+                Background="#E6101820"
+                BorderBrush="#FFFFFFFF"
+                BorderThickness="1"
+                CornerRadius="4"
+                Padding="8,4"
+                IsHitTestVisible="False">
+            <TextBlock x:Name="HintText"
+                       Foreground="#F8FAFC"
+                       FontSize="12"
+                       Text="拖动鼠标选择 OCR 区域 · ESC 取消" />
+        </Border>
+    </Canvas>
+</Window>

@@ -30,8 +30,23 @@ public static class BuiltInActionIds
     public const string WordCount = "builtin.wordcount";
     /// <summary>仅保留 AI 对话入口；其它 AI 文本操作统一改走 actions.json 中 type:ai 的 prompt 模板</summary>
     public const string AiChat = "builtin.ai.chat";
+    /// <summary>"AI 解释"内置动作。仅在 AI 已启用并配置 API Key 时显示，
+    /// 结果走流式气泡呈现，让用户在不离开当前应用的情况下读懂选区文本</summary>
+    public const string AiExplain = "builtin.ai.explain";
     /// <summary>从浮动工具栏唤起"剪贴板历史"面板。运行时由 IClipboardHistoryLauncher 提供具体实现</summary>
     public const string ClipboardHistory = "builtin.clipboard.history";
+
+    // 文本类型智能动作链：CanRun 自行嗅探内容类型；默认在 actions.json 中 enabled=false，
+    // 老用户浮窗不被突然撑大，新用户按需在设置启用
+    public const string JsonFormat = "builtin.text.json.format";
+    public const string JsonToYaml = "builtin.text.json.toyaml";
+    public const string Color = "builtin.text.color";
+    public const string Timestamp = "builtin.text.timestamp";
+    public const string PathOpen = "builtin.text.path";
+    public const string MarkdownTableToCsv = "builtin.text.mdtable.tocsv";
+    public const string CsvToMarkdown = "builtin.text.csv.tomd";
+    public const string TsvToCsv = "builtin.text.tsv.tocsv";
+    public const string TsvToMarkdown = "builtin.text.tsv.tomd";
 }
 
 internal abstract class BuiltInAction : IAction
@@ -120,15 +135,60 @@ internal sealed class SearchAction : BuiltInAction
 }
 
 
+/// <summary>"翻译"内置动作。
+/// 双路径设计：
+/// - AI 已启用、配置了 API Key 且用户没在设置中关掉 TranslateInlineWhenAiEnabled：
+///   走内联 AI 气泡，把译文流式渲染到浮窗下方，用户可"插入/替换/复制/打开完整对话"。
+/// - 其它任何情况（包括未配 AI、用户主动关掉内联）：维持旧行为，打开 Bing 网页翻译。
+/// 这样老用户的"点翻译开网页"工作流不会被破坏，配了 AI 的用户自动升级体验</summary>
 internal sealed class TranslateAction : BuiltInAction
 {
     public override string Id => BuiltInActionIds.Translate;
     public override string Title => "翻译";
     public override string IconKey => "Translate";
+
     public override Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
     {
+        var useInline = host.Ai.CanRun && host.Settings.TranslateInlineWhenAiEnabled;
+        if (useInline)
+        {
+            var request = new AiPromptRequest(
+                Title: "翻译",
+                Prompt: "把下面的文本翻译为{language}。只输出译文，不要任何解释或附加说明：\n\n{text}",
+                SystemPrompt: null,
+                OutputMode: AiOutputMode.InlineToast,
+                UseInteractiveBubble: true);
+            return host.Ai.RunPromptAsync(request, context, ct);
+        }
+
         host.UrlLauncher.Open("https://www.bing.com/translator?text=" + WebUtility.UrlEncode(context.Text));
         return Task.CompletedTask;
+    }
+}
+
+/// <summary>"AI 解释"内置动作。
+/// 不存在合理的"非 AI"兜底（打开词典网页对长句、代码片段都不合适），所以 CanRun 直接要求 AI 可用；
+/// 用户在设置里关掉 ExplainActionEnabled 时按钮也不出现，给"只想要原生功能"的用户彻底退出选项</summary>
+internal sealed class AiExplainAction : BuiltInAction
+{
+    public override string Id => BuiltInActionIds.AiExplain;
+    public override string Title => "解释";
+    public override string IconKey => "AiExplain";
+
+    public override bool CanRun(SelectionContext context)
+        => !context.IsEmpty;
+
+    public override Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
+    {
+        // 与 PromptTemplateLibrary 中 tpl.explain 一致；保留在代码里独立维护，
+        // 避免 Library 的措辞调整反向影响这个内置动作的语义稳定性
+        var request = new AiPromptRequest(
+            Title: "解释",
+            Prompt: "用{language}解释下面的文本，面向不熟悉背景的人，先给一句话结论，再补充必要细节：\n\n{text}",
+            SystemPrompt: null,
+            OutputMode: AiOutputMode.InlineToast,
+            UseInteractiveBubble: true);
+        return host.Ai.RunPromptAsync(request, context, ct);
     }
 }
 
@@ -228,9 +288,10 @@ internal sealed class CalculateAction : BuiltInAction
         {
             var result = SimpleExpressionEvaluator.Evaluate(expr);
             var text = result.ToString("G15", CultureInfo.InvariantCulture);
-            // 复制到剪贴板，避免直接替换破坏用户原文
-            host.Clipboard.SetText(text);
-            host.Notifier.Notify($"{expr} = {text}（已复制）");
+            SmartOutput.Publish(host, context, Title,
+                primaryText: text,
+                displayText: $"{expr} = {text}",
+                copyToast: $"{expr} = {text}（已复制）");
             host.Log.Info("calc result copied", ("expr", expr), ("result", text));
             await Task.CompletedTask;
         }
@@ -280,8 +341,10 @@ internal sealed class WordCountAction : BuiltInAction
             StringSplitOptions.RemoveEmptyEntries).Length;
         var lines = text.Count(c => c == '\n') + (text.Length > 0 ? 1 : 0);
         var summary = $"字符 {chars}（去空白 {charsNoSpace}）/ 词 {words} / 行 {lines}";
-        host.Clipboard.SetText(summary);
-        host.Notifier.Notify(summary);
+        SmartOutput.Publish(host, context, Title,
+            primaryText: summary,
+            displayText: $"字符：{chars}\n字符（去空白）：{charsNoSpace}\n词：{words}\n行：{lines}",
+            copyToast: summary);
         host.Log.Info("wordcount", ("summary", summary));
         return Task.CompletedTask;
     }

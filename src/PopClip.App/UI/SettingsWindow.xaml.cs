@@ -105,6 +105,16 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         new AiOutputModeChoice("inlineToast", "浮窗显示结果"),
     };
 
+    /// <summary>智能动作的输出模式选项。用 AiOutputModeChoice 类型复用同款 (Value, Label) 元组，
+    /// 避免再造一个等价类型；XAML 端通过 IsBuiltInOutputConfigurable 决定是否显示此下拉</summary>
+    public IReadOnlyList<AiOutputModeChoice> BuiltInOutputModeChoices { get; } = new[]
+    {
+        new AiOutputModeChoice(BuiltInOutputModes.Copy, "仅复制"),
+        new AiOutputModeChoice(BuiltInOutputModes.Bubble, "气泡窗口"),
+        new AiOutputModeChoice(BuiltInOutputModes.CopyAndBubble, "复制 + 气泡窗口"),
+        new AiOutputModeChoice(BuiltInOutputModes.Dialog, "对话框（独立结果窗口）"),
+    };
+
     /// <summary>外观页的浮窗预览示例按钮，模拟用户日常浮窗里可能出现的"复制/粘贴/搜索/翻译/AI"</summary>
     public IReadOnlyList<ToolbarPreviewItem> ToolbarPreviewItems { get; } = new[]
     {
@@ -146,24 +156,12 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
 
     public IReadOnlyList<PromptTemplateDefinition> BuiltinPromptTemplates => PromptTemplateLibrary.Builtin;
 
-    /// <summary>"添加内置动作"下拉里的全部选项；保持与 BuiltInActionIds 一一对应。
-    /// AI 系列除"对话"外都已迁移为 Prompt 模板（见 PromptTemplateLibrary），不再以内置动作呈现</summary>
-    public IReadOnlyList<BuiltInChoice> BuiltInChoices { get; } = new[]
-    {
-        new BuiltInChoice(BuiltInActionIds.Copy, "复制"),
-        new BuiltInChoice(BuiltInActionIds.Paste, "粘贴"),
-        new BuiltInChoice(BuiltInActionIds.OpenUrl, "打开链接"),
-        new BuiltInChoice(BuiltInActionIds.Mailto, "发送邮件"),
-        new BuiltInChoice(BuiltInActionIds.Search, "搜索"),
-        new BuiltInChoice(BuiltInActionIds.Translate, "翻译"),
-        new BuiltInChoice(BuiltInActionIds.ToUpper, "大写"),
-        new BuiltInChoice(BuiltInActionIds.ToLower, "小写"),
-        new BuiltInChoice(BuiltInActionIds.ToTitle, "标题大小写"),
-        new BuiltInChoice(BuiltInActionIds.Calculate, "计算"),
-        new BuiltInChoice(BuiltInActionIds.WordCount, "字数统计"),
-        new BuiltInChoice(BuiltInActionIds.ClipboardHistory, "剪贴板历史"),
-        new BuiltInChoice(BuiltInActionIds.AiChat, "AI 对话"),
-    };
+    /// <summary>"添加内置动作"对话框可选的全部内置动作。
+    /// 单一真理源在 BuiltInActionSeeds.All；这里只是浅层映射并保留分组信息以便分组展示</summary>
+    public IReadOnlyList<BuiltInChoice> BuiltInChoices { get; } =
+        BuiltInActionSeeds.All
+            .Select(s => new BuiltInChoice(s.BuiltIn, s.Title, s.IconKey, s.Group, s.Description))
+            .ToList();
 
     public event Action? Saved;
 
@@ -270,6 +268,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         DensityCompact.IsChecked = _settings.ToolbarDensity == ToolbarDensity.Compact;
         DensityStandard.IsChecked = _settings.ToolbarDensity == ToolbarDensity.Standard;
         DensityComfortable.IsChecked = _settings.ToolbarDensity == ToolbarDensity.Comfortable;
+        ToolbarLayoutSingle.IsChecked = _settings.ToolbarLayoutMode == ToolbarLayoutMode.Single;
+        ToolbarLayoutSmartRow.IsChecked = _settings.ToolbarLayoutMode == ToolbarLayoutMode.SmartOnSeparateRow;
+        ToolbarLayoutGroupRows.IsChecked = _settings.ToolbarLayoutMode == ToolbarLayoutMode.GroupRows;
         FollowAccentColor.IsChecked = _settings.FollowAccentColor;
         BindFontFamilyChoices();
         CornerRadiusBox.Value = _settings.ToolbarCornerRadius;
@@ -313,6 +314,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
 
         PauseHotKeyBox.Text = _settings.PauseHotKey;
         ToolbarHotKeyBox.Text = _settings.ToolbarHotKey;
+        OcrHotKeyBox.Text = _settings.OcrHotKey;
 
         BindAiSettings();
 
@@ -341,6 +343,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         AiThinkingModeBox.SelectedValuePath = nameof(AiThinkingModeChoice.Value);
         AiThinkingModeBox.SelectedValue = _settings.AiThinkingMode;
         AiMaxOutputTokensBox.Value = _settings.AiMaxOutputTokens;
+        TranslateInlineBox.IsChecked = _settings.TranslateInlineWhenAiEnabled;
+        ExplainEnabledBox.IsChecked = _settings.ExplainActionEnabled;
         _currentAiKeyBucket = CurrentAiProvider().KeyBucket;
         AiApiKeyBox.Password = "";
         _syncingAiProvider = false;
@@ -707,45 +711,48 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
 
     private void OnAddBuiltInAction(object sender, RoutedEventArgs e)
     {
-        var choice = BuiltInChoices.FirstOrDefault(x => ActionItems.All(a => !string.Equals(a.BuiltIn, x.Id, StringComparison.OrdinalIgnoreCase)))
-                     ?? BuiltInChoices[0];
-        AddAction(new ActionEditorItem
+        var alreadyAdded = ActionItems
+            .Where(a => string.Equals(a.Type, "builtin", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(a.BuiltIn))
+            .Select(a => a.BuiltIn!)
+            .ToList();
+
+        var dialog = new AddBuiltInActionDialog(alreadyAdded) { Owner = this };
+        var ok = dialog.ShowDialog() == true;
+        if (!ok || dialog.Selected.Count == 0) return;
+
+        foreach (var seed in dialog.Selected)
         {
-            Id = UniqueActionId(choice.Id.Split('.').Last()),
-            Type = "builtin",
-            BuiltIn = choice.Id,
-            Title = choice.Title,
-            Icon = SuggestIcon(choice.Id),
-            IconLocked = true,
-            Enabled = true,
-        });
+            AddAction(new ActionEditorItem
+            {
+                Id = UniqueActionId(seed.DescriptorId),
+                Type = "builtin",
+                BuiltIn = seed.BuiltIn,
+                Title = seed.Title,
+                Icon = seed.IconKey,
+                IconLocked = true,
+                Enabled = true,
+            });
+        }
     }
 
-    private void OnAddUrlAction(object sender, RoutedEventArgs e)
+    /// <summary>"添加用户动作"：弹 AddUserActionDialog 让用户选 URL / AI 自定义 / 从内置 AI 模板派生。
+    /// 与"添加内置动作"互补：那个对话框管"系统预置 + 不可重复"，本对话框管"用户自定义 + 可重复"，
+    /// 旧版独立的"添加 URL"/"添加 AI 动作"/"快速从模板"三个入口合并到这一个对话框</summary>
+    private void OnAddUserAction(object sender, RoutedEventArgs e)
     {
-        AddAction(new ActionEditorItem
-        {
-            Id = UniqueActionId("url"),
-            Type = "url-template",
-            Title = "打开 URL",
-            Icon = IconChoiceCatalog.UserSelectable[0].IconKey,
-            UrlTemplate = "https://www.google.com/search?q={urlencoded}",
-            Enabled = true,
-        });
-    }
+        var existingBuiltInIds = ActionItems
+            .Where(a => string.Equals(a.Type, "builtin", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(a.BuiltIn))
+            .Select(a => a.BuiltIn!)
+            .ToList();
+        var dialog = new AddUserActionDialog(BuiltinPromptTemplates, existingBuiltInIds) { Owner = this };
+        if (dialog.ShowDialog() != true || dialog.CreatedItem is null) return;
 
-    private void OnAddAiPromptAction(object sender, RoutedEventArgs e)
-    {
-        AddAction(new ActionEditorItem
-        {
-            Id = UniqueActionId("ai"),
-            Type = "ai",
-            Title = "AI 自定义",
-            Icon = IconChoiceCatalog.UserSelectable[0].IconKey,
-            Prompt = "请用{language}处理下面的文本：\n\n{text}",
-            OutputMode = "chat",
-            Enabled = true,
-        });
+        var created = dialog.CreatedItem;
+        var seed = string.Equals(created.Type, "url-template", StringComparison.OrdinalIgnoreCase)
+            ? "url"
+            : "ai";
+        created.Id = UniqueActionId(seed);
+        AddAction(created);
     }
 
     /// <summary>从内置 Prompt 模板派生 ai 动作。
@@ -785,24 +792,13 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     }
 
     /// <summary>根据内置动作 ID 给出与其语义匹配的图标 key。
-    /// 这些图标都在 IconKeyToMaterialDesignKindConverter.Map 中保留，但被排除在用户选择器之外</summary>
-    private static string SuggestIcon(string builtIn) => builtIn switch
+    /// 从 BuiltInActionSeeds 取，保持与"添加内置动作"对话框、磁盘 actions.json 三处的图标一致</summary>
+    private static string SuggestIcon(string builtIn)
     {
-        BuiltInActionIds.Copy => "Copy",
-        BuiltInActionIds.Paste => "Paste",
-        BuiltInActionIds.OpenUrl => "Url",
-        BuiltInActionIds.Mailto => "Mail",
-        BuiltInActionIds.Search => "Search",
-        BuiltInActionIds.Translate => "Translate",
-        BuiltInActionIds.ToUpper => "Upper",
-        BuiltInActionIds.ToLower => "Lower",
-        BuiltInActionIds.ToTitle => "Title",
-        BuiltInActionIds.Calculate => "Calc",
-        BuiltInActionIds.WordCount => "Count",
-        BuiltInActionIds.ClipboardHistory => "ClipboardHistory",
-        BuiltInActionIds.AiChat => "AiChat",
-        _ => "Ai",
-    };
+        var seed = BuiltInActionSeeds.All.FirstOrDefault(
+            s => string.Equals(s.BuiltIn, builtIn, StringComparison.OrdinalIgnoreCase));
+        return seed?.IconKey ?? "Ai";
+    }
 
     /// <summary>卡片内"上移"按钮：通过 sender.Tag 拿到目标 item，避免依赖 ListBox 选中状态</summary>
     private void OnActionMoveUp(object sender, RoutedEventArgs e) => MoveAction(SenderItem(sender), -1);
@@ -1110,6 +1106,11 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
             : DensityComfortable.IsChecked == true
                 ? ToolbarDensity.Comfortable
                 : ToolbarDensity.Standard;
+        _settings.ToolbarLayoutMode = ToolbarLayoutSmartRow.IsChecked == true
+            ? ToolbarLayoutMode.SmartOnSeparateRow
+            : ToolbarLayoutGroupRows.IsChecked == true
+                ? ToolbarLayoutMode.GroupRows
+                : ToolbarLayoutMode.Single;
         _settings.FollowAccentColor = FollowAccentColor.IsChecked == true;
         _settings.ToolbarCornerRadius = NumberBoxDouble(CornerRadiusBox, _settings.ToolbarCornerRadius, 0, 18);
         _settings.ToolbarButtonSpacing = NumberBoxDouble(ButtonSpacingBox, _settings.ToolbarButtonSpacing, 0, 10);
@@ -1154,6 +1155,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
 
         _settings.PauseHotKey = PauseHotKeyBox.Text.Trim();
         _settings.ToolbarHotKey = ToolbarHotKeyBox.Text.Trim();
+        _settings.OcrHotKey = OcrHotKeyBox.Text.Trim();
         SaveAiSettings();
         RefreshToolbarPreview();
     }
@@ -1194,6 +1196,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         _settings.AiDefaultLanguage = language.Length > 0 ? language : "中文";
         _settings.AiThinkingMode = SelectedAiThinkingMode();
         _settings.AiMaxOutputTokens = NumberBoxInt(AiMaxOutputTokensBox, _settings.AiMaxOutputTokens, 0, 262144);
+        _settings.TranslateInlineWhenAiEnabled = TranslateInlineBox.IsChecked == true;
+        _settings.ExplainActionEnabled = ExplainEnabledBox.IsChecked == true;
 
         foreach (var (bucket, plain) in _pendingAiKeys)
         {
@@ -1419,7 +1423,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
             EnableToolbarKeyboardShortcutsBox, EnableToolbarTabNavigationBox, EnableToolbarNumberShortcutsBox,
             DismissOnMouseLeaveBox, DismissOnForegroundChangedBox, DismissOnClickOutsideBox,
             DismissOnEscapeKeyBox, DismissOnNewSelectionBox, DismissOnActionInvokedBox,
-            DismissOnTimeoutBox, FollowAccentColor, AiEnabledBox);
+            DismissOnTimeoutBox, FollowAccentColor, AiEnabledBox,
+            TranslateInlineBox, ExplainEnabledBox);
         AttachRadio(BlacklistRadio, WhitelistRadio,
             DisplayIconAndText, DisplayIconOnly, DisplayTextOnly,
             SurfaceShadow, SurfaceBorder, SurfaceShadowAndBorder,
@@ -1438,7 +1443,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
 
         // TextBox / PasswordBox：用 LostFocus 而不是 TextChanged，避免每个键盘字符都触发写盘
         AttachTextLostFocus(SearchEngineName, SearchUrlTemplate,
-            PauseHotKeyBox, ToolbarHotKeyBox,
+            PauseHotKeyBox, ToolbarHotKeyBox, OcrHotKeyBox,
             AiBaseUrlBox, AiModelBox, AiDefaultLanguageBox);
         AiApiKeyBox.LostFocus += OnInstantCommit;
 
@@ -1524,7 +1529,13 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     private void OnActionItemChanged(object? sender, PropertyChangedEventArgs e) => CommitAll();
 }
 
-public sealed record BuiltInChoice(string Id, string Title);
+/// <summary>"添加内置动作"对话框的一行候选；Group 用于在对话框中按段分组展示</summary>
+public sealed record BuiltInChoice(
+    string Id,
+    string Title,
+    string IconKey,
+    BuiltInActionGroup Group,
+    string? Description);
 
 /// <summary>外观页"实时预览"中的示例按钮。
 /// Icon 使用 WPF-UI SymbolRegular 而非应用内自定义图标 key，因为预览只需呈现视觉效果，
@@ -1614,12 +1625,30 @@ public sealed class ActionEditorItem : INotifyPropertyChanged
     public string Title { get => _title; set => Set(ref _title, value); }
     public string Icon { get => _icon; set => Set(ref _icon, value); }
     public string Type { get => _type; set => Set(ref _type, value); }
-    public string? BuiltIn { get => _builtIn; set => Set(ref _builtIn, value); }
+    public string? BuiltIn
+    {
+        get => _builtIn;
+        set
+        {
+            if (Set(ref _builtIn, value))
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsBuiltInOutputConfigurable)));
+            }
+        }
+    }
     public string? UrlTemplate { get => _urlTemplate; set => Set(ref _urlTemplate, value); }
     public string? Prompt { get => _prompt; set => Set(ref _prompt, value); }
     public string? SystemPrompt { get => _systemPrompt; set => Set(ref _systemPrompt, value); }
     public string OutputMode { get => _outputMode; set => Set(ref _outputMode, value); }
     public bool Enabled { get => _enabled; set => Set(ref _enabled, value); }
+
+    /// <summary>是否为"有结果产出 + 可配置输出模式"的内置动作。
+    /// 设置页据此决定主行右侧是否显示 OutputMode 下拉框。
+    /// 与 IsAiType 互斥：AI 动作走 AiOutputMode 下拉（已有），builtin smart 走 BuiltInOutputMode 下拉（新）</summary>
+    public bool IsBuiltInOutputConfigurable
+        => string.Equals(_type, "builtin", StringComparison.OrdinalIgnoreCase)
+           && !string.IsNullOrEmpty(_builtIn)
+           && BuiltInOutputModes.SupportsOutputMode(_builtIn);
 
     public bool IconLocked
     {
@@ -1644,6 +1673,15 @@ public sealed class ActionEditorItem : INotifyPropertyChanged
 
     public static ActionEditorItem FromDescriptor(ActionDescriptor descriptor)
     {
+        // OutputMode 的默认值因类型而异：
+        // - AI 动作走 AiOutputMode，默认 "chat"
+        // - 内置 smart 动作走 BuiltInOutputMode，默认 "copyAndBubble"
+        // - 其它内置（Copy/Paste/Search 等）不读取 OutputMode，留空即可
+        var defaultOutputMode = string.Equals(descriptor.Type, "ai", StringComparison.OrdinalIgnoreCase)
+            ? "chat"
+            : (!string.IsNullOrEmpty(descriptor.BuiltIn) && BuiltInOutputModes.SupportsOutputMode(descriptor.BuiltIn)
+                ? BuiltInOutputModes.CopyAndBubble
+                : "");
         return new ActionEditorItem
         {
             Id = descriptor.Id,
@@ -1654,7 +1692,7 @@ public sealed class ActionEditorItem : INotifyPropertyChanged
             UrlTemplate = descriptor.UrlTemplate,
             Prompt = descriptor.Prompt,
             SystemPrompt = descriptor.SystemPrompt,
-            OutputMode = string.IsNullOrWhiteSpace(descriptor.OutputMode) ? "chat" : descriptor.OutputMode,
+            OutputMode = string.IsNullOrWhiteSpace(descriptor.OutputMode) ? defaultOutputMode : descriptor.OutputMode,
             Enabled = descriptor.Enabled,
             IconLocked = descriptor.IconLocked,
         };
@@ -1662,6 +1700,18 @@ public sealed class ActionEditorItem : INotifyPropertyChanged
 
     public ActionDescriptor ToDescriptor()
     {
+        string? persistedOutputMode = null;
+        if (string.Equals(Type, "ai", StringComparison.OrdinalIgnoreCase))
+        {
+            persistedOutputMode = string.IsNullOrWhiteSpace(OutputMode) ? "chat" : OutputMode;
+        }
+        else if (IsBuiltInOutputConfigurable)
+        {
+            persistedOutputMode = string.IsNullOrWhiteSpace(OutputMode)
+                ? BuiltInOutputModes.CopyAndBubble
+                : OutputMode;
+        }
+
         return new ActionDescriptor
         {
             Id = Id.Trim(),
@@ -1672,9 +1722,7 @@ public sealed class ActionEditorItem : INotifyPropertyChanged
             UrlTemplate = string.IsNullOrWhiteSpace(UrlTemplate) ? null : UrlTemplate,
             Prompt = string.IsNullOrWhiteSpace(Prompt) ? null : Prompt,
             SystemPrompt = string.IsNullOrWhiteSpace(SystemPrompt) ? null : SystemPrompt,
-            OutputMode = string.Equals(Type, "ai", StringComparison.OrdinalIgnoreCase)
-                ? (string.IsNullOrWhiteSpace(OutputMode) ? "chat" : OutputMode)
-                : null,
+            OutputMode = persistedOutputMode,
             IconLocked = IconLocked,
             Enabled = Enabled,
         };

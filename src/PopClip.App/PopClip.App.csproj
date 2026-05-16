@@ -2,7 +2,10 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- 升级到 10.0.19041.0：引入 Windows Runtime projection 以使用 Windows.Media.Ocr。
+         SupportedOSPlatformVersion 仍保持 10.0.17763 (1809)，让 OCR 不可用时优雅降级 -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -26,6 +29,8 @@
     <PackageReference Include="MahApps.Metro.IconPacks.MaterialDesign" Version="6.2.1" />
     <PackageReference Include="WPF-UI" Version="4.3.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+    <!-- System.Drawing.Common 用于区域 OCR 截屏：Bitmap + Graphics.CopyFromScreen -->
+    <PackageReference Include="System.Drawing.Common" Version="8.0.10" />
   </ItemGroup>
 
   <ItemGroup>

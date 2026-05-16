@@ -44,8 +44,9 @@
     </Window.Resources>
 
     <!-- 外层 8px Margin 让 DropShadowEffect 不被透明窗口边界裁切；
-         与浮窗一样三层结构（阴影底板 → 主面板 → 描边层） -->
-    <Grid Margin="8" SnapsToDevicePixels="True">
+         与浮窗一样三层结构（阴影底板 → 主面板 → 描边层）。
+         MaxWidth=420 让多行 toast 在屏幕上不至于撑得太宽（OCR / 智能动作的多行结果常见场景） -->
+    <Grid Margin="8" SnapsToDevicePixels="True" MaxWidth="420">
         <Border Background="{DynamicResource ToolbarToastBackground}"
                 CornerRadius="6"
                 SnapsToDevicePixels="True">
@@ -73,10 +74,16 @@
                         Padding="6,2"
                         Click="OnCopyClicked"
                         Visibility="Collapsed" />
-                <TextBlock x:Name="ToastText"
-                           Foreground="{DynamicResource ToolbarForeground}"
-                           TextWrapping="Wrap"
-                           VerticalAlignment="Center" />
+                <!-- ScrollViewer 让超长内容也能在 toast 里查看，最高 180 DIP；
+                     单行内容时 TextBlock 仍按内容自适应高度，不会被 ScrollViewer 强行撑高 -->
+                <ScrollViewer MaxHeight="180"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <TextBlock x:Name="ToastText"
+                               Foreground="{DynamicResource ToolbarForeground}"
+                               TextWrapping="Wrap"
+                               VerticalAlignment="Center" />
+                </ScrollViewer>
             </DockPanel>
         </Border>
 

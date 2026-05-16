@@ -1,0 +1,234 @@
+<Window x:Class="PopClip.App.UI.AiBubbleWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:ClassModifier="internal"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        Focusable="False"
+        ResizeMode="NoResize"
+        SizeToContent="WidthAndHeight"
+        UseLayoutRounding="True"
+        FontFamily="{DynamicResource ToolbarFontFamily}"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType">
+    <Window.Resources>
+        <Style x:Key="BubbleFlatButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarForeground}" />
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Padding" Value="9,4" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ToolbarHover}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="BubbleAccentButton" TargetType="Button" BasedOn="{StaticResource BubbleFlatButton}">
+            <Setter Property="Background" Value="{DynamicResource ToolbarAccentSoft}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
+        <!-- Header 上的 28x28 方形小按钮（Pin / 关闭）。
+             与 BubbleFlatButton 的差别：固定方形尺寸、内边距清零，
+             让"✕""📌"等字符在视觉上居中而不是被外层 Padding 拉成竖长方形 -->
+        <Style x:Key="BubbleSquareButton" TargetType="Button" BasedOn="{StaticResource BubbleFlatButton}">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Width" Value="28" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+
+        <!-- Pin 按钮在 IsPinned=true 时显示为高亮态（带强调底色 + 不透明）；
+             触发由代码逻辑：OnPinClicked 翻转附加状态后调用 VisualStateManager 切样式 -->
+        <Style x:Key="BubblePinButton" TargetType="Button" BasedOn="{StaticResource BubbleSquareButton}">
+            <Setter Property="Opacity" Value="0.7" />
+        </Style>
+
+        <!-- 只读 TextBox 的极简模板：仅 ScrollViewer + ContentHost，无 BorderBrush、无 Bottom border。
+             WPF 默认 TextBox 主题（特别是 Fluent / Wpf.Ui）会在 unfocused 态下渲染一条灰色底线作为分隔，
+             这里完全替换 ControlTemplate 去掉所有装饰，避免气泡正文区出现孤立的横线 -->
+        <Style x:Key="BubbleBodyTextBox" TargetType="TextBox">
+            <Setter Property="IsReadOnly" Value="True" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarForeground}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="VerticalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="HorizontalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Background="Transparent"
+                                      Focusable="False"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollBarVisibility="Hidden" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <!-- 外层 8 DIP 留给阴影外扩，避免 DropShadowEffect 被透明窗口边界裁切；
+         三层结构（阴影底板 → 主面板 → 描边层）与 ToolbarToastWindow / FloatingToolbar 同款 -->
+    <Grid Margin="8" SnapsToDevicePixels="True" MaxWidth="520">
+        <Border Background="{DynamicResource ToolbarToastBackground}"
+                CornerRadius="8"
+                SnapsToDevicePixels="True">
+            <Border.Effect>
+                <DropShadowEffect Color="#000"
+                                  Direction="270"
+                                  BlurRadius="10"
+                                  ShadowDepth="3"
+                                  Opacity="0.45"
+                                  RenderingBias="Performance" />
+            </Border.Effect>
+        </Border>
+
+        <Border x:Name="BubbleBorder"
+                Background="{DynamicResource ToolbarToastBackground}"
+                CornerRadius="8"
+                Padding="0"
+                SnapsToDevicePixels="True">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Header：标题 + 模型 + 状态 + Pin + 关闭。
+                     MouseLeftButtonDown 让整条 Header 充当"标题栏"，按住空白区可拖动整个气泡 -->
+                <Grid Grid.Row="0"
+                      x:Name="HeaderBar"
+                      Background="Transparent"
+                      Cursor="SizeAll"
+                      MouseLeftButtonDown="OnHeaderMouseLeftButtonDown"
+                      Margin="14,8,8,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="TitleText"
+                                       Text="AI"
+                                       FontWeight="SemiBold"
+                                       FontSize="13"
+                                       Foreground="{DynamicResource ToolbarForeground}"
+                                       VerticalAlignment="Center" />
+                            <TextBlock x:Name="StatusText"
+                                       Margin="8,0,0,0"
+                                       Text=""
+                                       FontSize="10.5"
+                                       FontStyle="Italic"
+                                       Opacity="0.75"
+                                       Foreground="{DynamicResource ToolbarForeground}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock x:Name="MetaText"
+                                   Margin="0,2,0,0"
+                                   Text=""
+                                   FontSize="10.5"
+                                   Opacity="0.6"
+                                   Foreground="{DynamicResource ToolbarForeground}" />
+                    </StackPanel>
+                    <Button Grid.Column="1"
+                            x:Name="PinButton"
+                            Content="📌"
+                            Margin="0,0,2,0"
+                            Style="{StaticResource BubblePinButton}"
+                            Click="OnPinClicked"
+                            ToolTip="将气泡固定在最前，避免外部点击 / 鼠标离开自动关闭" />
+                    <Button Grid.Column="2"
+                            Content="✕"
+                            Style="{StaticResource BubbleSquareButton}"
+                            Click="OnCloseClicked"
+                            ToolTip="关闭 (Esc)" />
+                </Grid>
+
+                <!-- Body：流式正文 -->
+                <ScrollViewer Grid.Row="1"
+                              x:Name="BodyScroll"
+                              MaxHeight="360"
+                              MinWidth="320"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              Margin="14,2,14,8">
+                    <TextBox x:Name="BodyText"
+                             Style="{StaticResource BubbleBodyTextBox}" />
+                </ScrollViewer>
+
+                <!-- 操作按钮栏 -->
+                <Border Grid.Row="2"
+                        BorderBrush="{DynamicResource ToolbarSeparator}"
+                        BorderThickness="0,1,0,0"
+                        Padding="8,6">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button x:Name="ReplaceButton"
+                                Content="替换原文"
+                                Style="{StaticResource BubbleFlatButton}"
+                                Click="OnReplaceClicked"
+                                IsEnabled="False"
+                                ToolTip="把结果写回选区（覆盖原文）" />
+                        <Button x:Name="InsertButton"
+                                Content="插入"
+                                Style="{StaticResource BubbleFlatButton}"
+                                Click="OnInsertClicked"
+                                IsEnabled="False"
+                                ToolTip="把结果插入到光标处" />
+                        <Button x:Name="CopyButton"
+                                Content="复制"
+                                Style="{StaticResource BubbleFlatButton}"
+                                Click="OnCopyClicked"
+                                IsEnabled="False"
+                                ToolTip="复制结果到剪贴板" />
+                        <Button x:Name="OpenChatButton"
+                                Content="打开完整对话"
+                                Style="{StaticResource BubbleAccentButton}"
+                                Margin="6,0,0,0"
+                                Click="OnOpenChatClicked"
+                                IsEnabled="False"
+                                ToolTip="把当前问答迁移到完整对话窗口继续追问" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Border BorderBrush="{DynamicResource ToolbarBorder}"
+                BorderThickness="1"
+                CornerRadius="8"
+                IsHitTestVisible="False"
+                SnapsToDevicePixels="True" />
+    </Grid>
+</Window>

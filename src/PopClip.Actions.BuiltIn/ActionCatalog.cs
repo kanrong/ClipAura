@@ -39,6 +39,16 @@ public sealed class ActionCatalog
             [BuiltInActionIds.WordCount] = new WordCountAction(),
             [BuiltInActionIds.ClipboardHistory] = new ClipboardHistoryAction(),
             [BuiltInActionIds.AiChat] = new AiChatAction(),
+            [BuiltInActionIds.AiExplain] = new AiExplainAction(),
+            [BuiltInActionIds.JsonFormat] = new JsonFormatAction(),
+            [BuiltInActionIds.JsonToYaml] = new JsonToYamlAction(),
+            [BuiltInActionIds.Color] = new ColorAction(),
+            [BuiltInActionIds.Timestamp] = new TimestampAction(),
+            [BuiltInActionIds.PathOpen] = new PathAction(),
+            [BuiltInActionIds.MarkdownTableToCsv] = new MarkdownTableToCsvAction(),
+            [BuiltInActionIds.CsvToMarkdown] = new CsvToMarkdownAction(),
+            [BuiltInActionIds.TsvToCsv] = new TsvToCsvAction(),
+            [BuiltInActionIds.TsvToMarkdown] = new TsvToMarkdownAction(),
         };
     }
 

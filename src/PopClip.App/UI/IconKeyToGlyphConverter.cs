@@ -28,10 +28,23 @@ internal sealed class IconKeyToGlyphConverter : IValueConverter
         ["AiChat"] = "\uE8F2",
         ["AiSummary"] = "\uE8FD",
         ["AiRewrite"] = "\uE70F",
-        ["AiTranslate"] = "\uF2B7",
+        ["AiTranslate"] = "\uE774",  // Globe2 — 与基础 Translate (F2B7) 区分
         ["AiExplain"] = "\uE946",
         ["AiReply"] = "\uE8F2",
         ["AiTidy"] = "\uE8A4",
+        // 智能动作图标（Segoe Fluent Icons 兜底字形）。
+        // 同一系列的转换动作（JsonToYaml / MdToCsv / TsvToCsv / TsvToMd）必须互不相同，
+        // 浮窗多个智能动作同时出现时仍能一眼区分
+        ["Json"] = "\uE943",         // Code (Json 格式化)
+        ["JsonToYaml"] = "\uE895",   // Sync (格式转换)
+        ["Color"] = "\uE790",        // ColorSolid
+        ["Time"] = "\uE823",         // History / Clock
+        ["FolderOpen"] = "\uED25",   // FolderOpen
+        ["Table"] = "\uF0E2",        // GridView (CsvToMarkdown 的输出)
+        ["MdToCsv"] = "\uEA37",      // BulletedList (MD 表 → CSV)
+        ["TsvToCsv"] = "\uE8AB",     // List (TSV → CSV)
+        ["TsvToMd"] = "\uF572",      // CellPhoneTable (TSV → MD 表)
+        ["Ocr"] = "\uE7C5",          // Crop
     };
 
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
@@ -100,10 +113,25 @@ internal sealed class IconKeyToMaterialDesignKindConverter : IValueConverter
         // 这些 key 仅供 PromptTemplateLibrary.Builtin 引用，写入 actions.json 后通过 IconLocked=true 锁死不可改
         ["AiSummary"] = PackIconMaterialDesignKind.SummarizeRound,
         ["AiRewrite"] = PackIconMaterialDesignKind.AutoFixHighRound,
-        ["AiTranslate"] = PackIconMaterialDesignKind.TranslateRound,
+        // AiTranslate 改用 LanguageRound：原本与基础 Translate 同为 TranslateRound，
+        // 老用户启用了"翻译"+"AI 翻译模板"两个动作时浮窗显示同图标，无法区分
+        ["AiTranslate"] = PackIconMaterialDesignKind.LanguageRound,
         ["AiExplain"] = PackIconMaterialDesignKind.InfoRound,
         ["AiReply"] = PackIconMaterialDesignKind.ReplyRound,
         ["AiTidy"] = PackIconMaterialDesignKind.FormatLineSpacingRound,
+        // ============ 智能动作图标（IconLocked=true，不参与用户图标选择器） ============
+        // 转换链动作（JsonToYaml / MdToCsv / TsvToCsv / TsvToMd）必须互不相同，
+        // 浮窗同时出现多个智能动作（如 CSV 选区下 CsvToMarkdown + 普通 SearchAction）时不冲突
+        ["Json"] = PackIconMaterialDesignKind.CodeRound,
+        ["JsonToYaml"] = PackIconMaterialDesignKind.SwapHorizRound,
+        ["Color"] = PackIconMaterialDesignKind.PaletteRound,
+        ["Time"] = PackIconMaterialDesignKind.ScheduleRound,
+        ["FolderOpen"] = PackIconMaterialDesignKind.FolderOpenRound,
+        ["Table"] = PackIconMaterialDesignKind.TableChartRound,
+        ["MdToCsv"] = PackIconMaterialDesignKind.ViewListRound,
+        ["TsvToCsv"] = PackIconMaterialDesignKind.ListAltRound,
+        ["TsvToMd"] = PackIconMaterialDesignKind.TableViewRound,
+        ["Ocr"] = PackIconMaterialDesignKind.DocumentScannerRound,
         // ============ 通用图形/语义图标（用户在自定义动作里可选） ============
         // 这里的 key 不能与上方"内置功能"重复，否则同一图标会跨语义共用
         ["Star"] = PackIconMaterialDesignKind.StarRound,

@@ -26,7 +26,13 @@ namespace PopClip.App.UI;
 /// - 定位使用 GetDpiForWindow 处理多显示器异构 DPI</summary>
 public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotificationSink
 {
+    /// <summary>权威集合：按用户在动作页配置的顺序排，键盘导航 / Tab / 数字快捷键都基于它做 index 查找。
+    /// 即使布局模式把按钮拆到多行，Items 顺序仍是单一真理源</summary>
     public ObservableCollection<ToolbarItem> Items { get; } = new();
+    /// <summary>渲染用集合：每个 Row 是一行按钮。
+    /// 单行模式下 Rows.Count == 1（row.Items 等于 Items）；
+    /// 多行模式下 Rows 按布局策略拆分 Items 到 ≥2 个 row</summary>
+    public ObservableCollection<ToolbarItemRow> Rows { get; } = new();
 
     private nint _hwnd;
     private readonly ILog _log;
@@ -133,6 +139,51 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
                     break;
             }
         });
+    }
+
+    /// <summary>用 items 替换 Items，并按 layoutMode 重建 Rows。
+    /// 替代外部直接 Items.Clear / Items.Add 的旧模式：
+    /// - 保证 Items（键盘导航源）与 Rows（渲染源）同步更新
+    /// - 按"≥2 组可见才换行"的规则自动降级，避免单一类别浮窗变成"高瘦"形状</summary>
+    public void ApplyItems(IEnumerable<ToolbarItem> items, ToolbarLayoutMode layoutMode = ToolbarLayoutMode.Single)
+    {
+        Items.Clear();
+        foreach (var it in items) Items.Add(it);
+        RebuildRows(layoutMode);
+    }
+
+    private void RebuildRows(ToolbarLayoutMode mode)
+    {
+        Rows.Clear();
+        var basic = Items.Where(i => i.Group == ToolbarItemGroup.Basic).ToList();
+        var smart = Items.Where(i => i.Group == ToolbarItemGroup.Smart).ToList();
+        var ai = Items.Where(i => i.Group == ToolbarItemGroup.Ai).ToList();
+        var visibleGroupCount = (basic.Count > 0 ? 1 : 0) + (smart.Count > 0 ? 1 : 0) + (ai.Count > 0 ? 1 : 0);
+
+        switch (mode)
+        {
+            case ToolbarLayoutMode.SmartOnSeparateRow when smart.Count > 0 && (basic.Count + ai.Count) > 0:
+                // 第一行：Basic + AI（按 Items 原序，保留用户配置顺序的可读性）
+                AddRow(Items.Where(i => i.Group != ToolbarItemGroup.Smart));
+                AddRow(smart);
+                break;
+            case ToolbarLayoutMode.GroupRows when visibleGroupCount >= 2:
+                if (basic.Count > 0) AddRow(basic);
+                if (smart.Count > 0) AddRow(smart);
+                if (ai.Count > 0) AddRow(ai);
+                break;
+            default:
+                // 单行模式 或 多行模式下"只有一类可见"：仍按原序紧凑单行
+                AddRow(Items);
+                break;
+        }
+    }
+
+    private void AddRow(IEnumerable<ToolbarItem> items)
+    {
+        var row = new ToolbarItemRow();
+        foreach (var i in items) row.Items.Add(i);
+        Rows.Add(row);
     }
 
     public void ApplyAppearance(AppSettings settings)
@@ -397,9 +448,9 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     {
         ClearValue(WidthProperty);
         ClearValue(HeightProperty);
-        ItemsHost.ClearValue(WidthProperty);
-        ItemsHost.InvalidateMeasure();
-        ItemsHost.InvalidateArrange();
+        RowsHost.ClearValue(WidthProperty);
+        RowsHost.InvalidateMeasure();
+        RowsHost.InvalidateArrange();
         ContentClipHost.InvalidateMeasure();
         ContentClipHost.InvalidateArrange();
         InvalidateMeasure();
@@ -543,32 +594,54 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
 
     private void UpdateOverflowLayout()
     {
-        if (Items.Count <= _maxActionsPerRow)
+        // 单行模式下用 Items.Count；多行模式下取每行的最大按钮数，
+        // 整体宽度限制要让"最长的那一行"也别超 _maxActionsPerRow
+        var maxItemsInARow = 0;
+        foreach (var row in Rows)
         {
-            ItemsHost.ClearValue(MaxWidthProperty);
+            if (row.Items.Count > maxItemsInARow) maxItemsInARow = row.Items.Count;
+        }
+        if (maxItemsInARow == 0) maxItemsInARow = Items.Count;
+        if (maxItemsInARow <= _maxActionsPerRow)
+        {
+            RowsHost.ClearValue(MaxWidthProperty);
             return;
         }
 
-        // 强制 measure 让 ItemContainerGenerator 生成可读 DesiredSize 的 container；
-        // 没这一步 ContainerFromIndex 会拿到 null，退回到硬编码估值不能适配
-        // 用户切显示模式（横向/纵向 button 宽度差 ~20DIP）/ 切密度 / 切字号 之后的实际宽度
-        ItemsHost.ApplyTemplate();
-        ItemsHost.UpdateLayout();
+        // 强制 measure 让外层 RowsHost 的 container 生成；下钻视觉树找第一个真实的按钮 DesiredSize
+        RowsHost.ApplyTemplate();
+        RowsHost.UpdateLayout();
 
-        double maxItemDesiredWidth = 0;
-        for (int i = 0; i < Items.Count; i++)
-        {
-            if (ItemsHost.ItemContainerGenerator.ContainerFromIndex(i) is UIElement el
-                && el.DesiredSize.Width > maxItemDesiredWidth)
-            {
-                maxItemDesiredWidth = el.DesiredSize.Width;
-            }
-        }
+        double maxItemDesiredWidth = MeasureMaxButtonWidth();
         // 兜底（首帧 container 未生成时）；旧硬编码 112 在纵向布局下偏大，统一缩到 96
         if (maxItemDesiredWidth < 1) maxItemDesiredWidth = 96;
         // +1 抵消舍入；按"最宽 button * N"作为 MaxWidth，短按钮排得下时一行 ≥ N，
         // 真正超出 _maxActionsPerRow 的情形 WrapPanel 自动换到下一行
-        ItemsHost.MaxWidth = maxItemDesiredWidth * _maxActionsPerRow + 1;
+        RowsHost.MaxWidth = maxItemDesiredWidth * _maxActionsPerRow + 1;
+    }
+
+    /// <summary>下钻 RowsHost 视觉树找所有 Button.DesiredSize.Width 的最大值。
+    /// 两层 ItemsControl 架构（外层 Rows 容器 → 内层按钮容器）让 ItemContainerGenerator 不再直接给到按钮，
+    /// 此处用 VisualTreeHelper 递归查找</summary>
+    private double MeasureMaxButtonWidth()
+    {
+        double max = 0;
+        FindButtons(RowsHost);
+        return max;
+
+        void FindButtons(DependencyObject parent)
+        {
+            var count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent);
+            for (var i = 0; i < count; i++)
+            {
+                var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+                if (child is System.Windows.Controls.Button btn)
+                {
+                    if (btn.DesiredSize.Width > max) max = btn.DesiredSize.Width;
+                }
+                FindButtons(child);
+            }
+        }
     }
 
     /// <summary>把工具栏摆到 anchor 下方，左边缘贴近鼠标垂线；触底则上翻并按工作区约束</summary>
@@ -686,6 +759,28 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
 
     private void HideToast() => _toastWindow?.HideNow();
 
+    /// <summary>计算 AI 内联气泡的锚点：浮窗下沿水平居中点，单位 DIP。
+    /// 同时返回该浮窗所在 monitor 的工作区上下沿 DIP 值，让气泡能在屏幕底部空间不足时翻到上方。
+    /// 浮窗尚未显示时返回 null —— 此时 AiTextService 应回退到现有 toast/notify 路径</summary>
+    public BubbleAnchor? GetCurrentBubbleAnchor()
+    {
+        if (!_isShown || _hwnd == 0) return null;
+        var centerXDip = Left + Width / 2;
+        // ShadowPaddingDip 是浮窗外缘留给阴影的透明 padding；扣掉它才能贴近"用户能看到的浮窗底"
+        var topYDip = Top + Height - ShadowPaddingDip;
+
+        if (NativeMethods.GetWindowRect(_hwnd, out var rect))
+        {
+            var monitor = MonitorQuery.FromRect(rect.Left, rect.Top, rect.Right, rect.Bottom);
+            // 物理像素 → DIP：除以该 monitor 的 DPI 缩放比
+            var monitorBottomDip = monitor.WorkBottom * 96.0 / Math.Max(monitor.DpiY, 96);
+            var monitorTopDip = monitor.WorkTop * 96.0 / Math.Max(monitor.DpiY, 96);
+            return new BubbleAnchor(centerXDip, topYDip, monitorBottomDip, monitorTopDip);
+        }
+        // 取不到屏幕边界时仍给坐标，让气泡显示出来即可（极端情况，不阻断主流程）
+        return new BubbleAnchor(centerXDip, topYDip, double.PositiveInfinity, 0);
+    }
+
     private void ScheduleTimeoutDismiss()
     {
         _dismissTimeoutCts?.Cancel();
@@ -697,35 +792,37 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         _dismissTimeoutCts = cts;
         _ = Task.Run(async () =>
         {
-            try
+            // 轮询风格：到期时若鼠标仍停留在浮窗上，进入下一轮等待，不关闭浮窗；
+            // 直到一次到期时鼠标已离开浮窗（Win32 物理坐标判定），才真正 HideToolbar。
+            // 这样语义稳定：只要鼠标在浮窗上，超时永远不触发；不依赖 WPF MouseEnter/MouseLeave 路由事件，
+            // 规避 NoActivate + Focusable=False 浮窗在某些路径下事件丢失导致的"鼠标在浮窗上仍被超时关闭"问题。
+            //
+            // 取消语义：不把 cts.Token 传给 Task.Delay —— 那样每次 ScheduleTimeoutDismiss 替换旧 timer 都会
+            // 让正在 await 的 Task.Delay 抛 TaskCanceledException，造成 IDE 输出窗口的 first-chance exception 干扰。
+            // 改成"每轮 delay 后查一次 IsCancellationRequested"：cancel 后最多多等一个 delayMs 才真正退出，
+            // 但此时 _isShown / IsCancellationRequested 都拦得住 HideToolbar，没有任何用户可见副作用
+            while (!cts.IsCancellationRequested)
             {
-                // 轮询风格：到期时若鼠标仍停留在浮窗上，进入下一轮等待，不关闭浮窗；
-                // 直到一次到期时鼠标已离开浮窗（Win32 物理坐标判定），才真正 HideToolbar。
-                // 这样语义稳定：只要鼠标在浮窗上，超时永远不触发；不依赖 WPF MouseEnter/MouseLeave 路由事件，
-                // 规避 NoActivate + Focusable=False 浮窗在某些路径下事件丢失导致的"鼠标在浮窗上仍被超时关闭"问题
-                while (!cts.IsCancellationRequested)
-                {
-                    await Task.Delay(delayMs, cts.Token).ConfigureAwait(false);
+                await Task.Delay(delayMs).ConfigureAwait(false);
+                if (cts.IsCancellationRequested) return;
 
-                    var shouldHide = false;
-                    Dispatcher.Invoke(() =>
-                    {
-                        if (cts.IsCancellationRequested || !_isShown) return;
-                        shouldHide = !IsMouseOverWindowReal();
-                    });
-                    if (!shouldHide)
-                    {
-                        continue;
-                    }
-                    Dispatcher.Invoke(() =>
-                    {
-                        if (cts.IsCancellationRequested || !_isShown) return;
-                        HideToolbar("timeout");
-                    });
-                    return;
+                var shouldHide = false;
+                Dispatcher.Invoke(() =>
+                {
+                    if (cts.IsCancellationRequested || !_isShown) return;
+                    shouldHide = !IsMouseOverWindowReal();
+                });
+                if (!shouldHide)
+                {
+                    continue;
                 }
+                Dispatcher.Invoke(() =>
+                {
+                    if (cts.IsCancellationRequested || !_isShown) return;
+                    HideToolbar("timeout");
+                });
+                return;
             }
-            catch (OperationCanceledException) { }
         });
     }
 

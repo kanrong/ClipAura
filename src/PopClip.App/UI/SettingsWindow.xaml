@@ -45,12 +45,15 @@
                     </Style>
                 </Border.Style>
                 <StackPanel>
-                    <!-- 主行：拖拽柄 + 图标 + 名称 + 启用 + 操作按钮 -->
+                    <!-- 主行：拖拽柄 + 图标 + 名称 + 输出模式 + 启用 + 操作按钮。
+                         名称列 MinWidth=120/Width=* 保证最短能容纳常见动作名，多余空间分给名称；
+                         输出模式下拉固定 160 宽，让其它列布局稳定 -->
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="22" />
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" MinWidth="120" />
+                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
@@ -63,8 +66,10 @@
                                        Cursor="SizeAll"
                                        ToolTip="拖拽以重排" />
 
-                        <!-- 图标区：锁定时只显示预览，未锁定时显示带预览的下拉 -->
-                        <Grid Grid.Column="1" Width="40" Height="32" Margin="0,0,12,0">
+                        <!-- 图标区：锁定（系统语义图标）只显示预览 Border；可编辑（用户动作）显示 ComboBox。
+                             宽度按 ComboBox 闭合态需要容纳的 "图标 + Label + 下拉箭头" 估算到 92px：
+                             16(图标) + 8(间距) + 28(中文 Label 2 字) + 36(ComboBox padding + 箭头) ≈ 88 -->
+                        <Grid Grid.Column="1" Width="92" Height="32" Margin="0,0,12,0">
                             <Border Background="{DynamicResource Settings.AccentSoft}"
                                     CornerRadius="{StaticResource Settings.Radius.Sm}"
                                     Width="32" Height="32"
@@ -78,22 +83,28 @@
                                                                   VerticalAlignment="Center"
                                                                   HorizontalAlignment="Center" />
                             </Border>
-                            <ComboBox Width="56" Height="32"
-                                      HorizontalAlignment="Left"
+                            <ComboBox Height="32"
+                                      HorizontalAlignment="Stretch"
                                       VerticalContentAlignment="Center"
+                                      Padding="6,0,4,0"
                                       Visibility="{Binding IsIconEditable, Converter={StaticResource BoolToVis}}"
                                       ItemsSource="{Binding DataContext.IconChoices, RelativeSource={RelativeSource AncestorType=Window}}"
                                       SelectedValuePath="IconKey"
                                       SelectedValue="{Binding Icon, UpdateSourceTrigger=PropertyChanged}"
                                       ToolTip="选择图标">
+                                <!-- ItemTemplate 同时用于下拉列表项和闭合态 SelectedItem 渲染。
+                                     这里 PackIcon 用 14 + 8 间距 + 自动伸缩 TextBlock，
+                                     避免内置 SelectionBoxItemTemplate 限制（WPF 中只读，不能 XAML 配置） -->
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate>
-                                        <StackPanel Orientation="Horizontal">
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,4,0">
                                             <iconPacks:PackIconMaterialDesign Kind="{Binding IconKey, Converter={StaticResource MaterialIconConv}}"
                                                                               Width="14" Height="14"
                                                                               VerticalAlignment="Center"
                                                                               Margin="0,0,8,0" />
-                                            <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding Label}"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                     </DataTemplate>
                                 </ComboBox.ItemTemplate>
@@ -106,13 +117,26 @@
                                     VerticalAlignment="Center"
                                     PlaceholderText="动作名称" />
 
-                        <ui:ToggleSwitch Grid.Column="3"
+                        <!-- 内置 smart 动作的"结果输出方式"下拉。AI 动作的同名下拉在下方展开区域里，
+                             所以这里只对 IsBuiltInOutputConfigurable=true 的动作显示 -->
+                        <ComboBox Grid.Column="3"
+                                  Width="160"
+                                  Margin="10,0,0,0"
+                                  VerticalAlignment="Center"
+                                  ItemsSource="{Binding DataContext.BuiltInOutputModeChoices, RelativeSource={RelativeSource AncestorType=Window}}"
+                                  DisplayMemberPath="Label"
+                                  SelectedValuePath="Value"
+                                  SelectedValue="{Binding OutputMode, UpdateSourceTrigger=PropertyChanged}"
+                                  Visibility="{Binding IsBuiltInOutputConfigurable, Converter={StaticResource BoolToVis}}"
+                                  ToolTip="结果输出方式：仅复制 / 气泡 / 复制+气泡 / 独立结果窗口" />
+
+                        <ui:ToggleSwitch Grid.Column="4"
                                          IsChecked="{Binding Enabled}"
                                          VerticalAlignment="Center"
                                          Margin="12,0,8,0"
                                          ToolTip="启用此动作" />
 
-                        <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                        <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
                             <ui:Button Appearance="Transparent"
                                        Icon="{ui:SymbolIcon ArrowUp24}"
                                        Tag="{Binding}"
@@ -812,6 +836,26 @@
                                                           Minimum="3" Maximum="12" SmallChange="1" LargeChange="2" />
                                         </StackPanel>
                                     </Grid>
+
+                                    <TextBlock Style="{StaticResource Settings.FieldLabel}"
+                                               Text="分行布局"
+                                               Margin="0,14,0,4" />
+                                    <WrapPanel>
+                                        <RadioButton x:Name="ToolbarLayoutSingle"
+                                                     GroupName="ToolbarLayout"
+                                                     Content="默认（按配置顺序单行）"
+                                                     Margin="0,0,16,0" />
+                                        <RadioButton x:Name="ToolbarLayoutSmartRow"
+                                                     GroupName="ToolbarLayout"
+                                                     Content="智能动作单独一行"
+                                                     Margin="0,0,16,0" />
+                                        <RadioButton x:Name="ToolbarLayoutGroupRows"
+                                                     GroupName="ToolbarLayout"
+                                                     Content="按分组多行（基础 / 智能 / AI）" />
+                                    </WrapPanel>
+                                    <TextBlock Style="{StaticResource Settings.HintText}"
+                                               Margin="0,4,0,0"
+                                               Text="多行模式仅在当前选区同时出现 ≥ 2 组动作时才换行；只有一类时仍紧凑单行。" />
                                 </StackPanel>
                             </Border>
 
@@ -850,9 +894,12 @@
                         </Grid>
 
                         <!-- ===================== 动作 ===================== -->
+                        <!-- Height 绑定 ViewportHeight（外层 ScrollViewer 的可视区域内高度），
+                             与 AppearancePage 一致：ActualHeight 包含 ScrollViewer 自身边框，
+                             会让 ActionsPage 比 viewport 略大几像素，触发外层多余的滚动条 -->
                         <Grid x:Name="ActionsPage"
                               Visibility="Collapsed"
-                              Height="{Binding ActualHeight, RelativeSource={RelativeSource AncestorType=ScrollViewer}}">
+                              Height="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType=ScrollViewer}}">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -879,25 +926,21 @@
                                                Icon="{ui:SymbolIcon Add24}"
                                                Content="添加内置动作"
                                                Margin="0,0,6,0"
+                                               ToolTip="基础 / 智能 / AI 内置动作，每种只能添加一次"
                                                Click="OnAddBuiltInAction" />
-                                    <ui:Button Appearance="Secondary"
-                                               Icon="{ui:SymbolIcon Link24}"
-                                               Content="添加 URL"
-                                               Margin="0,0,6,0"
-                                               Click="OnAddUrlAction" />
                                     <ui:Button Appearance="Primary"
                                                Icon="{ui:SymbolIcon Sparkle24}"
-                                               Content="添加 AI 动作"
-                                               Click="OnAddAiPromptAction" />
+                                               Content="添加用户动作"
+                                               ToolTip="自定义 URL / AI Prompt 动作，可重复添加"
+                                               Click="OnAddUserAction" />
                                 </StackPanel>
                             </Grid>
 
-                            <!-- 模板速搭：从内置 Prompt 模板一键创建 ai 动作 -->
-                            <Border Grid.Row="1" Style="{StaticResource Settings.SubCard}" Margin="0,0,0,12">
+                            <!-- 模板速搭已迁移到"添加用户动作"对话框，避免与内置 AI 动作（如 AI 解释）产生重复语义。
+                                 这里保留一个仅用于占位的隐藏 ItemsControl，让以前依赖该绑定的代码路径不报空引用 -->
+                            <Border Grid.Row="1" Style="{StaticResource Settings.SubCard}" Margin="0,0,0,12"
+                                    Visibility="Collapsed">
                                 <StackPanel>
-                                    <TextBlock Style="{StaticResource Settings.FieldLabel}"
-                                               Text="从内置 AI 模板快速添加："
-                                               Margin="0,0,0,6" />
                                     <ItemsControl ItemsSource="{Binding BuiltinPromptTemplates}">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>
@@ -1071,13 +1114,28 @@
                                         <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="暂停 / 恢复" />
                                         <ui:TextBox Grid.Column="1" x:Name="PauseHotKeyBox" />
                                     </Grid>
-                                    <Grid>
+                                    <Grid Margin="0,0,0,14">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="180" />
                                             <ColumnDefinition Width="280" />
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="唤起工具栏" />
                                         <ui:TextBox Grid.Column="1" x:Name="ToolbarHotKeyBox" />
+                                    </Grid>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="180" />
+                                            <ColumnDefinition Width="280" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="区域 OCR 截选" />
+                                        <ui:TextBox Grid.Column="1" x:Name="OcrHotKeyBox" />
+                                        <TextBlock Grid.Column="2"
+                                                   Style="{StaticResource Settings.HintText}"
+                                                   TextWrapping="Wrap"
+                                                   VerticalAlignment="Center"
+                                                   Margin="12,0,0,0"
+                                                   Text="按下后全屏蒙层弹出，拖框识别后走与正常选区相同的浮窗。" />
                                     </Grid>
                                 </StackPanel>
                             </Border>
@@ -1199,6 +1257,26 @@
                                                    Margin="12,0,0,0"
                                                    Text="0=自动（快速 4K / 自动 16K / 深度 32K）。思考模型 reasoning 与正文共用此额度，过低会导致只输出思考过程。" />
                                     </Grid>
+
+                                    <Border BorderBrush="{DynamicResource Settings.Stroke}"
+                                            BorderThickness="0,1,0,0"
+                                            Margin="0,4,0,12"
+                                            Padding="0,12,0,0">
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource Settings.SectionTitle}"
+                                                       Text="AI 浮窗体验"
+                                                       Margin="0,0,0,6" />
+                                            <TextBlock Style="{StaticResource Settings.HintText}"
+                                                       TextWrapping="Wrap"
+                                                       Margin="0,0,0,10"
+                                                       Text="以下开关仅在 AI 已启用并配置 API Key 时生效；未启用 AI 时永远走网页翻译且解释按钮不出现。" />
+                                            <ui:ToggleSwitch x:Name="TranslateInlineBox"
+                                                             Content="启用 AI 后，翻译使用内联气泡（关闭则始终打开网页翻译）"
+                                                             Margin="0,0,0,8" />
+                                            <ui:ToggleSwitch x:Name="ExplainEnabledBox"
+                                                             Content="启用浮窗 AI 解释按钮（仅在 AI 已配置时显示）" />
+                                        </StackPanel>
+                                    </Border>
 
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                                         <ui:Button Appearance="Secondary"

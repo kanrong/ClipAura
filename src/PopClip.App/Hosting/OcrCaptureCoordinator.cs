@@ -1,6 +1,8 @@
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Windows;
+using PopClip.App.Ocr;
 using PopClip.App.Services;
 using PopClip.App.UI;
 using PopClip.Core.Actions;
@@ -14,11 +16,15 @@ namespace PopClip.App.Hosting;
 /// <summary>把"全局热键 → 选区窗 → 截屏 → OCR → 浮窗"串成一条独立链路。
 /// 不进入选区状态机，是手动触发的第三采集路径。
 ///
-/// 同一时刻只允许有一个截图会话：用户在窗口已经打开时再次按热键不会叠开第二个窗口</summary>
+/// 同一时刻只允许有一个截图会话：用户在窗口已经打开时再次按热键不会叠开第二个窗口。
+///
+/// OCR 后端通过 <see cref="OcrProviderRegistry"/> 动态选择：用户在设置里选哪个就用哪个，
+/// "自动"模式按 Priority 倒序选第一个 IsAvailable 的。每次 Trigger / RecognizeBitmapAsync
+/// 都重新 PickActive，所以用户在运行期间切换 provider / 修复缺失文件后无需重启即可生效。</summary>
 internal sealed class OcrCaptureCoordinator
 {
     private readonly ILog _log;
-    private readonly OcrService _ocr;
+    private readonly OcrProviderRegistry _registry;
     private readonly SelectionSessionManager _session;
     private readonly ClipboardWriter _clipboard;
     private readonly ClipboardAccess _clipboardAccess;
@@ -28,7 +34,7 @@ internal sealed class OcrCaptureCoordinator
 
     public OcrCaptureCoordinator(
         ILog log,
-        OcrService ocr,
+        OcrProviderRegistry registry,
         SelectionSessionManager session,
         ClipboardWriter clipboard,
         ClipboardAccess clipboardAccess,
@@ -36,7 +42,7 @@ internal sealed class OcrCaptureCoordinator
         IInlineBubblePresenter? bubble = null)
     {
         _log = log;
-        _ocr = ocr;
+        _registry = registry;
         _session = session;
         _clipboard = clipboard;
         _clipboardAccess = clipboardAccess;
@@ -46,17 +52,19 @@ internal sealed class OcrCaptureCoordinator
 
     public void Trigger()
     {
-        if (!EnsureAvailableOrNotify()) return;
+        var provider = PickActiveOrNotify();
+        if (provider is null) return;
 
-        // 提前预热引擎：用户从按热键到松开拖框通常 1~2 秒，ONNX session 冷启动 ~500 ms-1 秒，
-        // 在蒙层弹出的同时后台加载模型可以把感知延迟压到接近 0
-        _ocr.PrewarmInBackground();
+        // 提前预热活跃 provider：用户从按热键到松开拖框通常 1~2 秒，
+        // RapidOcr / ChineseLite 冷启动 ~500 ms-1 秒（ONNX session 加载），
+        // WeChat 是 no-op（wcocr 内部按需 spawn 子进程），
+        // 在蒙层弹出的同时后台加载可以把感知延迟压到接近 0
+        provider.PrewarmInBackground();
 
         WpfApplication.Current.Dispatcher.Invoke(() =>
         {
             if (_currentWindow is not null)
             {
-                // 已有截图会话在进行中：把它前置并 return，避免叠开多个蒙层
                 try { _currentWindow.Activate(); } catch { }
                 return;
             }
@@ -75,8 +83,9 @@ internal sealed class OcrCaptureCoordinator
 
     public void TriggerClipboardImage(SelectionRect anchorRect)
     {
-        if (!EnsureAvailableOrNotify()) return;
-        _ocr.PrewarmInBackground();
+        var provider = PickActiveOrNotify();
+        if (provider is null) return;
+        provider.PrewarmInBackground();
         _ = Task.Run(() => RunClipboardImageAsync(anchorRect));
     }
 
@@ -90,7 +99,7 @@ internal sealed class OcrCaptureCoordinator
             // 80 ms ≈ 5 帧，足够覆盖普通显示刷新率甚至 30Hz 远程会话
             await Task.Delay(80).ConfigureAwait(false);
 
-            using var bitmap = new Bitmap(physical.Width, physical.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+            using var bitmap = new Bitmap(physical.Width, physical.Height, PixelFormat.Format24bppRgb);
             using (var g = Graphics.FromImage(bitmap))
             {
                 g.CopyFromScreen(physical.Left, physical.Top, 0, 0, bitmap.Size);
@@ -145,19 +154,43 @@ internal sealed class OcrCaptureCoordinator
 
     private async Task RecognizeBitmapAsync(Bitmap bitmap, SelectionRect anchorRect, string source)
     {
-        // 引擎未就绪时识别可能耗时 1~3 秒（含 ONNX 三个 session 冷启动），先给个轻量 toast
-        // 让用户感知到正在工作；已就绪时跳过 toast 避免噪音。
-        // 用 ShowToastAt 而不是 ShowInlineToast：识别失败 / 加载中场景浮窗本身不会显示，
-        // ShowInlineToast 拿浮窗的 Left/Top 锚定会落到屏幕外，用户看不到
-        if (!_ocr.IsEngineReady)
+        var provider = _registry.PickActive();
+        if (provider is null)
         {
-            ShowAnchoredToast("OCR 识别中…", anchorRect, isError: false, durationMs: 1500);
+            NotifyNoProvider();
+            return;
         }
 
-        // 超时给 30 秒：冷启动 + 大图识别极端情况下也够用，避免误杀正常请求
+        // 引擎未就绪时识别可能耗时 1~3 秒（含 ONNX 三个 session 冷启动 / WeChatOCR 子进程 spawn），
+        // 先给个轻量 toast 让用户感知到正在工作；已就绪时跳过 toast 避免噪音
+        if (!provider.IsEngineReady)
+        {
+            ShowAnchoredToast($"OCR 识别中… ({provider.DisplayName})", anchorRect, isError: false, durationMs: 1500);
+        }
+
+        // Bitmap → PNG bytes：跨 provider 统一输入。PNG 编码 ~10-30 ms，相对 OCR 本身的 300 ms 可忽略
+        byte[] pngBytes;
+        using (var ms = new MemoryStream())
+        {
+            bitmap.Save(ms, ImageFormat.Png);
+            pngBytes = ms.ToArray();
+        }
+
+        // 超时给 30 秒：冷启动 + 大图识别 + WeChat 子进程通信极端情况下也够用
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        var text = await _ocr.RecognizeAsync(bitmap, cts.Token).ConfigureAwait(false);
-        _log.Info("ocr recognized", ("len", text.Length), ("source", source));
+        string text;
+        try
+        {
+            text = await provider.RecognizeAsync(pngBytes, cts.Token).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _log.Error($"ocr provider failed: {provider.Id}", ex);
+            ShowAnchoredToast($"OCR 失败: {ex.Message}", anchorRect, isError: true, durationMs: 4000);
+            return;
+        }
+        _log.Info("ocr recognized",
+            ("len", text.Length), ("source", source), ("provider", provider.Id));
 
         var trimmed = text.Trim();
         if (string.IsNullOrEmpty(trimmed))
@@ -181,11 +214,10 @@ internal sealed class OcrCaptureCoordinator
         if (_bubble is not null)
         {
             _ = WpfApplication.Current.Dispatcher.BeginInvoke(new Action(() =>
-                _bubble.ShowStatic($"OCR · {trimmed.Length} 字", trimmed, canReplace: false)));
+                _bubble.ShowStatic($"OCR · {provider.DisplayName} · {trimmed.Length} 字", trimmed, canReplace: false)));
         }
         else
         {
-            // 兜底：没有 bubble 时还原老行为，发一个简短 toast
             var preview = BuildPreview(trimmed);
             _ = WpfApplication.Current.Dispatcher.BeginInvoke(new Action(() =>
                 _toolbar.ShowInlineToast(
@@ -195,26 +227,32 @@ internal sealed class OcrCaptureCoordinator
         }
     }
 
-    private bool EnsureAvailableOrNotify()
+    private IOcrProvider? PickActiveOrNotify()
     {
-        if (_ocr.IsAvailable) return true;
+        var provider = _registry.PickActive();
+        if (provider is null) NotifyNoProvider();
+        return provider;
+    }
 
-        // 模型与 native runtime (ONNX Runtime + SkiaSharp) 随程序一起分发，IsAvailable=false
-        // 只可能是初始化阶段加载 native lib 失败（VC++ 运行库缺失 / 安全软件拦截 / 模型文件被误删）。
-        // 提示用户检查日志而不是去配置语言包
-        WpfApplication.Current.Dispatcher.Invoke(() =>
+    /// <summary>所有 provider 都不可用时弹一次 MessageBox，把各 provider 的不可用原因列出来。
+    /// 这样用户能在一个对话框里看到三种安装路径，按需选一个去补文件即可。</summary>
+    private void NotifyNoProvider()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("当前没有可用的 OCR 后端。请按下列任一方式启用：");
+        sb.AppendLine();
+        foreach (var p in _registry.All)
         {
-            MessageBox.Show(
-                "OCR 引擎初始化失败。\n\n请确认：\n"
-                + "• 已安装 Visual C++ 2019/2022 Redistributable (x64)；\n"
-                + "• 安全软件未拦截 onnxruntime / libSkiaSharp 相关 DLL；\n"
-                + "• 程序目录下 models\\v5\\ 中的 4 个模型文件未被误删。\n\n"
-                + "详细错误请查看应用日志。",
-                "OCR 不可用",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-        });
-        return false;
+            sb.AppendLine($"• {p.DisplayName}");
+            sb.AppendLine($"  状态：{p.UnavailableReason ?? "可用"}");
+            sb.AppendLine();
+        }
+        sb.AppendLine("详情见各 provider 目录下的 README.md。");
+
+        var msg = sb.ToString();
+        _log.Warn("ocr no available provider, user notified");
+        WpfApplication.Current.Dispatcher.Invoke(() =>
+            MessageBox.Show(msg, "OCR 不可用", MessageBoxButton.OK, MessageBoxImage.Warning));
     }
 
     /// <summary>给 toast 用的内容预览：去掉换行、压缩空白、最多 36 字符 + 省略号。

@@ -46,6 +46,16 @@ ScaffoldingReadMe.txt
 *~
 CodeCoverage/
 
+# OCR plugin: 用户/开发者本地放的第三方二进制不入仓库
+# wcocr.dll 来自 https://github.com/swigger/wechat-ocr/releases (Apache-2.0)，
+# 大小 ~2 MB，每个开发者按需放一份；publish/打包时再决定是否带它
+src/PopClip.App/plugins/ocr/wechat/wcocr.dll
+src/PopClip.App/plugins/ocr/wechat/*.pdb
+# wcocr.dll 可能依赖的运行时 dll（C++ runtime 影子拷贝等）也不入仓库；
+# README.md 等说明文件正常提交
+src/PopClip.App/plugins/ocr/wechat/*.dll
+!src/PopClip.App/plugins/ocr/wechat/.gitkeep
+
 # MSBuild Binary and Structured Log
 *.binlog
 

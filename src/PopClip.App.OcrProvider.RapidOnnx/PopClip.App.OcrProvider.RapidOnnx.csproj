@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- net10.0 plain：plugin 不依赖任何 Windows-only API（用 SkiaSharp 而非 System.Drawing），
+         保持跨平台潜力；主程序 net10.0-windows10.0.19041.0 加载它没问题 (UAP -> .NET 兼容方向)。
+         EnableDynamicLoading=true 是 .NET 5+ 引入的"plugin 项目"专用属性：
+         (1) 生成 deps.json 时把 framework assemblies (System.*) 标记为"不复制 + 共享"，
+             避免与主进程加载两份 BCL；
+         (2) 把非 framework 的引用 dll 全部 copy local 到输出目录，包括 transitive；
+         (3) 自动设置 PreserveCompilationContext=true 让运行时能用 deps.json 解析依赖。 -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>PopClip.App.Ocr.Providers</RootNamespace>
+    <AssemblyName>PopClip.App.OcrProvider.RapidOnnx</AssemblyName>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <!-- 编译为 plugin，不直接被 dotnet run 执行，但要保留 deps.json/runtimes 让主程序的
+         AssemblyDependencyResolver 能解析依赖 -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <!-- 锁定 win-x64：默认会把 RapidOcrNet → OnnxRuntime / SkiaSharp 里所有 RID 的 native asset
+         (Linux .so / macOS .dylib / Android .aar / iOS xcframework) 全复制过来，~300 MB。
+         ClipAura 是 Windows-only，只留 win-x64 后 plugin 体积降到 ~25 MB。
+         RuntimeIdentifier 只影响 native asset 选择，managed dll (RapidOcrNet/OnnxRuntime/SkiaSharp) 都是跨平台 IL -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- IOcrProvider 接口契约：必须与主程序加载同一份 dll，否则 cast 会失败。
+         Private=false 让主程序不要把 Abstractions.dll 复制到 plugin runtime 子目录，
+         运行时由 OcrPluginLoader 的 SharedAssemblies 列表导向主程序加载的那份 -->
+    <ProjectReference Include="..\PopClip.App.Ocr.Abstractions\PopClip.App.Ocr.Abstractions.csproj">
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </ProjectReference>
+    <!-- ILog 接口：同样需要主程序共享 -->
+    <ProjectReference Include="..\PopClip.Core\PopClip.Core.csproj">
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- RapidOcrNet 默认带 latin 模型，会被它的 build target 自动 copy 到 bin/models/v5/。
+         我们用中文模型（PP-OCRv5）覆盖，由 plugins/ocr/rapid-onnx/v5/ 提供，
+         所以 ExcludeAssets=build 屏蔽它自带的 copy target -->
+    <PackageReference Include="RapidOcrNet" Version="2.0.0" ExcludeAssets="build" />
+  </ItemGroup>
+
+</Project>

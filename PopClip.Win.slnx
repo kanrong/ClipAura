@@ -1,7 +1,15 @@
 <Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+  </Configurations>
   <Folder Name="/src/">
     <Project Path="src/PopClip.Actions.BuiltIn/PopClip.Actions.BuiltIn.csproj" />
-    <Project Path="src/PopClip.App/PopClip.App.csproj" />
+    <Project Path="src/PopClip.App/PopClip.App.csproj">
+      <Platform Solution="*|x64" Project="x64" />
+    </Project>
+    <Project Path="src/PopClip.App.Ocr.Abstractions/PopClip.App.Ocr.Abstractions.csproj" />
+    <Project Path="src/PopClip.App.OcrProvider.RapidOnnx/PopClip.App.OcrProvider.RapidOnnx.csproj" />
     <Project Path="src/PopClip.Core/PopClip.Core.csproj" />
     <Project Path="src/PopClip.Hooks/PopClip.Hooks.csproj" />
     <Project Path="src/PopClip.Uia/PopClip.Uia.csproj" />

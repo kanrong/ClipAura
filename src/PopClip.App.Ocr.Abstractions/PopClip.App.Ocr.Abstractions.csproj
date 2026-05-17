@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- 仅放接口契约 (IOcrProvider + OcrProviderIds)，主程序和各 OCR plugin 都引用。
+         RootNamespace 与 AssemblyName 故意分离：让源码继续用 PopClip.App.Ocr 命名空间，
+         调用方 using 完全不变；只是物理 dll 拆出来做"主程序与 plugin 共享"。
+         net10.0 plain (不带 windows TFM)：plugin 可能跑在跨平台的 OCR 实现里，
+         接口本身不应该绑 Windows -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>PopClip.App.Ocr</RootNamespace>
+    <AssemblyName>PopClip.App.Ocr.Abstractions</AssemblyName>
+  </PropertyGroup>
+
+</Project>

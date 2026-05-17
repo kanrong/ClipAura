@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using PopClip.Actions.BuiltIn;
 using PopClip.App.Config;
+using PopClip.App.Ocr;
 using PopClip.App.Services;
 using PopClip.Core.Actions;
 using PopClip.Core.Logging;
@@ -53,6 +54,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     private readonly IConversationStore? _historyStore;
     private readonly IUsageRecorder? _usage;
     private readonly Action<string>? _onOpenConversation;
+    private readonly IReadOnlyList<IOcrProvider> _ocrProviders;
     private WpfPoint _dragStartPoint;
     private ActionEditorItem? _dragItem;
     private string _currentAiKeyBucket = AiProviderCatalog.DeepSeekKeyBucket;
@@ -171,13 +173,15 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         string? initialPage = null,
         IConversationStore? historyStore = null,
         IUsageRecorder? usage = null,
-        Action<string>? onOpenConversation = null)
+        Action<string>? onOpenConversation = null,
+        IReadOnlyList<IOcrProvider>? ocrProviders = null)
     {
         _store = store;
         _settings = settings;
         _historyStore = historyStore;
         _usage = usage;
         _onOpenConversation = onOpenConversation;
+        _ocrProviders = ocrProviders ?? Array.Empty<IOcrProvider>();
         // 构造期间禁止 commit：Bind() 内大量控件初始化赋值会触发 Changed 事件，
         // 必须由 Loaded 阶段统一释放，避免在数据还没就位时就开始写盘
         _suspendCommit = true;
@@ -316,6 +320,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         ToolbarHotKeyBox.Text = _settings.ToolbarHotKey;
         OcrHotKeyBox.Text = _settings.OcrHotKey;
 
+        BindOcrProviders();
+
         BindAiSettings();
 
         var actions = _store.LoadActions() ?? CreateDefaultActions();
@@ -325,6 +331,91 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         }
         RefreshToolbarPreview();
     }
+
+    /// <summary>OCR provider 选择 + 状态展示。
+    ///
+    /// 数据流：
+    /// (1) 把 Registry 已注册的所有 provider 翻成 ComboBox 选项；
+    /// (2) 第一项硬编码"自动"，对应空 id（settings.OcrProviderId = ""）；
+    /// (3) 后续每项前缀 ✓/✗，让用户在不展开下拉的情况下也能看出可用性；
+    /// (4) 详情区列出所有 provider 的当前状态，缺文件 / 初始化失败的会直接给出修复指引。
+    ///
+    /// 注意：provider.IsAvailable / UnavailableReason 是动态求值的（轻量文件 IO），
+    /// 每次打开设置页都会重新看一遍当前状态，不需要 push 通知。</summary>
+    private void BindOcrProviders()
+    {
+        // 自动模式 + 各 provider；id 用空串表示"自动"（settings 也存空串）
+        var choices = new List<OcrProviderChoice>
+        {
+            new("", "自动 (按优先级选可用项)"),
+        };
+        foreach (var p in _ocrProviders.OrderByDescending(p => p.Priority))
+        {
+            var mark = p.IsAvailable ? "✓" : "✗";
+            choices.Add(new OcrProviderChoice(p.Id, $"{mark}  {p.DisplayName}"));
+        }
+        OcrProviderBox.ItemsSource = choices;
+        OcrProviderBox.SelectedValue = _settings.OcrProviderId ?? "";
+        if (OcrProviderBox.SelectedItem is null) OcrProviderBox.SelectedIndex = 0;
+
+        RefreshOcrProviderHint();
+    }
+
+    /// <summary>更新右侧"活跃 provider 简介"与底部"详情/缺件指引"。
+    /// 选择切换 / 文件复制后调用即可，纯展示无副作用</summary>
+    private void RefreshOcrProviderHint()
+    {
+        var pickedId = (OcrProviderBox.SelectedValue as string) ?? "";
+        IOcrProvider? active;
+        if (string.IsNullOrWhiteSpace(pickedId))
+        {
+            active = _ocrProviders.Where(p => p.IsAvailable).OrderByDescending(p => p.Priority).FirstOrDefault();
+            OcrActiveProviderHint.Text = active is not null
+                ? $"当前活跃: {active.DisplayName}"
+                : "当前没有可用 OCR 后端";
+        }
+        else
+        {
+            active = _ocrProviders.FirstOrDefault(p => p.Id == pickedId);
+            if (active is null)
+                OcrActiveProviderHint.Text = $"未注册的 provider id: {pickedId}";
+            else if (active.IsAvailable)
+                OcrActiveProviderHint.Text = $"当前活跃: {active.DisplayName}";
+            else
+                OcrActiveProviderHint.Text = $"该 provider 暂不可用，将自动回退到其它可用 provider";
+        }
+
+        // 详情区把每个 provider 的状态都列出来，便于用户对照排查
+        var sb = new System.Text.StringBuilder();
+        foreach (var p in _ocrProviders.OrderByDescending(p => p.Priority))
+        {
+            sb.Append('•').Append(' ').Append(p.DisplayName);
+            if (p.IsAvailable)
+            {
+                sb.AppendLine("  (可用)");
+            }
+            else
+            {
+                sb.Append("  (不可用)");
+                sb.AppendLine();
+                sb.Append("    ").AppendLine(p.UnavailableReason ?? "未知原因");
+            }
+        }
+        OcrProviderDetailText.Text = sb.ToString().TrimEnd();
+    }
+
+    private void OnOcrProviderChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suspendCommit) return;
+        var picked = (OcrProviderBox.SelectedValue as string) ?? "";
+        if (_settings.OcrProviderId == picked) return;
+        _settings.OcrProviderId = picked;
+        _store.SaveSettings(_settings);
+        RefreshOcrProviderHint();
+    }
+
+    /// <summary>OCR provider ComboBox 的项目类型：Label 显示，Id 写入 settings。</summary>
+    public sealed record OcrProviderChoice(string Id, string Label);
 
     private void BindAiSettings()
     {

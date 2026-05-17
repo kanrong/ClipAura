@@ -156,8 +156,14 @@ public sealed class AppSettings
     public string ToolbarHotKey { get; set; } = "Ctrl+Alt+Space";
 
     /// <summary>区域 OCR 截选热键。按下后弹出全屏蒙层让用户拉框，
-    /// 截图区域被 RapidOcrNet (PP-OCRv5 ONNX) 引擎识别后走与正常选区相同的浮窗 + 动作链路</summary>
+    /// 截图区域被当前活跃的 OCR provider 识别后走与正常选区相同的浮窗 + 动作链路</summary>
     public string OcrHotKey { get; set; } = "Ctrl+Alt+O";
+
+    /// <summary>OCR provider 用户偏好。
+    /// 空串 / null = 自动模式，按 Priority 倒序选第一个可用的 provider（默认推荐）。
+    /// 显式 id 见 PopClip.App.Ocr.OcrProviderIds：rapid-onnx / wechat / chineseocr-lite。
+    /// 用户选了某 provider 但它当前不可用时，运行时会 fallback 到自动模式（不写回 settings，避免误改用户偏好）</summary>
+    public string OcrProviderId { get; set; } = "";
 
     // ================== 浮窗自动消失触发条件 ==================
     // 鼠标离开浮窗一段时间后自动关闭

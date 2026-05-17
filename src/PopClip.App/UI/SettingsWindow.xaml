@@ -1139,6 +1139,40 @@
                                     </Grid>
                                 </StackPanel>
                             </Border>
+
+                            <!-- OCR 后端选择：列出所有已注册 provider，缺文件 / 初始化失败的会标 ✗ 并给出修复指引 -->
+                            <Border Style="{StaticResource Settings.Card}" Margin="0,16,0,0">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="OCR 后端" Margin="0,0,0,4" />
+                                    <TextBlock Style="{StaticResource Settings.HintText}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,12"
+                                               Text="按 plugins\ocr\{provider}\ 目录文件存在性自动启用。&quot;自动&quot;模式按优先级选可用项；详情见各目录下 README.md。" />
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="180" />
+                                            <ColumnDefinition Width="320" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="选择 Provider" />
+                                        <ComboBox Grid.Column="1"
+                                                  x:Name="OcrProviderBox"
+                                                  DisplayMemberPath="Label"
+                                                  SelectedValuePath="Id"
+                                                  SelectionChanged="OnOcrProviderChanged" />
+                                        <TextBlock Grid.Column="2"
+                                                   x:Name="OcrActiveProviderHint"
+                                                   Style="{StaticResource Settings.HintText}"
+                                                   VerticalAlignment="Center"
+                                                   Margin="12,0,0,0"
+                                                   TextWrapping="Wrap" />
+                                    </Grid>
+                                    <TextBlock x:Name="OcrProviderDetailText"
+                                               Style="{StaticResource Settings.HintText}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,8,0,0" />
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
 
                         <!-- ===================== AI ===================== -->

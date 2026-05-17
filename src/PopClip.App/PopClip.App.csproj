@@ -4,8 +4,8 @@
     <OutputType>WinExe</OutputType>
     <!-- net10.0-windows + 10.0.19041.0 SDK：保留 SDK 主要为兼容历史代码里残留的 WinRT 互操作 API
          （UIA / clipboard 通过 P/Invoke 不依赖 WinRT；以后清理完可降到 net10.0-windows）。
-         OCR 后端使用 RapidOcrNet（PP-OCRv5 ONNX 模型 + ONNX Runtime + SkiaSharp），
-         总占用 ~50MB，比 PaddleOCR (paddle_inference_c + MKL) 的 ~380MB 大幅缩减。 -->
+         OCR 后端拆成"按需 plugin"：主程序只编译 WeChat provider 与抽象层，
+         RapidOCR 由独立 csproj 编译到 plugins/ocr/rapid-onnx/runtime/，~25 MB 依赖按需启用。 -->
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <Nullable>enable</Nullable>
@@ -16,6 +16,9 @@
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <RootNamespace>PopClip.App</RootNamespace>
     <AssemblyName>ClipAura</AssemblyName>
+    <Platforms>AnyCPU;x64</Platforms>
+	<PlatformTarget>x64</PlatformTarget>
+	<RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,21 +26,44 @@
     <ProjectReference Include="..\PopClip.Hooks\PopClip.Hooks.csproj" />
     <ProjectReference Include="..\PopClip.Uia\PopClip.Uia.csproj" />
     <ProjectReference Include="..\PopClip.Actions.BuiltIn\PopClip.Actions.BuiltIn.csproj" />
+    <!-- OCR 抽象层 (IOcrProvider 接口契约)：主程序与所有 plugin 共享同一份 dll，
+         保证跨 AssemblyLoadContext 的类型一致性 -->
+    <ProjectReference Include="..\PopClip.App.Ocr.Abstractions\PopClip.App.Ocr.Abstractions.csproj" />
+    <!-- RapidOCR plugin：用 ReferenceOutputAssembly=false 阻止它把 dll 进 ClipAura 的引用图，
+         但仍触发 plugin 项目的 build 顺序依赖。实际复制 plugin 产出到 plugins/ocr/rapid-onnx/runtime/
+         由下面的 CopyRapidOnnxPlugin target 完成 -->
+    <ProjectReference Include="..\PopClip.App.OcrProvider.RapidOnnx\PopClip.App.OcrProvider.RapidOnnx.csproj" ReferenceOutputAssembly="false" Private="false" OutputItemType="OcrPluginAssembly" SetTargetFramework="TargetFramework=net10.0" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
     <PackageReference Include="MahApps.Metro.IconPacks.MaterialDesign" Version="6.2.1" />
-    <!-- RapidOcrNet 默认带 latin (英文) 模型，会被它的 build target 自动 copy 到 bin/models/v5/。
-         我们要用中文模型（ch_PP-OCRv5_rec_mobile + ppocrv5_dict）覆盖，
-         所以 ExcludeAssets=build 屏蔽它自带的 copy target，由下面 Assets\OcrModels 节统一负责模型分发 -->
-    <PackageReference Include="RapidOcrNet" Version="2.0.0" ExcludeAssets="build" />
     <PackageReference Include="WPF-UI" Version="4.3.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
     <!-- net10 起 System.Drawing.Common 已是 Microsoft.WindowsDesktop.App 自带的 framework 引用，
          不再需要显式 PackageReference -->
   </ItemGroup>
+
+  <!-- 把 RapidOCR plugin 项目的整套输出（dll + deps.json + runtimes/win-x64/native/）
+       复制到 bin/plugins/ocr/rapid-onnx/runtime/。
+       plugin 项目用 EnableDynamicLoading=true 已经把 framework assembly 排除了，
+       只剩 RapidOcrNet / Microsoft.ML.OnnxRuntime / SkiaSharp 这几个真正需要的本地 + native dll -->
+  <Target Name="CopyRapidOnnxPlugin" AfterTargets="Build">
+    <PropertyGroup>
+      <!-- plugin 项目设了 RuntimeIdentifier=win-x64，所以 bin 路径多一层 win-x64\ -->
+      <_RapidPluginSrc>$(MSBuildThisFileDirectory)..\PopClip.App.OcrProvider.RapidOnnx\bin\$(Configuration)\net10.0\win-x64\</_RapidPluginSrc>
+      <_RapidPluginDst>$(OutDir)plugins\ocr\rapid-onnx\runtime\</_RapidPluginDst>
+    </PropertyGroup>
+    <ItemGroup>
+      <!-- .lib 是 native 导入库，仅链接器需要，运行时无用，~0 字节但乱入也是噪音；
+           .pdb / .xml 是调试 / 文档资源，发布时同样不需要；
+           runtimeconfig.json 与 .deps.json 中只保留 .deps.json：runtimeconfig 是 dotnet-host 启动时
+           读的，PluginLoadContext 走 AssemblyDependencyResolver 不读它 -->
+      <_RapidPluginFiles Include="$(_RapidPluginSrc)**\*.*" Exclude="$(_RapidPluginSrc)**\*.pdb;$(_RapidPluginSrc)**\*.xml;$(_RapidPluginSrc)**\*.lib;$(_RapidPluginSrc)**\*.runtimeconfig*.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_RapidPluginFiles)" DestinationFiles="@(_RapidPluginFiles->'$(_RapidPluginDst)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
 
   <ItemGroup>
     <None Update="actions.json">
@@ -50,11 +76,14 @@
     <Resource Include="Assets\AppIcon.ico" />
   </ItemGroup>
 
-  <!-- PP-OCRv5 中英文模型分发：把 Assets\OcrModels\v5\ 下的 4 个文件原样 copy 到 bin\models\v5\，
-       与 RapidOcrNet 期望的目录结构对齐。覆盖 NuGet 包自带的 latin 模型，专门支持中英文识别。
-       模型来源：https://www.modelscope.cn/models/RapidAI/RapidOCR (RapidAI/RapidOCR v3.8.0) -->
+  <!-- OCR 插件目录分发：把整个 Plugins\ 目录原样 copy 到 bin\plugins\，保持源码与运行时同一套约定。
+       三个 OCR provider 的依赖文件位置（由 OcrProviderRegistry 自动探测）：
+       - plugins\ocr\rapid-onnx\v5\    内置默认 provider 的 PP-OCRv5 中英文模型（4 个文件 ~21 MB）
+       - plugins\ocr\wechat\           用户手动放置 wcocr.dll + 可选 paths.json
+       - plugins\ocr\chineseocr-lite\  用户手动放置 dbnet.onnx + cls + crnn + keys.txt
+       README.md 跟着一起 copy，方便用户在安装目录下查文档 -->
   <ItemGroup>
-    <None Include="Assets\OcrModels\v5\*.*" Link="models\v5\%(Filename)%(Extension)">
+    <None Include="plugins\**\*.*" Link="plugins\%(RecursiveDir)%(Filename)%(Extension)">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

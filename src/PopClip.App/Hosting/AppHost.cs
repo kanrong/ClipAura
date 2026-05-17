@@ -1,5 +1,7 @@
 using PopClip.Actions.BuiltIn;
 using PopClip.App.Config;
+using PopClip.App.Ocr;
+using PopClip.App.Ocr.Providers;
 using PopClip.App.Services;
 using PopClip.App.UI;
 using PopClip.Core.Logging;
@@ -9,6 +11,7 @@ using PopClip.Uia;
 using PopClip.Uia.Clipboard;
 using Microsoft.Win32;
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using WpfApplication = System.Windows.Application;
 
@@ -40,7 +43,7 @@ internal sealed class AppHost : IDisposable
     private SqliteUsageRecorder? _usage;
     private ClipboardHistoryService? _clipHistory;
     private ClipboardHistoryLauncher? _clipHistoryLauncher;
-    private OcrService? _ocr;
+    private OcrProviderRegistry? _ocrRegistry;
     private OcrCaptureCoordinator? _ocrCoordinator;
 
     public bool TryAcquireSingleInstance()
@@ -149,11 +152,16 @@ internal sealed class AppHost : IDisposable
             if (key.IsDown && key.VirtualKey == 0x1B) return AiBubbleWindow.TryHandleEscape();
             return false;
         };
-        // OCR 引擎：构造期不抛异常，未安装语言包时 IsAvailable=false 并在 trigger 时给用户清晰提示。
-        // OcrCaptureCoordinator 需要 ClipboardWriter 和 FloatingToolbar：
-        // 识别成功后会把文本写剪贴板兜底、再用 InlineToast 5s 给用户清晰反馈
-        _ocr = new OcrService(_log);
-        _ocrCoordinator = new OcrCaptureCoordinator(_log, _ocr, _session, clipboardWriter, clipboardAccess, _toolbar, bubblePresenter);
+        // OCR provider 注册：WeChat 编译进主程序（代码极少，依赖 dll 用户提供），
+        // RapidOcr 走 plugin 目录动态加载（onnxruntime / SkiaSharp 共 ~25 MB 拆出主程序）。
+        // 所有 provider 都遵循"按需 native 加载"：构造不做任何重活，第一次 PrewarmInBackground / RecognizeAsync 才碰底层
+        var pluginRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "plugins");
+        var rapidProviders = OcrPluginLoader.LoadAll(_log, pluginRoot);
+        var wechatProvider = new WeChatOcrProvider(_log);
+        _ocrRegistry = new OcrProviderRegistry(_log,
+            preferredIdReader: () => _settings?.OcrProviderId,
+            providers: rapidProviders.Concat(new IOcrProvider[] { wechatProvider }));
+        _ocrCoordinator = new OcrCaptureCoordinator(_log, _ocrRegistry, _session, clipboardWriter, clipboardAccess, _toolbar, bubblePresenter);
         // 暴露给"剪贴板启动器"用作 OCR 按钮的点击回调
         _session.OcrLauncher = () => _ocrCoordinator?.Trigger();
         _session.ClipboardImageOcrLauncher = anchor => _ocrCoordinator?.TriggerClipboardImage(anchor);
@@ -211,7 +219,8 @@ internal sealed class AppHost : IDisposable
                 _store!, _settings!, initialPage,
                 historyStore: _historyStore,
                 usage: _usage,
-                onOpenConversation: ReopenConversation);
+                onOpenConversation: ReopenConversation,
+                ocrProviders: _ocrRegistry?.All);
             _settingsWindow.Saved += () => ApplyRuntimeSettings(reloadActions: true);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
             _settingsWindow.Show();
@@ -318,9 +327,10 @@ internal sealed class AppHost : IDisposable
         _tray?.Dispose();
         _clipHistory?.Dispose();
         _clipboardThread?.Dispose();
-        // RapidOcr 持有三个 ONNX InferenceSession 与 ~21 MB 模型句柄，应用退出时显式释放，
-        // 避免 process tear-down 阶段 native finalizer 顺序不可控引发的崩溃
-        _ocr?.Dispose();
+        // OCR Registry 负责释放所有 provider：RapidOcr 持三个 ONNX InferenceSession，
+        // WeChat 还会调 stop_ocr 终止驻留的 WeChatOCR.exe 子进程；
+        // 都集中在 Registry.Dispose 里串行处理，避免 process tear-down 阶段 native finalizer 乱序
+        _ocrRegistry?.Dispose();
         _instance?.Dispose();
     }
 }

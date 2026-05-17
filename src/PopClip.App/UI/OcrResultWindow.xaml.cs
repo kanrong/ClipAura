@@ -11,7 +11,6 @@ using PopClip.App.Config;
 using PopClip.App.Ocr;
 using PopClip.App.Services;
 using PopClip.Core.Logging;
-using PopClip.Core.Text;
 using WpfPoint = System.Windows.Point;
 
 namespace PopClip.App.UI;
@@ -40,6 +39,7 @@ internal partial class OcrResultWindow : Window
     private readonly AppSettings _settings;
     private readonly AiTextService? _aiText;
     private readonly Action? _onCloseRequested;
+    private readonly string _layoutFullText;
 
     /// <summary>用户在结果窗点"Quick 输出"时调用：交给 Coordinator 走一遍 Quick 模式渲染
     /// （剪贴板 + 浮窗气泡 + toast），不修改 settings.OcrResultMode。
@@ -79,7 +79,6 @@ internal partial class OcrResultWindow : Window
 
     /// <summary>翻译期间禁用相关按钮 / 显示 loading 文案的标志位</summary>
     private bool _translating;
-    private string? _organizedFullText;
 
     public OcrResultWindow(
         ILog log,
@@ -89,6 +88,7 @@ internal partial class OcrResultWindow : Window
         ClipboardWriter clipboard,
         AppSettings settings,
         AiTextService? aiText,
+        string? layoutFullText = null,
         Action<string>? quickFallback = null,
         Action? onCloseRequested = null)
     {
@@ -97,6 +97,7 @@ internal partial class OcrResultWindow : Window
         _clipboard = clipboard;
         _settings = settings;
         _aiText = aiText;
+        _layoutFullText = string.IsNullOrWhiteSpace(layoutFullText) ? "" : layoutFullText.Trim();
         _quickFallback = quickFallback;
         _onCloseRequested = onCloseRequested;
         _selected = new bool[result.Blocks.Count];
@@ -496,7 +497,6 @@ internal partial class OcrResultWindow : Window
     private void OnCloseClicked(object sender, RoutedEventArgs e) => CommandClose();
     private void OnSelectAllMenu(object sender, RoutedEventArgs e) => SelectAll();
     private void OnSwitchToQuick(object sender, RoutedEventArgs e) => CommandSwitchToQuick();
-    private void OnOrganizeParagraphs(object sender, RoutedEventArgs e) => CommandOrganizeParagraphs();
     private void OnTranslateSelected(object sender, RoutedEventArgs e) => CommandTranslateSelected();
     private void OnTranslateAll(object sender, RoutedEventArgs e) => CommandTranslateAll();
     private void OnTranslateClear(object sender, RoutedEventArgs e) => CommandTranslateClear();
@@ -562,27 +562,6 @@ internal partial class OcrResultWindow : Window
             try { fallback(text); }
             catch (Exception ex) { _log.Warn("quick fallback failed", ("err", ex.Message)); }
         }), DispatcherPriority.Background);
-    }
-
-    public void CommandOrganizeParagraphs()
-    {
-        var source = OriginalFullText();
-        if (string.IsNullOrWhiteSpace(source))
-        {
-            ShowToast("没有可整理的 OCR 文本");
-            return;
-        }
-
-        var organized = OcrParagraphOrganizer.Organize(source);
-        _organizedFullText = organized;
-        CopyTextSilently(organized);
-
-        var changed = !string.Equals(source.Trim(), organized, StringComparison.Ordinal);
-        var lineCount = CountLines(organized);
-        ShowToast(changed
-            ? $"已整理为 {lineCount} 行 / {organized.Length} 字，并复制"
-            : "段落无需整理，已复制全文");
-        UpdateStatusBar();
     }
 
     public void CommandTranslateAll() => _ = TranslateAsync(Enumerable.Range(0, _result.Blocks.Count).ToList());
@@ -782,12 +761,11 @@ internal partial class OcrResultWindow : Window
     }
 
     private string EffectiveFullText()
-        => !string.IsNullOrWhiteSpace(_organizedFullText)
-            ? _organizedFullText!
-            : OriginalFullText();
+        => OriginalFullText();
 
     private string OriginalFullText()
     {
+        if (!string.IsNullOrWhiteSpace(_layoutFullText)) return _layoutFullText;
         var text = _result.FullText;
         return string.IsNullOrWhiteSpace(text) ? JoinAllOriginalText() : text.Trim();
     }
@@ -839,13 +817,11 @@ internal partial class OcrResultWindow : Window
         _toolbarWindow?.SetTranslateAllEnabled(total > 0 && !_translating);
         bool hasTranslation = _translationOverlays.Any(o => o is not null);
         _toolbarWindow?.SetTranslateClearEnabled(hasTranslation && !_translating);
-        _toolbarWindow?.SetOrganizeEnabled(total > 0);
 
         // 同步右键菜单可用态
         MiCopySelected.IsEnabled = sel > 0;
         MiClearSel.IsEnabled = sel > 0;
         MiCopyAll.IsEnabled = total > 0;
-        MiOrganizeParagraphs.IsEnabled = total > 0;
         MiSelectAll.IsEnabled = total > 0 && sel < total;
         MiTranslateAll.IsEnabled = total > 0;
         MiTranslateSelected.IsEnabled = sel > 0;

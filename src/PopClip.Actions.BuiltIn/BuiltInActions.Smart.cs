@@ -488,8 +488,96 @@ internal sealed class CsvToMarkdownAction : BuiltInAction
             if (string.IsNullOrWhiteSpace(line)) continue;
             rows.Add(line.Split(',').Select(s => s.Trim()).ToList());
         }
+        NormalizeShortCsvRows(rows);
         return rows;
     }
+
+    private static void NormalizeShortCsvRows(List<List<string>> rows)
+    {
+        if (rows.Count < 2) return;
+        var width = rows[0].Count;
+        if (width < 2) return;
+
+        for (var r = 1; r < rows.Count; r++)
+        {
+            var row = rows[r];
+            if (row.Count == width - 1)
+            {
+                row.Insert(BestMissingCellIndex(rows[0], row), "");
+            }
+        }
+    }
+
+    private static int BestMissingCellIndex(IReadOnlyList<string> header, IReadOnlyList<string> row)
+    {
+        var width = header.Count;
+        var bestIndex = width - 1;
+        var bestScore = int.MinValue;
+        for (var missing = 0; missing < width; missing++)
+        {
+            var score = 0;
+            for (var col = 0; col < width; col++)
+            {
+                if (col == missing) continue;
+                var sourceIndex = col < missing ? col : col - 1;
+                score += HeaderCellAffinity(header[col], row[sourceIndex]);
+            }
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestIndex = missing;
+            }
+        }
+
+        return bestIndex;
+    }
+
+    private static int HeaderCellAffinity(string header, string cell)
+    {
+        var h = header.Trim().ToLowerInvariant();
+        var c = cell.Trim().ToLowerInvariant();
+        if (h.Length == 0 || c.Length == 0) return 0;
+        if (IsDateHeader(h) && LooksLikeDateCell(c)) return 4;
+        if (IsStatusHeader(h) && LooksLikeStatusCell(c)) return 4;
+        if (IsPriorityHeader(h) && LooksLikePriorityCell(c)) return 4;
+        return 0;
+    }
+
+    private static bool IsDateHeader(string header)
+        => header.Contains("日期", StringComparison.Ordinal)
+           || header.Contains("截止", StringComparison.Ordinal)
+           || header.Contains("date", StringComparison.Ordinal)
+           || header.Contains("deadline", StringComparison.Ordinal)
+           || header.Contains("due", StringComparison.Ordinal);
+
+    private static bool IsStatusHeader(string header)
+        => header.Contains("进度", StringComparison.Ordinal)
+           || header.Contains("状态", StringComparison.Ordinal)
+           || header.Contains("status", StringComparison.Ordinal)
+           || header.Contains("progress", StringComparison.Ordinal);
+
+    private static bool IsPriorityHeader(string header)
+        => header.Contains("优先级", StringComparison.Ordinal)
+           || header.Contains("priority", StringComparison.Ordinal);
+
+    private static bool LooksLikeDateCell(string cell)
+        => Regex.IsMatch(cell, @"^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$")
+           || Regex.IsMatch(cell, @"^\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}$");
+
+    private static bool LooksLikeStatusCell(string cell)
+        => cell is "未开始" or "进行中" or "已完成" or "完成" or "待办" or "暂停"
+           || cell.Contains("done", StringComparison.Ordinal)
+           || cell.Contains("todo", StringComparison.Ordinal)
+           || cell.Contains("progress", StringComparison.Ordinal)
+           || cell.Contains("pending", StringComparison.Ordinal);
+
+    private static bool LooksLikePriorityCell(string cell)
+        => cell is "高" or "中" or "低" or "紧急" or "普通"
+           || cell.Contains("high", StringComparison.Ordinal)
+           || cell.Contains("medium", StringComparison.Ordinal)
+           || cell.Contains("low", StringComparison.Ordinal)
+           || Regex.IsMatch(cell, @"^p[0-5]$");
 
     private static string EscapeMdCell(string s)
         => s.Replace("|", "\\|").Replace("\n", " ").Replace("\r", "");
@@ -543,8 +631,8 @@ internal static class SmartTextProbes
         return hasSeparator;
     }
 
-    /// <summary>识别 CSV：≥2 行非空，每行包含至少 1 个逗号，且各行逗号数一致。
-    /// 严格度高是为了避免普通段落（"今天，下雨；明天，晴。"）被当成 CSV</summary>
+    /// <summary>识别 CSV：≥2 行非空，表头至少 2 列，数据行允许完整或少 1 个字段。
+    /// 少 1 个字段用于覆盖 OCR / 手写 CSV 常见的漏空单元格场景；更残缺的文本仍拒绝，避免普通段落误触发。</summary>
     public static bool LooksLikeCsv(string text)
     {
         if (string.IsNullOrEmpty(text)) return false;
@@ -554,10 +642,11 @@ internal static class SmartTextProbes
                         .ToArray();
         if (lines.Length < 2) return false;
         var firstCommas = lines[0].Count(c => c == ',');
-        if (firstCommas < 1) return false;
-        foreach (var line in lines)
+        if (firstCommas < 2) return false;
+        for (var i = 1; i < lines.Length; i++)
         {
-            if (line.Count(c => c == ',') != firstCommas) return false;
+            var commas = lines[i].Count(c => c == ',');
+            if (commas != firstCommas && commas != firstCommas - 1) return false;
         }
         return true;
     }

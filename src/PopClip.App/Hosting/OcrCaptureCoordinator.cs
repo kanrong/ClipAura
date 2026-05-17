@@ -9,6 +9,7 @@ using PopClip.App.UI;
 using PopClip.Core.Actions;
 using PopClip.Core.Logging;
 using PopClip.Core.Model;
+using PopClip.Ocr.Layout;
 using PopClip.Uia.Clipboard;
 using WpfApplication = System.Windows.Application;
 using WpfRect = System.Windows.Rect;
@@ -202,9 +203,13 @@ internal sealed class OcrCaptureCoordinator
             ShowAnchoredToast($"OCR 失败: {ex.Message}", anchorRect, isError: true, durationMs: 4000);
             return;
         }
-        var fullText = result.FullText.Trim();
+        var layout = OcrLayoutAnalyzer.Analyze(result);
+        var fullText = !string.IsNullOrWhiteSpace(layout.PlainText)
+            ? layout.PlainText.Trim()
+            : result.FullText.Trim();
         _log.Info("ocr recognized",
             ("len", fullText.Length), ("blocks", result.Blocks.Count),
+            ("regions", layout.Regions.Count),
             ("source", source), ("provider", provider.Id));
 
         if (string.IsNullOrEmpty(fullText) || result.Blocks.Count == 0)
@@ -221,7 +226,7 @@ internal sealed class OcrCaptureCoordinator
             // iOS 风格：弹结果窗在截图位置上叠加高亮，用户点选 / 框选 / 复制。
             // 剪贴板与浮窗气泡都不在这条路径触发，所有反馈走结果窗内部；
             // 但允许结果窗按用户意愿"临时切到 Quick 输出"，传 quickFallback 回调让它能调用同一套 Quick 渲染
-            ShowInteractiveResult(result, pngBytes, anchorRect,
+            ShowInteractiveResult(result, pngBytes, anchorRect, fullText,
                 quickFallback: text => RenderQuickResult(text, anchorRect, provider.DisplayName));
             return;
         }
@@ -236,7 +241,7 @@ internal sealed class OcrCaptureCoordinator
     /// 而不需要重新走一遍 RecognizeAsync。两种触发：
     /// 1) settings.OcrResultMode == Quick 时 RecognizeBitmapAsync 直接调；
     /// 2) settings.OcrResultMode == Interactive 时，用户在结果窗点"Quick 输出" → quickFallback 回调。
-    ///    如果结果窗里先做了"整理段落"，这里接收并输出整理后的文本。
+    ///    结果窗会接收已按 OCR 版面分析过的全文，Quick 输出不再重复整理。
     ///
     /// 气泡比单行 toast 优势：
     /// - 支持多行，长文本 OCR 不会被截断；
@@ -266,7 +271,7 @@ internal sealed class OcrCaptureCoordinator
     /// <summary>把 OcrResult 用 iOS 风格弹窗展示出来。
     /// 必须切到 UI 线程：OcrResultWindow 是 WPF Window，跨线程构造会抛 InvalidOperationException。
     /// 同时同一时刻只允许一个结果窗，新结果直接关掉旧窗（避免叠层 + 多个 topmost 抢焦点）</summary>
-    private void ShowInteractiveResult(OcrResult result, byte[] pngBytes, SelectionRect anchorPhysical, Action<string> quickFallback)
+    private void ShowInteractiveResult(OcrResult result, byte[] pngBytes, SelectionRect anchorPhysical, string layoutFullText, Action<string> quickFallback)
     {
         WpfApplication.Current.Dispatcher.Invoke(() =>
         {
@@ -294,6 +299,7 @@ internal sealed class OcrCaptureCoordinator
 
             var win = new OcrResultWindow(_log, result, pngBytes, dipRect, _clipboard,
                 _settings, _aiText,
+                layoutFullText: layoutFullText,
                 quickFallback: quickFallback,
                 onCloseRequested: () =>
                 {

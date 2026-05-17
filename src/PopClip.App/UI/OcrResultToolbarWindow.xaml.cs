@@ -49,7 +49,6 @@ internal partial class OcrResultToolbarWindow : Window
 
     public void SetCopySelectedEnabled(bool enabled) => CopySelectedButton.IsEnabled = enabled;
     public void SetCopyAllEnabled(bool enabled) => CopyAllButton.IsEnabled = enabled;
-    public void SetOrganizeEnabled(bool enabled) => OrganizeParagraphsButton.IsEnabled = enabled;
     public void SetTranslateSelectedEnabled(bool enabled) => TranslateSelectedButton.IsEnabled = enabled;
     public void SetTranslateAllEnabled(bool enabled) => TranslateAllButton.IsEnabled = enabled;
     public void SetTranslateClearEnabled(bool enabled) => TranslateClearButton.IsEnabled = enabled;
@@ -58,7 +57,6 @@ internal partial class OcrResultToolbarWindow : Window
 
     private void OnCopySelected(object sender, RoutedEventArgs e) => _host.CommandCopySelected();
     private void OnCopyAll(object sender, RoutedEventArgs e) => _host.CommandCopyAll();
-    private void OnOrganizeParagraphs(object sender, RoutedEventArgs e) => _host.CommandOrganizeParagraphs();
     private void OnTranslateSelected(object sender, RoutedEventArgs e) => _host.CommandTranslateSelected();
     private void OnTranslateAll(object sender, RoutedEventArgs e) => _host.CommandTranslateAll();
     private void OnTranslateClear(object sender, RoutedEventArgs e) => _host.CommandTranslateClear();

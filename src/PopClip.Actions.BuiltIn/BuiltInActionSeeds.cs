@@ -47,8 +47,6 @@ public static class BuiltInActionSeeds
         new BuiltInActionSeed(BuiltInActionIds.Calculate, "calc", "计算", "Calc", BuiltInActionGroup.Basic, "选中算式自动求值"),
         new BuiltInActionSeed(BuiltInActionIds.WordCount, "wc", "字数统计", "Count", BuiltInActionGroup.Basic),
         new BuiltInActionSeed(BuiltInActionIds.ClipboardHistory, "clipboard-history", "剪贴板历史", "ClipboardHistory", BuiltInActionGroup.Basic),
-        new BuiltInActionSeed(BuiltInActionIds.OcrParagraphTidy, "ocr-paragraph-tidy", "整理段落", "OcrTidy", BuiltInActionGroup.Smart, "OCR 文本专用，只合并错误硬换行，不调用 AI"),
-
         new BuiltInActionSeed(BuiltInActionIds.JsonFormat, "json-format", "格式化 JSON", "Json", BuiltInActionGroup.Smart, "选中合法 JSON 时显示，缩进 2 空格"),
         new BuiltInActionSeed(BuiltInActionIds.JsonToYaml, "json-to-yaml", "JSON → YAML", "JsonToYaml", BuiltInActionGroup.Smart, "选中合法 JSON 时显示，转 YAML 复制"),
         new BuiltInActionSeed(BuiltInActionIds.Color, "color", "颜色", "Color", BuiltInActionGroup.Smart, "识别 #HEX / rgb / rgba，输出 HEX / RGB / HSL"),

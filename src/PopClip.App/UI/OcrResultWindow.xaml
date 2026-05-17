@@ -73,7 +73,6 @@
                 <ContextMenu x:Name="MainContextMenu">
                     <MenuItem x:Name="MiCopySelected" Header="复制选中" Click="OnCopySelected" />
                     <MenuItem x:Name="MiCopyAll" Header="复制全部" Click="OnCopyAll" />
-                    <MenuItem x:Name="MiOrganizeParagraphs" Header="整理段落" Click="OnOrganizeParagraphs" />
                     <Separator />
                     <MenuItem x:Name="MiTranslateSelected" Header="翻译选中" Click="OnTranslateSelected" />
                     <MenuItem x:Name="MiTranslateAll" Header="翻译全部" Click="OnTranslateAll" />

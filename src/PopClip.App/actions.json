@@ -10,7 +10,6 @@
     { "id": "calc",              "type": "builtin", "builtIn": "builtin.calculate",         "title": "计算",       "icon": "Calc",             "iconLocked": true, "enabled": true },
     { "id": "wc",                "type": "builtin", "builtIn": "builtin.wordcount",         "title": "字数",       "icon": "Count",            "iconLocked": true, "enabled": false },
     { "id": "clipboard-history", "type": "builtin", "builtIn": "builtin.clipboard.history", "title": "历史",       "icon": "ClipboardHistory", "iconLocked": true, "enabled": false },
-    { "id": "ocr-paragraph-tidy","type": "builtin", "builtIn": "builtin.ocr.paragraph.tidy","title": "整理段落",   "icon": "OcrTidy",          "iconLocked": true, "enabled": true },
     { "id": "ai-chat",           "type": "builtin", "builtIn": "builtin.ai.chat",           "title": "AI 对话",    "icon": "AiChat",           "iconLocked": true, "enabled": true },
     { "id": "ai-explain",        "type": "builtin", "builtIn": "builtin.ai.explain",        "title": "解释",       "icon": "AiExplain",        "iconLocked": true, "enabled": true },
     { "id": "json-format",       "type": "builtin", "builtIn": "builtin.text.json.format",  "title": "格式化 JSON","icon": "Json",             "iconLocked": true, "enabled": true },

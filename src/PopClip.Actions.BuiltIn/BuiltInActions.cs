@@ -3,7 +3,6 @@ using System.Net;
 using System.Text.RegularExpressions;
 using PopClip.Core.Actions;
 using PopClip.Core.Model;
-using PopClip.Core.Text;
 
 namespace PopClip.Actions.BuiltIn;
 
@@ -36,8 +35,6 @@ public static class BuiltInActionIds
     public const string AiExplain = "builtin.ai.explain";
     /// <summary>从浮动工具栏唤起"剪贴板历史"面板。运行时由 IClipboardHistoryLauncher 提供具体实现</summary>
     public const string ClipboardHistory = "builtin.clipboard.history";
-    /// <summary>OCR 专用段落整理：只调整硬换行，不调用 AI，不改写非空白字符。</summary>
-    public const string OcrParagraphTidy = "builtin.ocr.paragraph.tidy";
 
     // 文本类型智能动作链：CanRun 自行嗅探内容类型；默认在 actions.json 中 enabled=false，
     // 老用户浮窗不被突然撑大，新用户按需在设置启用
@@ -349,35 +346,6 @@ internal sealed class WordCountAction : BuiltInAction
             displayText: $"字符：{chars}\n字符（去空白）：{charsNoSpace}\n词：{words}\n行：{lines}",
             copyToast: summary);
         host.Log.Info("wordcount", ("summary", summary));
-        return Task.CompletedTask;
-    }
-}
-
-/// <summary>OCR 段落整理动作。
-/// 只在 OCR 来源文本且规则判断有可整理硬换行时出现；输出默认复制并显示气泡，
-/// 方便用户再点翻译 / AI 翻译时拿到整理后的段落文本。</summary>
-internal sealed class OcrParagraphTidyAction : BuiltInAction
-{
-    public override string Id => BuiltInActionIds.OcrParagraphTidy;
-    public override string Title => "整理段落";
-    public override string IconKey => "OcrTidy";
-
-    public override bool CanRun(SelectionContext context)
-        => !context.IsEmpty
-           && context.Source == AcquisitionSource.Ocr
-           && OcrParagraphOrganizer.CanImprove(context.Text);
-
-    public override Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
-    {
-        var organized = OcrParagraphOrganizer.Organize(context.Text);
-        SmartOutput.Publish(
-            host,
-            context,
-            Title,
-            primaryText: organized,
-            displayText: organized,
-            copyToast: $"已整理段落（{organized.Length} 字，已复制）");
-        host.Log.Info("ocr paragraph tidied", ("before", context.Text.Length), ("after", organized.Length));
         return Task.CompletedTask;
     }
 }

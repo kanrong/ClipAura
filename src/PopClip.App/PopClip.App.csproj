@@ -29,6 +29,7 @@
     <!-- OCR 抽象层 (IOcrProvider 接口契约)：主程序与所有 plugin 共享同一份 dll，
          保证跨 AssemblyLoadContext 的类型一致性 -->
     <ProjectReference Include="..\PopClip.App.Ocr.Abstractions\PopClip.App.Ocr.Abstractions.csproj" />
+    <ProjectReference Include="..\PopClip.Ocr.Layout\PopClip.Ocr.Layout.csproj" />
     <!-- RapidOCR plugin：用 ReferenceOutputAssembly=false 阻止它把 dll 进 ClipAura 的引用图，
          但仍触发 plugin 项目的 build 顺序依赖。实际复制 plugin 产出到 plugins/ocr/rapid-onnx/runtime/
          由下面的 CopyRapidOnnxPlugin target 完成。

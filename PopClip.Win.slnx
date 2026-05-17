@@ -12,6 +12,7 @@
     <Project Path="src/PopClip.App.OcrProvider.RapidOnnx/PopClip.App.OcrProvider.RapidOnnx.csproj" />
     <Project Path="src/PopClip.Core/PopClip.Core.csproj" />
     <Project Path="src/PopClip.Hooks/PopClip.Hooks.csproj" />
+    <Project Path="src/PopClip.Ocr.Layout/PopClip.Ocr.Layout.csproj" />
     <Project Path="src/PopClip.Uia/PopClip.Uia.csproj" />
   </Folder>
 </Solution>

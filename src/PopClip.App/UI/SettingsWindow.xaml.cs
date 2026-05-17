@@ -321,6 +321,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         OcrHotKeyBox.Text = _settings.OcrHotKey;
 
         BindOcrProviders();
+        BindOcrResultMode();
 
         BindAiSettings();
 
@@ -416,6 +417,39 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
 
     /// <summary>OCR provider ComboBox 的项目类型：Label 显示，Id 写入 settings。</summary>
     public sealed record OcrProviderChoice(string Id, string Label);
+
+    /// <summary>把当前 settings.OcrResultMode / OcrResultWindowBordered 同步到两个 RadioButton + ToggleSwitch。
+    /// 在 _suspendCommit=true 下勾选，避免 Checked 事件回写自己刚读到的值（无副作用，但减少日志噪音）</summary>
+    private void BindOcrResultMode()
+    {
+        var prev = _suspendCommit;
+        _suspendCommit = true;
+        try
+        {
+            OcrModeInteractiveRadio.IsChecked = _settings.OcrResultMode == OcrResultMode.Interactive;
+            OcrModeQuickRadio.IsChecked = _settings.OcrResultMode == OcrResultMode.Quick;
+            OcrResultBorderedToggle.IsChecked = _settings.OcrResultWindowBordered;
+        }
+        finally { _suspendCommit = prev; }
+    }
+
+    private void OnOcrResultModeChanged(object sender, RoutedEventArgs e)
+    {
+        if (_suspendCommit) return;
+        var mode = OcrModeQuickRadio.IsChecked == true ? OcrResultMode.Quick : OcrResultMode.Interactive;
+        if (_settings.OcrResultMode == mode) return;
+        _settings.OcrResultMode = mode;
+        _store.SaveSettings(_settings);
+    }
+
+    private void OnOcrResultBorderedChanged(object sender, RoutedEventArgs e)
+    {
+        if (_suspendCommit) return;
+        var bordered = OcrResultBorderedToggle.IsChecked == true;
+        if (_settings.OcrResultWindowBordered == bordered) return;
+        _settings.OcrResultWindowBordered = bordered;
+        _store.SaveSettings(_settings);
+    }
 
     private void BindAiSettings()
     {

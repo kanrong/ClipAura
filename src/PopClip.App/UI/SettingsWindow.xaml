@@ -1173,6 +1173,35 @@
                                                Margin="0,8,0,0" />
                                 </StackPanel>
                             </Border>
+
+                            <!-- OCR 结果展示模式：Interactive (iOS 风格弹窗，默认) / Quick (直接剪贴板+浮窗) -->
+                            <Border Style="{StaticResource Settings.Card}" Margin="0,16,0,0">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="识别结果展示" Margin="0,0,0,4" />
+                                    <TextBlock Style="{StaticResource Settings.HintText}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,12"
+                                               Text="识别完成后如何处理结果。Interactive 会在原图位置弹出 iOS 风格的高亮选择窗，适合长文本 / 多段精修；Quick 直接复制全文 + 浮窗气泡，最少打扰。" />
+                                    <RadioButton x:Name="OcrModeInteractiveRadio"
+                                                 GroupName="OcrResultMode"
+                                                 Content="Interactive · iOS 风格高亮选择窗（默认）"
+                                                 Margin="0,0,0,6"
+                                                 Checked="OnOcrResultModeChanged" />
+                                    <RadioButton x:Name="OcrModeQuickRadio"
+                                                 GroupName="OcrResultMode"
+                                                 Content="Quick · 直接复制全文 + 浮窗气泡（旧版行为）"
+                                                 Checked="OnOcrResultModeChanged" />
+                                    <ui:ToggleSwitch x:Name="OcrResultBorderedToggle"
+                                                     Content="Interactive 结果窗显示四周边框"
+                                                     Margin="0,12,0,0"
+                                                     Checked="OnOcrResultBorderedChanged"
+                                                     Unchecked="OnOcrResultBorderedChanged" />
+                                    <TextBlock Style="{StaticResource Settings.HintText}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,4,0,0"
+                                               Text="关闭即透明无边（iOS 风格，默认）；开启后在截图四周加一道主题色边框，方便看清窗口范围。无标题栏、无缩放角。" />
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
 
                         <!-- ===================== AI ===================== -->

@@ -143,15 +143,20 @@ internal sealed class WeChatOcrProvider : IOcrProvider
     /// 让用户承担第一次 OCR 的 ~1.5 秒冷启动反而更可控。</summary>
     public void PrewarmInBackground() { /* no-op by design */ }
 
-    public async Task<string> RecognizeAsync(byte[] pngBytes, CancellationToken ct)
+    public async Task<OcrResult> RecognizeAsync(byte[] pngBytes, CancellationToken ct)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
-        if (pngBytes is null || pngBytes.Length == 0) return "";
+        if (pngBytes is null || pngBytes.Length == 0) return OcrResult.Empty;
         if (!IsAvailable)
             throw new InvalidOperationException($"WeChat OCR 不可用：{UnavailableReason}");
         ct.ThrowIfCancellationRequested();
 
         var paths = _cachedPaths!; // IsAvailable=true 保证非 null
+
+        // 从 PNG 头部读出尺寸（不解码像素），用于在 JSON 缺失 width/height 字段时给 OcrResult 填一个回退值。
+        // PNG IHDR 在文件偏移 [16..23]，big-endian uint32 width / height
+        var (pngW, pngH) = TryReadPngSize(pngBytes);
+
         var tempPng = Path.Combine(Path.GetTempPath(), $"clipaura_wcocr_{Guid.NewGuid():N}.png");
         try
         {
@@ -163,7 +168,7 @@ internal sealed class WeChatOcrProvider : IOcrProvider
             {
                 // 同步阻塞 native 调用挂到线程池，让出 UI 线程；超时由调用方 ct 控制。
                 // 注意：调用方取消后 native 仍在跑（wcocr 不支持中断），所以 _gate 直到 native 返回才会被释放
-                var runTask = Task.Run(() => InvokeNative(paths, tempPng), CancellationToken.None);
+                var runTask = Task.Run(() => InvokeNative(paths, tempPng, pngW, pngH), CancellationToken.None);
 
                 var winner = await Task.WhenAny(runTask, Task.Delay(Timeout.Infinite, ct)).ConfigureAwait(false);
                 if (winner != runTask)
@@ -190,7 +195,7 @@ internal sealed class WeChatOcrProvider : IOcrProvider
         }
     }
 
-    private string InvokeNative(WeChatPaths paths, string tempPng)
+    private OcrResult InvokeNative(WeChatPaths paths, string tempPng, int fallbackWidth, int fallbackHeight)
     {
         var sw = Stopwatch.StartNew();
         var holder = new ResultHolder();
@@ -230,12 +235,13 @@ internal sealed class WeChatOcrProvider : IOcrProvider
                     $"wechat_ocr 返回 false (ocrExe={paths.OcrExe}, wechatDir={paths.WechatDir})。" +
                     $"请确认微信版本与 wcocr.dll 匹配、微信至少打开过一次");
             }
-            var text = ExtractTextFromJson(holder.JsonResult);
+            var parsed = ParseJsonResult(holder.JsonResult, fallbackWidth, fallbackHeight);
             _log.Debug("ocr wechat run",
                 ("ms", sw.ElapsedMilliseconds),
-                ("len", text.Length),
+                ("len", parsed.FullText.Length),
+                ("blocks", parsed.Blocks.Count),
                 ("source", paths.Source));
-            return text;
+            return parsed;
         }
         finally
         {
@@ -245,61 +251,165 @@ internal sealed class WeChatOcrProvider : IOcrProvider
         }
     }
 
-    /// <summary>从 wcocr.dll 返回的 JSON 里提取所有 "text" 字段。
+    /// <summary>解析 wcocr.dll 返回的 JSON，输出含位置的 OcrResult。
     ///
-    /// 实际响应大致是：
+    /// 典型响应（不同 wcocr 版本字段名略有差异）：
     /// {
-    ///   "errcode": 0, "width": ..., "height": ...,
-    ///   "ocr_response": [{"left":..,"top":..,"right":..,"bottom":..,"rate":..,"text":"..."}, ...]
+    ///   "errcode": 0, "width": 1920, "height": 1080,
+    ///   "ocr_response": [
+    ///     // 形式 A: 平铺 left/top/right/bottom
+    ///     {"left":100,"top":50,"right":200,"bottom":80,"rate":0.95,"text":"Hello"},
+    ///     // 形式 B: 嵌套 rect 对象
+    ///     {"rect":{"left":100,"top":50,"right":200,"bottom":80},"rate":0.95,"text":"Hello"},
+    ///     // 形式 C: 多边形 pos (4 点)
+    ///     {"pos":[[x1,y1],[x2,y2],[x3,y3],[x4,y4]],"text":"Hello"}
+    ///   ]
     /// }
     ///
-    /// 但 wcocr 版本变迁可能改字段名（"text" vs "txt"），所以用宽松递归：
-    /// 不依赖固定 schema，遍历所有节点找 string 类型的 "text"/"txt"，按出现顺序拼接换行。
-    /// 这样未来 wcocr 改格式（哪怕加新字段）也不会立即失效。</summary>
-    private static string ExtractTextFromJson(string json)
+    /// 解析策略：先按"找到含 text 字段的对象 = 一个 block"递归收集；
+    /// 每个 block 尝试从同对象内提取 rect 或 pos，缺失时整张图为框（fullbox fallback）。
+    /// 这样保证：(1) 即使 wcocr 升级字段名也不会丢文本；(2) 老版本无位置时仍能跑通 OcrResult。</summary>
+    private static OcrResult ParseJsonResult(string json, int fallbackWidth, int fallbackHeight)
     {
-        if (string.IsNullOrWhiteSpace(json)) return "";
+        if (string.IsNullOrWhiteSpace(json)) return OcrResult.Empty;
         try
         {
             using var doc = JsonDocument.Parse(json);
-            var sb = new StringBuilder();
-            CollectTexts(doc.RootElement, sb);
-            return sb.ToString().TrimEnd();
+            var root = doc.RootElement;
+
+            // 顶层 width/height 用于结果窗坐标缩放；缺失则用 PNG IHDR 的宽高
+            int w = TryGetInt(root, "width") ?? fallbackWidth;
+            int h = TryGetInt(root, "height") ?? fallbackHeight;
+
+            var blocks = new List<OcrTextBlock>();
+            CollectBlocks(root, blocks, w, h);
+
+            var fullText = string.Join('\n', blocks.Select(b => b.Text)).Trim();
+            return new OcrResult(blocks, fullText, w, h);
         }
         catch (JsonException)
         {
-            // 不是合法 JSON：直接当纯文本返回（极少出现，但比丢失内容好）
-            return json.Trim();
+            // 不是合法 JSON：把整串当一个 block，用整张图框作为占位 — 比丢失内容好
+            var trimmed = json.Trim();
+            if (trimmed.Length == 0) return OcrResult.Empty;
+            int w = fallbackWidth > 0 ? fallbackWidth : 1;
+            int h = fallbackHeight > 0 ? fallbackHeight : 1;
+            var box = OcrPolygon.FromRect(0, 0, w, h);
+            return new OcrResult(new[] { new OcrTextBlock(trimmed, box, 1f) }, trimmed, w, h);
         }
     }
 
-    private static void CollectTexts(JsonElement element, StringBuilder sb)
+    /// <summary>递归遍历 JSON，把每个"含 text/txt 字段且文本非空"的对象视为一个 block。
+    /// 在该对象内同时找位置字段，失败时回退到整张图框。</summary>
+    private static void CollectBlocks(JsonElement el, List<OcrTextBlock> sink, int imgW, int imgH)
     {
-        switch (element.ValueKind)
+        switch (el.ValueKind)
         {
             case JsonValueKind.Object:
-                foreach (var prop in element.EnumerateObject())
+                var text = TryGetString(el, "text") ?? TryGetString(el, "txt");
+                if (!string.IsNullOrWhiteSpace(text))
                 {
-                    if ((prop.NameEquals("text") || prop.NameEquals("txt")) && prop.Value.ValueKind == JsonValueKind.String)
-                    {
-                        var s = prop.Value.GetString();
-                        if (!string.IsNullOrWhiteSpace(s))
-                        {
-                            if (sb.Length > 0) sb.Append('\n');
-                            sb.Append(s);
-                        }
-                    }
-                    else
-                    {
-                        CollectTexts(prop.Value, sb);
-                    }
+                    var box = ExtractPolygon(el, imgW, imgH);
+                    var conf = TryGetFloat(el, "rate") ?? TryGetFloat(el, "score") ?? TryGetFloat(el, "confidence") ?? 1f;
+                    sink.Add(new OcrTextBlock(text.Trim(), box, conf));
+                    // 同对象不再下钻：text 字段所在层级即一个 block
+                    return;
                 }
+                foreach (var prop in el.EnumerateObject())
+                    CollectBlocks(prop.Value, sink, imgW, imgH);
                 break;
             case JsonValueKind.Array:
-                foreach (var item in element.EnumerateArray())
-                    CollectTexts(item, sb);
+                foreach (var item in el.EnumerateArray())
+                    CollectBlocks(item, sink, imgW, imgH);
                 break;
         }
+    }
+
+    /// <summary>从 block 对象提取 polygon，优先级：
+    /// (1) pos 四点数组（最精确，倾斜文字真四边形）
+    /// (2) rect 子对象 + left/top/right/bottom
+    /// (3) 平铺 left/top/right/bottom
+    /// (4) 整张图（绝对回退；至少能在结果窗显示但等于"全图选中"）</summary>
+    private static OcrPolygon ExtractPolygon(JsonElement obj, int imgW, int imgH)
+    {
+        // (1) pos: [[x,y]*4]
+        if (obj.TryGetProperty("pos", out var pos) && pos.ValueKind == JsonValueKind.Array)
+        {
+            var pts = new (float X, float Y)[4];
+            int i = 0;
+            foreach (var p in pos.EnumerateArray())
+            {
+                if (i >= 4) break;
+                if (p.ValueKind == JsonValueKind.Array)
+                {
+                    int j = 0; float x = 0, y = 0;
+                    foreach (var v in p.EnumerateArray())
+                    {
+                        if (j == 0) x = (float)v.GetDouble();
+                        else if (j == 1) y = (float)v.GetDouble();
+                        j++;
+                    }
+                    pts[i++] = (x, y);
+                }
+            }
+            if (i == 4)
+                return new OcrPolygon(pts[0].X, pts[0].Y, pts[1].X, pts[1].Y, pts[2].X, pts[2].Y, pts[3].X, pts[3].Y);
+        }
+
+        // (2) rect: { left, top, right, bottom }
+        if (obj.TryGetProperty("rect", out var rect) && rect.ValueKind == JsonValueKind.Object)
+        {
+            var l = TryGetFloat(rect, "left");
+            var t = TryGetFloat(rect, "top");
+            var r = TryGetFloat(rect, "right");
+            var b = TryGetFloat(rect, "bottom");
+            if (l.HasValue && t.HasValue && r.HasValue && b.HasValue)
+                return OcrPolygon.FromRect(l.Value, t.Value, r.Value, b.Value);
+        }
+
+        // (3) 平铺 left/top/right/bottom
+        var fl = TryGetFloat(obj, "left");
+        var ft = TryGetFloat(obj, "top");
+        var fr = TryGetFloat(obj, "right");
+        var fb = TryGetFloat(obj, "bottom");
+        if (fl.HasValue && ft.HasValue && fr.HasValue && fb.HasValue)
+            return OcrPolygon.FromRect(fl.Value, ft.Value, fr.Value, fb.Value);
+
+        // (4) 不知道位置：整张图
+        return OcrPolygon.FromRect(0, 0, imgW, imgH);
+    }
+
+    private static string? TryGetString(JsonElement el, string name)
+        => el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static int? TryGetInt(JsonElement el, string name)
+    {
+        if (!el.TryGetProperty(name, out var v)) return null;
+        if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i)) return i;
+        if (v.ValueKind == JsonValueKind.String && int.TryParse(v.GetString(), out var s)) return s;
+        return null;
+    }
+
+    private static float? TryGetFloat(JsonElement el, string name)
+    {
+        if (!el.TryGetProperty(name, out var v)) return null;
+        if (v.ValueKind == JsonValueKind.Number) return (float)v.GetDouble();
+        if (v.ValueKind == JsonValueKind.String && float.TryParse(v.GetString(), out var s)) return s;
+        return null;
+    }
+
+    /// <summary>从 PNG 文件头读出 width/height，不解码像素。
+    /// PNG 签名 8 字节 + IHDR 长度 4 字节 + "IHDR" 4 字节 + width 4 字节 BE + height 4 字节 BE。
+    /// 即 offset 16..19 = width, 20..23 = height。
+    /// 不抛异常：失败返回 (0,0)，让上层用 polygon 兜底的整图框。</summary>
+    private static (int W, int H) TryReadPngSize(byte[] png)
+    {
+        if (png is null || png.Length < 24) return (0, 0);
+        // 没必要校验签名：长度够 24 字节就直接读 IHDR
+        int w = (png[16] << 24) | (png[17] << 16) | (png[18] << 8) | png[19];
+        int h = (png[20] << 24) | (png[21] << 16) | (png[22] << 8) | png[23];
+        if (w <= 0 || h <= 0 || w > 65536 || h > 65536) return (0, 0);
+        return (w, h);
     }
 
     public void Dispose()

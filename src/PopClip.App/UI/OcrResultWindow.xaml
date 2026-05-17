@@ -1,0 +1,90 @@
+<Window x:Class="PopClip.App.UI.OcrResultWindow"
+        x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        Topmost="True"
+        ResizeMode="NoResize"
+        Focusable="True"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        Title="OCR 结果"
+        FontFamily="{DynamicResource ToolbarFontFamily}">
+
+    <!-- 外层边框：bordered 模式由 CodeBehind 把 BorderThickness 设为 2，无边模式保持 0。
+         窗口始终透明无标题栏（用户不要标题栏与缩放角），这里只是给截图四周加视觉边界 -->
+    <Border x:Name="WindowBorderFrame"
+            BorderBrush="{DynamicResource ToolbarAccentSoft}"
+            BorderThickness="0"
+            Background="Transparent">
+        <Grid Focusable="True">
+            <!-- 底层：原始截图位图。
+                 轻微变暗 (0.82 不透明度) 让 hover/selected 高亮更醒目，不至于看不清原图 -->
+            <Image x:Name="ScreenshotImage"
+                   Stretch="Fill"
+                   Opacity="0.82" />
+
+            <!-- 高亮覆盖层：每个 OcrTextBlock 会动态生成一个 Polygon 加入这个 Canvas。
+                 位置由 CodeBehind 根据 image-pixel → DIP 缩放算好；Canvas 自身 layout 占满 Grid -->
+            <Canvas x:Name="OverlayCanvas"
+                    Background="Transparent"
+                    ClipToBounds="True" />
+
+            <!-- 译文覆盖层：inline 翻译时给每个 block 在原 polygon 位置上贴 TextBlock。
+                 独立 Canvas 是为了不干扰 OverlayCanvas 的命中（译文层 IsHitTestVisible=false） -->
+            <Canvas x:Name="TranslationCanvas"
+                    Background="Transparent"
+                    IsHitTestVisible="False" />
+
+            <!-- Marquee 框选矩形（拖动期间显示） -->
+            <Canvas x:Name="MarqueeCanvas"
+                    Background="Transparent"
+                    IsHitTestVisible="False">
+                <Rectangle x:Name="MarqueeRect"
+                           Visibility="Collapsed"
+                           Stroke="{DynamicResource ToolbarAccentSoft}"
+                           StrokeThickness="1"
+                           StrokeDashArray="3,2"
+                           Fill="{DynamicResource ToolbarAccentSoft}"
+                           Opacity="0.35" />
+            </Canvas>
+
+            <!-- 顶部短暂 Toast：复制成功 / 全选 / 取消选 的反馈 -->
+            <Border x:Name="ToastBorder"
+                    VerticalAlignment="Top"
+                    HorizontalAlignment="Center"
+                    Margin="0,18,0,0"
+                    Padding="14,7"
+                    Background="{DynamicResource ToolbarToastBackground}"
+                    BorderBrush="{DynamicResource ToolbarBorder}"
+                    BorderThickness="1"
+                    CornerRadius="14"
+                    Visibility="Collapsed">
+                <TextBlock x:Name="ToastText"
+                           Foreground="{DynamicResource ToolbarForeground}"
+                           FontSize="12" />
+            </Border>
+
+            <!-- 右键菜单挂在 Grid 上 -->
+            <Grid.ContextMenu>
+                <ContextMenu x:Name="MainContextMenu">
+                    <MenuItem x:Name="MiCopySelected" Header="复制选中" Click="OnCopySelected" />
+                    <MenuItem x:Name="MiCopyAll" Header="复制全部" Click="OnCopyAll" />
+                    <Separator />
+                    <MenuItem x:Name="MiTranslateSelected" Header="翻译选中" Click="OnTranslateSelected" />
+                    <MenuItem x:Name="MiTranslateAll" Header="翻译全部" Click="OnTranslateAll" />
+                    <MenuItem x:Name="MiTranslateClear" Header="清除译文" Click="OnTranslateClear" />
+                    <Separator />
+                    <MenuItem x:Name="MiSelectAll" Header="全选 (Ctrl+A)" Click="OnSelectAllMenu" />
+                    <MenuItem x:Name="MiClearSel" Header="清除选区" Click="OnClearSelectionMenu" />
+                    <Separator />
+                    <MenuItem x:Name="MiQuickMode" Header="Quick 输出（一次性）" Click="OnSwitchToQuick" />
+                    <MenuItem x:Name="MiClose" Header="关闭 (Esc)" Click="OnCloseClicked" />
+                </ContextMenu>
+            </Grid.ContextMenu>
+        </Grid>
+    </Border>
+</Window>

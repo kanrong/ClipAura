@@ -107,10 +107,10 @@ public sealed class RapidOcrProvider : IOcrProvider
         });
     }
 
-    public async Task<string> RecognizeAsync(byte[] pngBytes, CancellationToken ct)
+    public async Task<OcrResult> RecognizeAsync(byte[] pngBytes, CancellationToken ct)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
-        if (pngBytes is null || pngBytes.Length == 0) return "";
+        if (pngBytes is null || pngBytes.Length == 0) return OcrResult.Empty;
         ct.ThrowIfCancellationRequested();
 
         SKBitmap? sk;
@@ -118,12 +118,12 @@ public sealed class RapidOcrProvider : IOcrProvider
         catch (Exception ex)
         {
             _log.Warn("ocr png decode failed", ("id", Id), ("err", ex.Message));
-            return "";
+            return OcrResult.Empty;
         }
         if (sk is null || sk.IsEmpty || sk.Width < 4 || sk.Height < 4)
         {
             sk?.Dispose();
-            return "";
+            return OcrResult.Empty;
         }
 
         await _gate.WaitAsync(ct).ConfigureAwait(false);
@@ -167,7 +167,7 @@ public sealed class RapidOcrProvider : IOcrProvider
         }
     }
 
-    private string RunInternal(RapidOcr engine, SKBitmap src)
+    private OcrResult RunInternal(RapidOcr engine, SKBitmap src)
     {
         try
         {
@@ -195,16 +195,17 @@ public sealed class RapidOcrProvider : IOcrProvider
                     MostAngle = false,
                 };
                 var result = engine.Detect(working, options);
-                var text = (result.StrRes ?? string.Empty).Trim();
+                var blocks = ConvertBlocks(result, scale);
+                var fullText = (result.StrRes ?? string.Empty).Trim();
                 sw.Stop();
                 _log.Debug("ocr run",
                     ("id", Id),
                     ("ms", sw.ElapsedMilliseconds),
-                    ("len", text.Length),
-                    ("blocks", result.TextBlocks?.Length ?? 0),
+                    ("len", fullText.Length),
+                    ("blocks", blocks.Count),
                     ("inputSize", $"{src.Width}x{src.Height}"),
                     ("scale", scale));
-                return text;
+                return new OcrResult(blocks, fullText, src.Width, src.Height);
             }
             finally
             {
@@ -214,8 +215,38 @@ public sealed class RapidOcrProvider : IOcrProvider
         catch (Exception ex)
         {
             _log.Warn("ocr recognize failed", ("id", Id), ("err", ex.Message));
-            return "";
+            return OcrResult.Empty;
         }
+    }
+
+    /// <summary>把 RapidOcrNet 的 TextBlock[] 转成 OcrTextBlock 列表。
+    /// 坐标反向缩放：detection 跑在上采样图 working 上，BoxPoints 也在 working 坐标系，
+    /// 除以 scale 才能映射回原图（即调用方截图的实际像素），与 OcrResult.SourceWidth/Height 同一空间。
+    ///
+    /// 顶点顺序：RapidOcrNet 文档明示 BoxPoints 是 clockwise（即 左上→右上→右下→左下），
+    /// 与 OcrPolygon 的字段约定一致，直接按下标 0/1/2/3 取即可。
+    /// 置信度：CharScores 取平均值；为空时给 1.0（不是不可信，是 provider 没标定）。</summary>
+    private static IReadOnlyList<OcrTextBlock> ConvertBlocks(RapidOcrNet.OcrResult result, int scale)
+    {
+        if (result.TextBlocks is null || result.TextBlocks.Length == 0)
+            return Array.Empty<OcrTextBlock>();
+        var inv = 1f / scale;
+        var list = new List<OcrTextBlock>(result.TextBlocks.Length);
+        foreach (var tb in result.TextBlocks)
+        {
+            var p = tb.BoxPoints;
+            if (p is null || p.Length < 4) continue;
+            var polygon = new OcrPolygon(
+                p[0].X * inv, p[0].Y * inv,
+                p[1].X * inv, p[1].Y * inv,
+                p[2].X * inv, p[2].Y * inv,
+                p[3].X * inv, p[3].Y * inv);
+            var text = (tb.Text ?? "").Trim();
+            if (text.Length == 0) continue;
+            var conf = (tb.CharScores is { Length: > 0 } scores) ? scores.Average() : 1f;
+            list.Add(new OcrTextBlock(text, polygon, conf));
+        }
+        return list;
     }
 
     private RapidOcr? EnsureEngine()

@@ -481,6 +481,105 @@ public sealed class AiTextService : IAiTextService
         };
     }
 
+    /// <summary>批量翻译多段文本，返回与输入下标 1:1 对齐的译文数组。
+    ///
+    /// 用法：OCR 结果窗 "翻译全部/选中" 按钮。一次 API 调用搞定所有 block，
+    /// 用编号 [N] 前缀让模型保持顺序对齐 — 比逐块发送省 N-1 次 API 调用，且不需要 N 倍 token。
+    ///
+    /// 失败语义：
+    /// - AI 未启用 / 无 key → 抛 InvalidOperationException（调用方应预先 CanRun 判一次再调，本方法是兜底）;
+    /// - 网络 / 流式异常 → 直接上抛；
+    /// - 模型未按 [N] 格式回 → 解析失败的位置回退到原文（不抛异常，让 UI 至少能渲染原文）。
+    ///
+    /// 译文里出现 \n 都会被替换成空格 — OCR 行是窄长 polygon，inline 渲染天然不适合多行，
+    /// 模型偶尔输出多行也合并为单行展示</summary>
+    public async Task<IReadOnlyList<string>> TranslateBatchAsync(
+        IReadOnlyList<string> sourceTexts,
+        CancellationToken ct)
+    {
+        if (!CanRun) throw new InvalidOperationException("AI 未启用或 API Key 未配置");
+        if (sourceTexts is null || sourceTexts.Count == 0) return Array.Empty<string>();
+
+        var target = string.IsNullOrWhiteSpace(_settings.AiDefaultLanguage) ? "中文" : _settings.AiDefaultLanguage.Trim();
+        var options = CreateOptions(GetCurrentApiKey());
+
+        // system 强约束：让模型只输出"行号 + 译文"格式，禁止任何额外说明
+        var system = $"You are a precise translator. Translate every input line into {target}. "
+                   + "Each input line is prefixed with [N] where N is its 1-based index. "
+                   + "Your output MUST contain the SAME number of lines, each starting with the same [N] prefix, "
+                   + "followed by exactly one space and the translation. "
+                   + "If a line is already in the target language, output it unchanged (still with [N] prefix). "
+                   + "Never merge / split / reorder / omit lines. No commentary, no code fences, no blank lines.";
+
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < sourceTexts.Count; i++)
+        {
+            // OCR 结果可能含换行，逐行编号会让对齐失败 — 把单 block 内的换行合并成单个空格送给模型
+            var compact = string.Join(' ', (sourceTexts[i] ?? "")
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries));
+            sb.Append('[').Append(i + 1).Append("] ").AppendLine(compact);
+        }
+
+        var messages = new[]
+        {
+            ("system", system),
+            ("user", sb.ToString().TrimEnd()),
+        };
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = await _client.StreamAsync(
+            options, messages,
+            new AiStreamCallbacks(_ => Task.CompletedTask),
+            ct).ConfigureAwait(false);
+        RecordUsage(options, result);
+        sw.Stop();
+
+        var parsed = ParseNumberedTranslations(result.Text, sourceTexts);
+        _log.Info("ai translate batch",
+            ("blocks", sourceTexts.Count),
+            ("parsed", parsed.Count(s => s.Length > 0)),
+            ("ms", sw.ElapsedMilliseconds));
+        return parsed;
+    }
+
+    /// <summary>从 "[1] 译文1\n[2] 译文2\n..." 形式的回复中按编号还原译文数组。
+    ///
+    /// 容错规则：
+    /// - 解析不到任何 [N] 前缀 → 全部回退到原文（最差也不丢内容）；
+    /// - 部分行缺失 → 该位置回退到 sourceTexts[i]；
+    /// - 序号越界 / 重复 → 后到的覆盖前到的（与"线性读取"一致）。</summary>
+    private static IReadOnlyList<string> ParseNumberedTranslations(string raw, IReadOnlyList<string> sources)
+    {
+        var output = new string[sources.Count];
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            for (int i = 0; i < sources.Count; i++) output[i] = sources[i] ?? "";
+            return output;
+        }
+
+        // 匹配行起始的 [N] N 是任意正整数，与捕获其后所有内容到行尾。
+        // 多行模式（m），不依赖 ^/$ 与 \n 的特定行为
+        var rx = new System.Text.RegularExpressions.Regex(
+            @"^\s*\[(\d+)\]\s*(.*)$",
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+        var seen = new HashSet<int>();
+        foreach (System.Text.RegularExpressions.Match m in rx.Matches(raw))
+        {
+            if (!int.TryParse(m.Groups[1].Value, out var n)) continue;
+            int idx = n - 1;
+            if (idx < 0 || idx >= sources.Count) continue;
+            output[idx] = m.Groups[2].Value.Trim();
+            seen.Add(idx);
+        }
+
+        // 没解析到的位置回退原文，避免渲染时拿到 null
+        for (int i = 0; i < sources.Count; i++)
+        {
+            if (!seen.Contains(i)) output[i] = sources[i] ?? "";
+        }
+        return output;
+    }
+
 }
 
 /// <summary>会话窗关闭时回传给 service 的快照，用于持久化历史</summary>

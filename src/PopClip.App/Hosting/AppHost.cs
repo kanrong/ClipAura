@@ -161,7 +161,9 @@ internal sealed class AppHost : IDisposable
         _ocrRegistry = new OcrProviderRegistry(_log,
             preferredIdReader: () => _settings?.OcrProviderId,
             providers: rapidProviders.Concat(new IOcrProvider[] { wechatProvider }));
-        _ocrCoordinator = new OcrCaptureCoordinator(_log, _ocrRegistry, _session, clipboardWriter, clipboardAccess, _toolbar, bubblePresenter);
+        _ocrCoordinator = new OcrCaptureCoordinator(_log, _ocrRegistry, _session, clipboardWriter, clipboardAccess, _toolbar,
+            _settings, aiTextService,
+            bubble: bubblePresenter);
         // 暴露给"剪贴板启动器"用作 OCR 按钮的点击回调
         _session.OcrLauncher = () => _ocrCoordinator?.Trigger();
         _session.ClipboardImageOcrLauncher = anchor => _ocrCoordinator?.TriggerClipboardImage(anchor);

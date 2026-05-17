@@ -31,8 +31,15 @@
     <ProjectReference Include="..\PopClip.App.Ocr.Abstractions\PopClip.App.Ocr.Abstractions.csproj" />
     <!-- RapidOCR plugin：用 ReferenceOutputAssembly=false 阻止它把 dll 进 ClipAura 的引用图，
          但仍触发 plugin 项目的 build 顺序依赖。实际复制 plugin 产出到 plugins/ocr/rapid-onnx/runtime/
-         由下面的 CopyRapidOnnxPlugin target 完成 -->
-    <ProjectReference Include="..\PopClip.App.OcrProvider.RapidOnnx\PopClip.App.OcrProvider.RapidOnnx.csproj" ReferenceOutputAssembly="false" Private="false" OutputItemType="OcrPluginAssembly" SetTargetFramework="TargetFramework=net10.0" />
+         由下面的 CopyRapidOnnxPlugin target 完成。
+         注意：去掉 SetTargetFramework 属性。带 SetTargetFramework 时 MSBuild 会把这个 ProjectReference
+         视作"显式跨 TFM 引用"额外触发一次 build，与 WPF 的 XAML markup compile 临时项目并行时
+         会抢同一个 obj/.dll 文件锁，报 CS2012。
+         RapidOnnx 自身只输出 net10.0 一个 TFM，去掉后只触发一次构建。 -->
+    <ProjectReference Include="..\PopClip.App.OcrProvider.RapidOnnx\PopClip.App.OcrProvider.RapidOnnx.csproj"
+                      ReferenceOutputAssembly="false"
+                      Private="false"
+                      OutputItemType="OcrPluginAssembly" />
   </ItemGroup>
 
   <ItemGroup>

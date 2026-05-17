@@ -161,9 +161,24 @@ public sealed class AppSettings
 
     /// <summary>OCR provider 用户偏好。
     /// 空串 / null = 自动模式，按 Priority 倒序选第一个可用的 provider（默认推荐）。
-    /// 显式 id 见 PopClip.App.Ocr.OcrProviderIds：rapid-onnx / wechat / chineseocr-lite。
+    /// 显式 id 见 PopClip.App.Ocr.OcrProviderIds：rapid-onnx / wechat。
     /// 用户选了某 provider 但它当前不可用时，运行时会 fallback 到自动模式（不写回 settings，避免误改用户偏好）</summary>
     public string OcrProviderId { get; set; } = "";
+
+    /// <summary>OCR 识别完成后的结果展示模式。
+    /// - Interactive: 弹 iOS 风格结果窗，原图上叠加可点选 / 框选的高亮，
+    ///   适合需要二次精修选区、长文本、混合中英 / 错字校对的场景；
+    /// - Quick: 不弹结果窗，直接写剪贴板 + 浮窗气泡，最少打扰，
+    ///   适合单条短文本（截图复制一句话）的高频用户。
+    /// 默认 Interactive：iOS 风格首次使用学习成本极低，且任何场景都不会丢能力。</summary>
+    public OcrResultMode OcrResultMode { get; set; } = OcrResultMode.Interactive;
+
+    /// <summary>Interactive 模式结果窗是否显示标题栏 / 边框。
+    /// - false（默认）：透明无边框窗口，最贴近 iOS 体验，截图与背景视觉融合；
+    /// - true：SingleBorderWindow，有标题栏可拖动 / 缩放 / 最小化最大化，
+    ///   适合喜欢"窗口化"体验或多显异构 DPI 下窗口边界不清晰时。
+    /// 切换需要重新触发一次 OCR 才会生效（已显示的窗口不会动态切换 WindowStyle）。</summary>
+    public bool OcrResultWindowBordered { get; set; } = false;
 
     // ================== 浮窗自动消失触发条件 ==================
     // 鼠标离开浮窗一段时间后自动关闭
@@ -237,4 +252,16 @@ public sealed class AppSettings
 
     /// <summary>用户自建 Prompt 模板。内置模板不存这里，按需用 PromptTemplateLibrary.Builtin 合并</summary>
     public List<PromptTemplateDefinition> PromptTemplates { get; set; } = new();
+}
+
+/// <summary>OCR 识别后的结果展示模式。
+/// 用枚举值持久化到 settings.json 时是字符串，新增时只能追加在末尾以保持反序列化兼容</summary>
+public enum OcrResultMode
+{
+    /// <summary>弹 iOS 风格结果窗，原图上叠加每段文字的高亮多边形，
+    /// 支持单击复制、拖框多选、Ctrl+A 全选、右键菜单（默认）。</summary>
+    Interactive,
+
+    /// <summary>不弹窗，识别完直接复制全文到剪贴板 + 浮窗气泡显示，与改造前行为一致。</summary>
+    Quick,
 }

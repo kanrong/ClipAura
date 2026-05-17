@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Windows;
+using PopClip.App.Config;
 using PopClip.App.Ocr;
 using PopClip.App.Services;
 using PopClip.App.UI;
@@ -10,6 +11,7 @@ using PopClip.Core.Logging;
 using PopClip.Core.Model;
 using PopClip.Uia.Clipboard;
 using WpfApplication = System.Windows.Application;
+using WpfRect = System.Windows.Rect;
 
 namespace PopClip.App.Hosting;
 
@@ -30,7 +32,14 @@ internal sealed class OcrCaptureCoordinator
     private readonly ClipboardAccess _clipboardAccess;
     private readonly FloatingToolbar _toolbar;
     private readonly IInlineBubblePresenter? _bubble;
+
+    /// <summary>读取 OcrResultMode / OcrResultWindowBordered 等运行时偏好。
+    /// 引用同一份主程序的 AppSettings 实例，设置面板写入后这里也能直接看到</summary>
+    private readonly AppSettings _settings;
+    private readonly AiTextService _aiText;
+
     private OcrSelectionWindow? _currentWindow;
+    private OcrResultWindow? _resultWindow;
 
     public OcrCaptureCoordinator(
         ILog log,
@@ -39,6 +48,8 @@ internal sealed class OcrCaptureCoordinator
         ClipboardWriter clipboard,
         ClipboardAccess clipboardAccess,
         FloatingToolbar toolbar,
+        AppSettings settings,
+        AiTextService aiText,
         IInlineBubblePresenter? bubble = null)
     {
         _log = log;
@@ -47,6 +58,8 @@ internal sealed class OcrCaptureCoordinator
         _clipboard = clipboard;
         _clipboardAccess = clipboardAccess;
         _toolbar = toolbar;
+        _settings = settings;
+        _aiText = aiText;
         _bubble = bubble;
     }
 
@@ -178,10 +191,10 @@ internal sealed class OcrCaptureCoordinator
 
         // 超时给 30 秒：冷启动 + 大图识别 + WeChat 子进程通信极端情况下也够用
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        string text;
+        OcrResult result;
         try
         {
-            text = await provider.RecognizeAsync(pngBytes, cts.Token).ConfigureAwait(false);
+            result = await provider.RecognizeAsync(pngBytes, cts.Token).ConfigureAwait(false);
         }
         catch (InvalidOperationException ex)
         {
@@ -189,11 +202,12 @@ internal sealed class OcrCaptureCoordinator
             ShowAnchoredToast($"OCR 失败: {ex.Message}", anchorRect, isError: true, durationMs: 4000);
             return;
         }
+        var fullText = result.FullText.Trim();
         _log.Info("ocr recognized",
-            ("len", text.Length), ("source", source), ("provider", provider.Id));
+            ("len", fullText.Length), ("blocks", result.Blocks.Count),
+            ("source", source), ("provider", provider.Id));
 
-        var trimmed = text.Trim();
-        if (string.IsNullOrEmpty(trimmed))
+        if (string.IsNullOrEmpty(fullText) || result.Blocks.Count == 0)
         {
             // 浮窗这条路径不会显示，必须用 ShowToastAt 直接给屏幕坐标，
             // 否则 ShowInlineToast 会以浮窗左上角（默认 0,0 或上一次位置）为锚 → toast 飘到屏幕外看不见
@@ -201,30 +215,95 @@ internal sealed class OcrCaptureCoordinator
             return;
         }
 
-        // 主动写入剪贴板：浮窗 timeout 关掉之后，识别结果仍可 Ctrl+V 兜底
-        _clipboard.SetText(trimmed);
+        var mode = _settings.OcrResultMode;
+        if (mode == OcrResultMode.Interactive)
+        {
+            // iOS 风格：弹结果窗在截图位置上叠加高亮，用户点选 / 框选 / 复制。
+            // 剪贴板与浮窗气泡都不在这条路径触发，所有反馈走结果窗内部；
+            // 但允许结果窗按用户意愿"临时切到 Quick 输出"，传 quickFallback 回调让它能调用同一套 Quick 渲染
+            ShowInteractiveResult(result, pngBytes, anchorRect,
+                quickFallback: () => RenderQuickResult(fullText, anchorRect, provider.DisplayName));
+            return;
+        }
 
-        _session.ShowToolbarForExternalText(trimmed, anchorRect, AcquisitionSource.Ocr);
+        // Quick 模式（旧行为）：直接写剪贴板 + 浮窗 / 气泡
+        RenderQuickResult(fullText, anchorRect, provider.DisplayName);
+    }
 
-        // OCR 默认走 CopyAndBubble：剪贴板（上面）+ 气泡（下面，含完整识别文本可滚动）。
-        // 气泡比单行 toast 优势：
-        // 1) 支持多行，长文本 OCR 不会被截断；
-        // 2) 用户能即时看到识别质量并手动复制 / 替换；
-        // 3) 浮窗 timeout 关闭后气泡仍然存在，给用户充足时间处理结果
+    /// <summary>Quick 模式的结果渲染逻辑：剪贴板 + 浮窗外部文本 + 气泡 / inline toast。
+    ///
+    /// 抽出为独立方法是为了让 Interactive 结果窗的"Quick 输出"按钮能复用同一套展示，
+    /// 而不需要重新走一遍 RecognizeAsync。两种触发：
+    /// 1) settings.OcrResultMode == Quick 时 RecognizeBitmapAsync 直接调；
+    /// 2) settings.OcrResultMode == Interactive 时，用户在结果窗点"Quick 输出" → quickFallback 回调。
+    ///
+    /// 气泡比单行 toast 优势：
+    /// - 支持多行，长文本 OCR 不会被截断；
+    /// - 用户能即时看到识别质量并手动复制 / 替换；
+    /// - 浮窗 timeout 关闭后气泡仍然存在，给用户充足时间处理结果</summary>
+    private void RenderQuickResult(string fullText, SelectionRect anchorRect, string providerDisplayName)
+    {
+        _clipboard.SetText(fullText);
+        _session.ShowToolbarForExternalText(fullText, anchorRect, AcquisitionSource.Ocr);
+
         if (_bubble is not null)
         {
             _ = WpfApplication.Current.Dispatcher.BeginInvoke(new Action(() =>
-                _bubble.ShowStatic($"OCR · {provider.DisplayName} · {trimmed.Length} 字", trimmed, canReplace: false)));
+                _bubble.ShowStatic($"OCR · {providerDisplayName} · {fullText.Length} 字", fullText, canReplace: false)));
         }
         else
         {
-            var preview = BuildPreview(trimmed);
+            var preview = BuildPreview(fullText);
             _ = WpfApplication.Current.Dispatcher.BeginInvoke(new Action(() =>
                 _toolbar.ShowInlineToast(
-                    $"OCR 已识别 {trimmed.Length} 字 · 已复制：{preview}",
-                    copyText: trimmed,
+                    $"OCR 已识别 {fullText.Length} 字 · 已复制：{preview}",
+                    copyText: fullText,
                     durationMs: 5000)));
         }
+    }
+
+    /// <summary>把 OcrResult 用 iOS 风格弹窗展示出来。
+    /// 必须切到 UI 线程：OcrResultWindow 是 WPF Window，跨线程构造会抛 InvalidOperationException。
+    /// 同时同一时刻只允许一个结果窗，新结果直接关掉旧窗（避免叠层 + 多个 topmost 抢焦点）</summary>
+    private void ShowInteractiveResult(OcrResult result, byte[] pngBytes, SelectionRect anchorPhysical, Action quickFallback)
+    {
+        WpfApplication.Current.Dispatcher.Invoke(() =>
+        {
+            // 物理像素 → DIP 转换：用浮窗的 PresentationSource 拿当前显示器的 DPI 变换，
+            // 与 ShowAnchoredToast 用一致的算法，多显异构 DPI 时与浮窗在同一坐标系
+            double dpiX = 1.0, dpiY = 1.0;
+            var src = PresentationSource.FromVisual(_toolbar);
+            if (src?.CompositionTarget is not null)
+            {
+                dpiX = src.CompositionTarget.TransformToDevice.M11;
+                dpiY = src.CompositionTarget.TransformToDevice.M22;
+            }
+            var dipRect = new WpfRect(
+                anchorPhysical.Left / dpiX,
+                anchorPhysical.Top / dpiY,
+                anchorPhysical.Width / dpiX,
+                anchorPhysical.Height / dpiY);
+
+            // 旧窗存在则先关掉，避免叠层
+            if (_resultWindow is not null)
+            {
+                try { _resultWindow.Close(); } catch { }
+                _resultWindow = null;
+            }
+
+            var win = new OcrResultWindow(_log, result, pngBytes, dipRect, _clipboard,
+                _settings, _aiText,
+                quickFallback: quickFallback,
+                onCloseRequested: () =>
+                {
+                    if (ReferenceEquals(_resultWindow, null)) return;
+                    _resultWindow = null;
+                });
+            _resultWindow = win;
+            win.Closed += (_, _) => { if (ReferenceEquals(_resultWindow, win)) _resultWindow = null; };
+            win.Show();
+            win.Activate();
+        });
     }
 
     private IOcrProvider? PickActiveOrNotify()

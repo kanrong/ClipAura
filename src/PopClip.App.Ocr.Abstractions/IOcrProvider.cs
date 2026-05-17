@@ -43,7 +43,7 @@ public interface IOcrProvider : IDisposable
     /// 已就绪 / 已知不可用 时直接 return，不应该重复加载。</summary>
     void PrewarmInBackground();
 
-    /// <summary>执行 OCR 识别。
+    /// <summary>执行 OCR 识别，返回结构化结果（含每段文字 + 在原图中的位置）。
     ///
     /// 入参：
     /// - pngBytes：PNG 编码的图片数据；调用方负责把 Bitmap / SKBitmap / 文件流转 PNG bytes。
@@ -52,8 +52,9 @@ public interface IOcrProvider : IDisposable
     ///   应该让 native 继续跑完但不再持有任何 UI / disposable 资源（参考 RapidOcrProvider 的 ContinueWith 模式）。
     ///
     /// 返回：
-    /// - 成功识别出的文字（多行用 \n 分隔）；
-    /// - 没识别到内容返回 ""；
-    /// - 严重失败（IsAvailable=false / native 异常）抛 InvalidOperationException，不返回 fallback 字符串。</summary>
-    Task<string> RecognizeAsync(byte[] pngBytes, CancellationToken ct);
+    /// - 成功识别：OcrResult 含 Blocks（带位置）与 FullText（按 reading order 拼好），
+    ///   想"只要文字"的调用方读 FullText 即可，等价于旧 API；
+    /// - 没识别到内容：返回 OcrResult.Empty（Blocks=空，FullText=""），不抛异常；
+    /// - 严重失败（IsAvailable=false / native 异常）抛 InvalidOperationException，不返回 fallback。</summary>
+    Task<OcrResult> RecognizeAsync(byte[] pngBytes, CancellationToken ct);
 }

@@ -17,7 +17,7 @@ public sealed class ActionCatalog
     /// <summary>构造函数。
     /// pasteService 必须随 catalog 一起注入：PasteAction.CanRun 依赖它判定剪贴板是否有文本，
     /// 注入到 catalog 而非通过 IActionHost 取，是为了让 CanRun（接口不携带 host）也能访问粘贴能力</summary>
-    public ActionCatalog(ILog log, IPasteService pasteService)
+    public ActionCatalog(ILog log, IPasteService pasteService, IOfflineDictionaryService dictionary)
     {
         _log = log;
         // 旧 GoogleSearch / BingSearch ID 全部别名到统一 SearchAction，兼容历史 actions.json
@@ -49,6 +49,8 @@ public sealed class ActionCatalog
             [BuiltInActionIds.CsvToMarkdown] = new CsvToMarkdownAction(),
             [BuiltInActionIds.TsvToCsv] = new TsvToCsvAction(),
             [BuiltInActionIds.TsvToMarkdown] = new TsvToMarkdownAction(),
+            [BuiltInActionIds.WordLookup] = new WordLookupAction(dictionary),
+            [BuiltInActionIds.VocabularyAnalyze] = new VocabularyAnalyzeAction(dictionary),
         };
     }
 

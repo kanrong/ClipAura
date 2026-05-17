@@ -60,7 +60,7 @@ public static class BuiltInOutputModes
     };
 
     /// <summary>判断指定动作是否支持配置 OutputMode。
-    /// 仅"有文本产出"的动作适用：JsonFormat / JsonToYaml / Color / Timestamp / CSV ↔ MD / TSV ↔ CSV / WordCount / Calculate；
+    /// 仅"有文本产出"的动作适用：JsonFormat / JsonToYaml / Color / Timestamp / CSV ↔ MD / TSV ↔ CSV / 查词 / 词汇解析 / WordCount / Calculate；
     /// 不适用：Copy（自身就是写剪贴板）、Paste、Search、Translate（外部跳转）、PathOpen（动作就是打开资源管理器）、所有 AI 模板（自带 AiOutputMode）、ClipboardHistory</summary>
     public static bool SupportsOutputMode(string actionId)
     {
@@ -75,6 +75,8 @@ public static class BuiltInOutputModes
             or BuiltInActionIds.CsvToMarkdown
             or BuiltInActionIds.TsvToCsv
             or BuiltInActionIds.TsvToMarkdown
+            or BuiltInActionIds.WordLookup
+            or BuiltInActionIds.VocabularyAnalyze
             or BuiltInActionIds.WordCount
             or BuiltInActionIds.Calculate => true,
             _ => false,

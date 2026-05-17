@@ -45,6 +45,7 @@ internal sealed class AppHost : IDisposable
     private ClipboardHistoryLauncher? _clipHistoryLauncher;
     private OcrProviderRegistry? _ocrRegistry;
     private OcrCaptureCoordinator? _ocrCoordinator;
+    private OfflineDictionaryService? _dictionary;
 
     public bool TryAcquireSingleInstance()
     {
@@ -80,7 +81,8 @@ internal sealed class AppHost : IDisposable
         // PasteService 必须在 ActionCatalog 之前构造：PasteAction.CanRun 通过它判定
         // "剪贴板是否有文本"，因此目录在装配每个内置动作时就需要这个能力
         var pasteService = new PasteService(_log, clipboardAccess, clipboardPaste);
-        _catalog = new ActionCatalog(_log, pasteService);
+        _dictionary = new OfflineDictionaryService(_log);
+        _catalog = new ActionCatalog(_log, pasteService, _dictionary);
         var cfg = _store.LoadActions();
         if (cfg is not null)
         {
@@ -133,7 +135,7 @@ internal sealed class AppHost : IDisposable
         var bubblePresenter = new FloatingToolbarBubblePresenter(_log, _toolbar);
         _actionHost = new ActionHost(
             _log, _replacer, urlLauncher, clipboardWriter, _toolbar,
-            settingsProvider, aiTextService, pasteService, _clipHistoryLauncher,
+            settingsProvider, aiTextService, _dictionary, pasteService, _clipHistoryLauncher,
             resultDialog: resultDialog, bubble: bubblePresenter);
 
         _gate = new SuppressionGate(_log, _settings);

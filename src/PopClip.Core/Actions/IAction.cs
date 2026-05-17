@@ -25,6 +25,7 @@ public interface IActionHost
     INotificationSink Notifier { get; }
     ISettingsProvider Settings { get; }
     IAiTextService Ai { get; }
+    IOfflineDictionaryService Dictionary { get; }
     /// <summary>粘贴能力（把剪贴板内容写回当前选区/光标位置）。
     /// 内置粘贴动作通过它实现，外部脚本/扩展动作也可使用</summary>
     IPasteService Paste { get; }
@@ -150,6 +151,28 @@ public interface IAiTextService
     /// <summary>执行自定义 prompt 动作。根据 OutputMode 决定是否弹窗</summary>
     Task RunPromptAsync(AiPromptRequest request, SelectionContext context, CancellationToken ct);
 }
+
+public interface IOfflineDictionaryService
+{
+    bool IsAvailable { get; }
+    string? UnavailableReason { get; }
+    IReadOnlyList<DictionaryLookupResult> Lookup(string query, int maxResults = 5);
+}
+
+public sealed record DictionaryLookupResult(
+    string Word,
+    string? MatchedFrom,
+    string? Phonetic,
+    string? Translation,
+    string? Definition,
+    string? PartOfSpeech,
+    string? Exchange,
+    int? Frequency,
+    int? Collins,
+    int? Oxford,
+    string? Tags,
+    int? Bnc,
+    int? Frq);
 
 /// <summary>向用户展示一次性短信息（如计算结果、字数统计）。
 /// 实现可以是托盘气球通知、屏幕角落 toast 等，对动作层透明</summary>

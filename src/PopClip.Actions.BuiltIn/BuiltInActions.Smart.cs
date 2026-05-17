@@ -25,6 +25,8 @@ public static class SmartActionIcons
     public const string MdToCsv = "MdToCsv";        // MD 表→CSV，输出是一维清单
     public const string TsvToCsv = "TsvToCsv";      // TSV→CSV，输出也是清单（与 MdToCsv 视觉再区分）
     public const string TsvToMd = "TsvToMd";        // TSV→MD 表，输出是表（与 Table 视觉再区分）
+    public const string Dictionary = "Dictionary";  // 离线查词
+    public const string Vocabulary = "Vocabulary";  // 段落词汇解析
 }
 
 /// <summary>JSON 格式化动作。
@@ -583,6 +585,244 @@ internal sealed class CsvToMarkdownAction : BuiltInAction
         => s.Replace("|", "\\|").Replace("\n", " ").Replace("\r", "");
 }
 
+internal sealed class WordLookupAction : BuiltInAction
+{
+    private readonly IOfflineDictionaryService _dictionary;
+
+    public WordLookupAction(IOfflineDictionaryService dictionary) => _dictionary = dictionary;
+
+    public override string Id => BuiltInActionIds.WordLookup;
+    public override string Title => "查词";
+    public override string IconKey => SmartActionIcons.Dictionary;
+
+    public override bool CanRun(SelectionContext context)
+        => !context.IsEmpty
+           && _dictionary.IsAvailable
+           && SmartTextProbes.LooksLikeEnglishLookup(context.Text);
+
+    public override Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
+    {
+        var query = SmartTextProbes.NormalizeEnglishLookup(context.Text);
+        var results = _dictionary.Lookup(query, maxResults: 6);
+        if (results.Count == 0)
+        {
+            host.Notifier.Notify($"词库未找到：{query}");
+            return Task.CompletedTask;
+        }
+
+        var text = FormatDictionaryResults(query, results);
+        SmartOutput.Publish(host, context, Title, text,
+            copyToast: $"已查询 {query}（{results.Count} 条，已复制）",
+            fallback: BuiltInOutputMode.Bubble);
+        return Task.CompletedTask;
+    }
+
+    internal static string FormatDictionaryResults(string query, IReadOnlyList<DictionaryLookupResult> results)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(query);
+        sb.AppendLine();
+        foreach (var item in results)
+        {
+            AppendDictionaryItem(sb, item);
+            sb.AppendLine();
+        }
+        return sb.ToString().TrimEnd();
+    }
+
+    internal static void AppendDictionaryItem(StringBuilder sb, DictionaryLookupResult item)
+    {
+        sb.Append(item.Word);
+        if (!string.IsNullOrWhiteSpace(item.MatchedFrom)
+            && !string.Equals(item.Word, item.MatchedFrom, StringComparison.OrdinalIgnoreCase))
+        {
+            sb.Append(" ← ").Append(item.MatchedFrom);
+        }
+        if (!string.IsNullOrWhiteSpace(item.Phonetic)) sb.Append(" /").Append(item.Phonetic).Append('/');
+        if (!string.IsNullOrWhiteSpace(item.PartOfSpeech)) sb.Append("  ").Append(item.PartOfSpeech);
+        sb.AppendLine();
+
+        var level = VocabularyAnalyzeAction.EstimateLevel(item);
+        sb.AppendLine($"难度: {level.Label}");
+        if (!string.IsNullOrWhiteSpace(item.Tags)) sb.AppendLine("标签: " + item.Tags);
+        if (!string.IsNullOrWhiteSpace(item.Translation))
+        {
+            sb.AppendLine(NormalizeMultiline("释义: " + FilterDictionaryLines(item.Translation, dropComputerDefinitions: true)));
+        }
+        if (!string.IsNullOrWhiteSpace(item.Definition))
+        {
+            sb.AppendLine(NormalizeMultiline("EN: " + item.Definition));
+        }
+        if (!string.IsNullOrWhiteSpace(item.Exchange))
+        {
+            sb.AppendLine("变形: " + item.Exchange);
+        }
+    }
+
+    private static string NormalizeMultiline(string text)
+        => text.Replace("\\n", "\n", StringComparison.Ordinal)
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Trim();
+
+    private static string FilterDictionaryLines(string text, bool dropComputerDefinitions)
+    {
+        var normalized = text.Replace("\\n", "\n", StringComparison.Ordinal)
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n');
+        var lines = normalized.Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0)
+            .Where(line => !(dropComputerDefinitions && line.Contains("[计]", StringComparison.Ordinal)))
+            .ToArray();
+        return string.Join('\n', lines);
+    }
+}
+
+internal sealed class VocabularyAnalyzeAction : BuiltInAction
+{
+    private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "the", "a", "an", "and", "or", "but", "if", "then", "else", "for", "to", "of", "in", "on", "at", "by",
+        "with", "from", "as", "is", "are", "was", "were", "be", "been", "being", "am", "this", "that", "these",
+        "those", "it", "its", "they", "them", "their", "we", "our", "you", "your", "he", "she", "his", "her",
+        "i", "me", "my", "do", "does", "did", "done", "have", "has", "had", "will", "would", "can", "could",
+        "should", "may", "might", "not", "no", "yes", "so", "very", "just", "also", "than", "too",
+    };
+
+    private readonly IOfflineDictionaryService _dictionary;
+
+    public VocabularyAnalyzeAction(IOfflineDictionaryService dictionary) => _dictionary = dictionary;
+
+    public override string Id => BuiltInActionIds.VocabularyAnalyze;
+    public override string Title => "词汇解析";
+    public override string IconKey => SmartActionIcons.Vocabulary;
+
+    public override bool CanRun(SelectionContext context)
+        => !context.IsEmpty
+           && _dictionary.IsAvailable
+           && SmartTextProbes.LooksLikeEnglishText(context.Text)
+           && ExtractCandidates(context.Text, maxCandidates: 3).Count > 0;
+
+    public override Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
+    {
+        var candidates = ExtractCandidates(context.Text, maxCandidates: 80);
+        var scored = new List<(DictionaryLookupResult Entry, int Score)>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var word in candidates)
+        {
+            var hit = _dictionary.Lookup(word, maxResults: 1).FirstOrDefault();
+            if (hit is null || !seen.Add(hit.Word)) continue;
+            if (HasComputerDefinition(hit)) continue;
+            if (HasBasicSchoolTag(hit)) continue;
+            var score = ScoreVocabularyItem(hit);
+            if (score < 10) continue;
+            scored.Add((hit, score));
+        }
+
+        var entries = scored
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.Entry.Word.Length)
+            .Take(10)
+            .Select(x => x.Entry)
+            .ToList();
+
+        if (entries.Count == 0)
+        {
+            host.Notifier.Notify("词库未找到可解析词汇");
+            return Task.CompletedTask;
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"词汇解析（{entries.Count} 个）");
+        sb.AppendLine();
+        foreach (var item in entries)
+        {
+            WordLookupAction.AppendDictionaryItem(sb, item);
+            sb.AppendLine();
+        }
+
+        var text = sb.ToString().TrimEnd();
+        SmartOutput.Publish(host, context, Title, text,
+            copyToast: $"已解析 {entries.Count} 个词（已复制）",
+            fallback: BuiltInOutputMode.Bubble);
+        return Task.CompletedTask;
+    }
+
+    internal static (string Label, int Rank) EstimateLevel(DictionaryLookupResult item)
+    {
+        var score = ScoreVocabularyItem(item);
+        if (score >= 35) return ("高级", 3);
+        if (score >= 10) return ("进阶", 2);
+        return ("基础", 1);
+    }
+
+    private static int ScoreVocabularyItem(DictionaryLookupResult item)
+    {
+        var word = item.Word;
+        var tags = " " + (item.Tags ?? "").ToLowerInvariant() + " ";
+        var score = 0;
+
+        if (tags.Contains(" gre ", StringComparison.Ordinal)) score += 35;
+        if (tags.Contains(" toefl ", StringComparison.Ordinal)) score += 22;
+        if (tags.Contains(" ielts ", StringComparison.Ordinal)) score += 20;
+        if (tags.Contains(" ky ", StringComparison.Ordinal)) score += 18;
+        if (tags.Contains(" cet6 ", StringComparison.Ordinal)) score += 12;
+        if (tags.Contains(" cet4 ", StringComparison.Ordinal)) score += 4;
+        if (tags.Contains(" zk ", StringComparison.Ordinal) || tags.Contains(" gk ", StringComparison.Ordinal)) score -= 18;
+
+        score += item.Collins switch
+        {
+            null => 14,
+            <= 1 => 22,
+            2 => 14,
+            3 => 4,
+            >= 4 => -16,
+        };
+
+        var rank = item.Bnc ?? item.Frq;
+        if (rank is null) score += 8;
+        else if (rank > 20000) score += 30;
+        else if (rank > 8000) score += 22;
+        else if (rank > 3000) score += 12;
+        else if (rank < 1000) score -= 22;
+        else if (rank < 3000) score -= 10;
+
+        if (word.Contains('-', StringComparison.Ordinal)) score += 14;
+        if (word.Length >= 12) score += 12;
+        else if (word.Length >= 9) score += 7;
+        if (StopWords.Contains(word)) score -= 50;
+
+        return score;
+    }
+
+    private static bool HasComputerDefinition(DictionaryLookupResult item)
+        => (item.Translation ?? "").Contains("[计]", StringComparison.Ordinal);
+
+    private static bool HasBasicSchoolTag(DictionaryLookupResult item)
+    {
+        var tags = " " + (item.Tags ?? "").ToLowerInvariant() + " ";
+        return tags.Contains(" zk ", StringComparison.Ordinal)
+            || tags.Contains(" gk ", StringComparison.Ordinal);
+    }
+
+    private static List<string> ExtractCandidates(string text, int maxCandidates)
+    {
+        var list = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match match in Regex.Matches(text, @"[A-Za-z][A-Za-z'-]{2,}"))
+        {
+            var word = match.Value.Trim('\'', '-');
+            if (word.Length < 4 || StopWords.Contains(word)) continue;
+            if (word.All(char.IsUpper) && word.Length <= 5) continue;
+            if (!seen.Add(word)) continue;
+            list.Add(word);
+            if (list.Count >= maxCandidates) break;
+        }
+        return list;
+    }
+}
+
 /// <summary>用于多个 SmartAction 共享的"轻量探测"。
 /// 关键约束：每个方法都必须在亚毫秒内返回 —— 浮窗弹出前会全量调一遍，重 IO 会拖慢整体响应</summary>
 internal static class SmartTextProbes
@@ -606,6 +846,28 @@ internal static class SmartTextProbes
         {
             return false;
         }
+    }
+
+    public static bool LooksLikeEnglishLookup(string text)
+    {
+        var normalized = NormalizeEnglishLookup(text);
+        if (normalized.Length < 2 || normalized.Length > 80) return false;
+        if (normalized.Count(char.IsWhiteSpace) > 3) return false;
+        return Regex.IsMatch(normalized, @"^[A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,3}$");
+    }
+
+    public static bool LooksLikeEnglishText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || text.Length < 12) return false;
+        var letters = text.Count(char.IsAsciiLetter);
+        if (letters < 8) return false;
+        return (double)letters / Math.Max(1, text.Count(c => !char.IsWhiteSpace(c))) >= 0.55;
+    }
+
+    public static string NormalizeEnglishLookup(string text)
+    {
+        var normalized = Regex.Replace(text.Trim(), @"^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$", "");
+        return Regex.Replace(normalized, @"\s+", " ");
     }
 
     /// <summary>识别 Markdown 表格的最低条件：

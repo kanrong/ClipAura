@@ -11,6 +11,7 @@ internal sealed class ActionHost : IActionHost
     public INotificationSink Notifier { get; }
     public ISettingsProvider Settings { get; }
     public IAiTextService Ai { get; }
+    public IOfflineDictionaryService Dictionary { get; }
     public IPasteService Paste { get; }
     public IClipboardHistoryLauncher? ClipboardHistory { get; }
     public ILog Log { get; }
@@ -28,6 +29,7 @@ internal sealed class ActionHost : IActionHost
         INotificationSink notifier,
         ISettingsProvider settings,
         IAiTextService ai,
+        IOfflineDictionaryService dictionary,
         IPasteService paste,
         IClipboardHistoryLauncher? clipboardHistory = null,
         IResultDialogPresenter? resultDialog = null,
@@ -40,6 +42,7 @@ internal sealed class ActionHost : IActionHost
         Notifier = notifier;
         Settings = settings;
         Ai = ai;
+        Dictionary = dictionary;
         Paste = paste;
         ClipboardHistory = clipboardHistory;
         ResultDialog = resultDialog;
@@ -66,6 +69,7 @@ internal sealed class ScopedActionHost : IActionHost
     public INotificationSink Notifier => _inner.Notifier;
     public ISettingsProvider Settings => _inner.Settings;
     public IAiTextService Ai => _inner.Ai;
+    public IOfflineDictionaryService Dictionary => _inner.Dictionary;
     public IPasteService Paste => _inner.Paste;
     public IClipboardHistoryLauncher? ClipboardHistory => _inner.ClipboardHistory;
     public ILog Log => _inner.Log;

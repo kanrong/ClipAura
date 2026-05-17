@@ -64,6 +64,7 @@ internal sealed class FloatingToolbarBubblePresenter : IInlineBubblePresenter
                 monitorBottomY: mb,
                 monitorTopY: mt);
             bubble.SetCompleted(text ?? "", model: "", elapsed: TimeSpan.Zero, promptTok: 0, compTok: 0);
+            bubble.ScrollBodyToTop();
         });
     }
 

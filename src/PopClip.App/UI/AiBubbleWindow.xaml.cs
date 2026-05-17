@@ -196,6 +196,13 @@ internal partial class AiBubbleWindow : Window
         OpenChatButton.IsEnabled = has && _onOpenInChat is not null;
     }
 
+    public void ScrollBodyToTop()
+    {
+        BodyText.CaretIndex = 0;
+        BodyText.ScrollToHome();
+        BodyScroll.ScrollToTop();
+    }
+
     public void SetFailed(string message)
     {
         _streamingDone = true;

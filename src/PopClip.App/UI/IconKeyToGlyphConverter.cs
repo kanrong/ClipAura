@@ -46,6 +46,8 @@ internal sealed class IconKeyToGlyphConverter : IValueConverter
         ["TsvToMd"] = "\uF572",      // CellPhoneTable (TSV → MD 表)
         ["Ocr"] = "\uE7C5",          // Crop
         ["OcrImage"] = "\uEB9F",     // Photo2（剪贴板图片 OCR）
+        ["Dictionary"] = "\uE82D",   // Dictionary / book
+        ["Vocabulary"] = "\uE8D2",   // Reading list
     };
 
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
@@ -134,6 +136,8 @@ internal sealed class IconKeyToMaterialDesignKindConverter : IValueConverter
         ["TsvToMd"] = PackIconMaterialDesignKind.TableViewRound,
         ["Ocr"] = PackIconMaterialDesignKind.DocumentScannerRound,
         ["OcrImage"] = PackIconMaterialDesignKind.ImageSearchRound,
+        ["Dictionary"] = PackIconMaterialDesignKind.MenuBookRound,
+        ["Vocabulary"] = PackIconMaterialDesignKind.SpellcheckRound,
         // ============ 通用图形/语义图标（用户在自定义动作里可选） ============
         // 这里的 key 不能与上方"内置功能"重复，否则同一图标会跨语义共用
         ["Star"] = PackIconMaterialDesignKind.StarRound,

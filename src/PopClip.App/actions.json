@@ -20,6 +20,8 @@
     { "id": "mdtable-to-csv",    "type": "builtin", "builtIn": "builtin.text.mdtable.tocsv","title": "MD 表→CSV",  "icon": "MdToCsv",          "iconLocked": true, "enabled": true },
     { "id": "csv-to-mdtable",    "type": "builtin", "builtIn": "builtin.text.csv.tomd",     "title": "CSV→MD 表", "icon": "Table",            "iconLocked": true, "enabled": true },
     { "id": "tsv-to-csv",        "type": "builtin", "builtIn": "builtin.text.tsv.tocsv",    "title": "TSV→CSV",   "icon": "TsvToCsv",         "iconLocked": true, "enabled": true },
-    { "id": "tsv-to-mdtable",    "type": "builtin", "builtIn": "builtin.text.tsv.tomd",     "title": "TSV→MD 表", "icon": "TsvToMd",          "iconLocked": true, "enabled": true }
+    { "id": "tsv-to-mdtable",    "type": "builtin", "builtIn": "builtin.text.tsv.tomd",     "title": "TSV→MD 表", "icon": "TsvToMd",          "iconLocked": true, "enabled": true },
+    { "id": "word-lookup",       "type": "builtin", "builtIn": "builtin.text.word.lookup",  "title": "查词",       "icon": "Dictionary",       "iconLocked": true, "enabled": true },
+    { "id": "vocabulary-analyze","type": "builtin", "builtIn": "builtin.text.vocabulary.analyze","title": "词汇解析","icon": "Vocabulary",       "iconLocked": true, "enabled": true }
   ]
 }

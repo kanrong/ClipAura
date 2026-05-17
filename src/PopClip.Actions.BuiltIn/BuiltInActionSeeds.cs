@@ -56,6 +56,8 @@ public static class BuiltInActionSeeds
         new BuiltInActionSeed(BuiltInActionIds.CsvToMarkdown, "csv-to-mdtable", "CSV → MD 表", "Table", BuiltInActionGroup.Smart, "识别 CSV 文本（行列对齐），转 Markdown 表格"),
         new BuiltInActionSeed(BuiltInActionIds.TsvToCsv, "tsv-to-csv", "TSV → CSV", "TsvToCsv", BuiltInActionGroup.Smart, "识别 Tab 分隔文本（如从 Excel 复制），转 CSV 复制"),
         new BuiltInActionSeed(BuiltInActionIds.TsvToMarkdown, "tsv-to-mdtable", "TSV → MD 表", "TsvToMd", BuiltInActionGroup.Smart, "识别 Tab 分隔文本，转 Markdown 表格"),
+        new BuiltInActionSeed(BuiltInActionIds.WordLookup, "word-lookup", "查词", "Dictionary", BuiltInActionGroup.Smart, "离线查询选中英文单词或短语，需放置 ECDICT SQLite 词库"),
+        new BuiltInActionSeed(BuiltInActionIds.VocabularyAnalyze, "vocabulary-analyze", "词汇解析", "Vocabulary", BuiltInActionGroup.Smart, "离线抽取英文句子/段落中的重点词，需放置 ECDICT SQLite 词库"),
 
         new BuiltInActionSeed(BuiltInActionIds.AiChat, "ai-chat", "AI 对话", "AiChat", BuiltInActionGroup.Ai),
         new BuiltInActionSeed(BuiltInActionIds.AiExplain, "ai-explain", "AI 解释", "AiExplain", BuiltInActionGroup.Ai, "用 AI 解释选中文本含义，结果走流式气泡"),

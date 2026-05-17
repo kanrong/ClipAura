@@ -116,7 +116,7 @@ internal partial class OcrSelectionWindow : Window
         // 必须先把窗口在视觉树上彻底隐藏（Hide + Visibility=Collapsed 让 DWM 跳过合成），
         // 然后用 Dispatcher Background 优先级把截图事件推到下一帧 —— 此时蒙层已不在屏幕上。
         // 之前直接 Close() + Invoke 会让 CopyFromScreen 截到半透明黑色蒙层，
-        // PaddleOCR detector 还能看出文字框轮廓但 recognizer 拿到的颜色全被压暗 → 输出乱码
+        // detector 还能看出文字框轮廓但 recognizer 拿到的颜色全被压暗 → 输出乱码
         Hide();
         Visibility = Visibility.Collapsed;
         Dispatcher.BeginInvoke(new Action(() =>

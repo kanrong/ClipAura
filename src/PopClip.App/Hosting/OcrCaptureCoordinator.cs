@@ -43,16 +43,16 @@ internal sealed class OcrCaptureCoordinator
     {
         if (!_ocr.IsAvailable)
         {
-            // PaddleOCR 模型与 native runtime 随程序一起分发，IsAvailable=false 只可能是初始化阶段
-            // 加载 native lib 失败（VC++ 运行库缺失 / 安全软件拦截 / 用户磁盘损坏）。
-            // 提示用户检查日志而不是去配置语言包。
+            // 模型与 native runtime (ONNX Runtime + SkiaSharp) 随程序一起分发，IsAvailable=false
+            // 只可能是初始化阶段加载 native lib 失败（VC++ 运行库缺失 / 安全软件拦截 / 模型文件被误删）。
+            // 提示用户检查日志而不是去配置语言包
             WpfApplication.Current.Dispatcher.Invoke(() =>
             {
                 MessageBox.Show(
                     "OCR 引擎初始化失败。\n\n请确认：\n"
                     + "• 已安装 Visual C++ 2019/2022 Redistributable (x64)；\n"
-                    + "• 安全软件未拦截 paddle_inference / opencv 相关 DLL；\n"
-                    + "• 程序所在目录可写（首次加载需要解压 native 资源）。\n\n"
+                    + "• 安全软件未拦截 onnxruntime / libSkiaSharp 相关 DLL；\n"
+                    + "• 程序目录下 models\\v5\\ 中的 4 个模型文件未被误删。\n\n"
                     + "详细错误请查看应用日志。",
                     "OCR 不可用",
                     MessageBoxButton.OK,
@@ -61,7 +61,7 @@ internal sealed class OcrCaptureCoordinator
             return;
         }
 
-        // 提前预热引擎：用户从按热键到松开拖框通常 1~2 秒，PaddleOcrAll 冷启动也是 1~2 秒，
+        // 提前预热引擎：用户从按热键到松开拖框通常 1~2 秒，ONNX session 冷启动 ~500 ms-1 秒，
         // 在蒙层弹出的同时后台加载模型可以把感知延迟压到接近 0
         _ocr.PrewarmInBackground();
 
@@ -92,7 +92,7 @@ internal sealed class OcrCaptureCoordinator
         try
         {
             // 关键缓冲：选区窗 Hide/Close 后 DWM 需要 1~2 帧合成才会从屏幕移除蒙层（@60Hz 约 32 ms/帧），
-            // 此时立刻 CopyFromScreen 会截到半透明黑色蒙层覆盖的内容，导致 PaddleOCR 输出乱码。
+            // 此时立刻 CopyFromScreen 会截到半透明黑色蒙层覆盖的内容，导致 OCR 输出乱码。
             // 80 ms ≈ 5 帧，足够覆盖普通显示刷新率甚至 30Hz 远程会话
             await Task.Delay(80).ConfigureAwait(false);
 
@@ -102,7 +102,7 @@ internal sealed class OcrCaptureCoordinator
                 g.CopyFromScreen(physical.Left, physical.Top, 0, 0, bitmap.Size);
             }
 
-            // 引擎未就绪时识别可能耗时 1~3 秒（含 PaddleOCR 冷启动），先给个轻量 toast
+            // 引擎未就绪时识别可能耗时 1~3 秒（含 ONNX 三个 session 冷启动），先给个轻量 toast
             // 让用户感知到正在工作；已就绪时跳过 toast 避免噪音。
             // 用 ShowToastAt 而不是 ShowInlineToast：识别失败 / 加载中场景浮窗本身不会显示，
             // ShowInlineToast 拿浮窗的 Left/Top 锚定会落到屏幕外，用户看不到

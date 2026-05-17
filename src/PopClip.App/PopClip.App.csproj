@@ -4,8 +4,8 @@
     <OutputType>WinExe</OutputType>
     <!-- net10.0-windows + 10.0.19041.0 SDK：保留 SDK 主要为兼容历史代码里残留的 WinRT 互操作 API
          （UIA / clipboard 通过 P/Invoke 不依赖 WinRT；以后清理完可降到 net10.0-windows）。
-         OCR 后端已迁移到 PaddleOCR（PaddleInference + OpenCvSharp4 + LocalV5 模型），
-         不再依赖 Windows.Media.Ocr 与系统语言包。 -->
+         OCR 后端使用 RapidOcrNet（PP-OCRv5 ONNX 模型 + ONNX Runtime + SkiaSharp），
+         总占用 ~50MB，比 PaddleOCR (paddle_inference_c + MKL) 的 ~380MB 大幅缩减。 -->
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <Nullable>enable</Nullable>
@@ -29,17 +29,12 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
     <PackageReference Include="MahApps.Metro.IconPacks.MaterialDesign" Version="6.2.1" />
-    <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260427" />
-    <PackageReference Include="OpenCvSharp4.Extensions" Version="4.13.0.20260427" />
-    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260302" />
-    <PackageReference Include="Sdcb.PaddleInference" Version="3.0.1" />
-    <PackageReference Include="Sdcb.PaddleInference.runtime.win64.mkl" Version="3.1.0.54" />
-    <PackageReference Include="Sdcb.PaddleOCR" Version="3.0.1" />
-    <PackageReference Include="Sdcb.PaddleOCR.Models.LocalV5" Version="3.0.0" />
-    <PackageReference Include="Sdcb.PaddleOCR.Models.Shared" Version="2.7.0.1" />
+    <!-- RapidOcrNet 默认带 latin (英文) 模型，会被它的 build target 自动 copy 到 bin/models/v5/。
+         我们要用中文模型（ch_PP-OCRv5_rec_mobile + ppocrv5_dict）覆盖，
+         所以 ExcludeAssets=build 屏蔽它自带的 copy target，由下面 Assets\OcrModels 节统一负责模型分发 -->
+    <PackageReference Include="RapidOcrNet" Version="2.0.0" ExcludeAssets="build" />
     <PackageReference Include="WPF-UI" Version="4.3.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
-    <PackageReference Include="YamlDotNet" Version="17.1.0" />
     <!-- net10 起 System.Drawing.Common 已是 Microsoft.WindowsDesktop.App 自带的 framework 引用，
          不再需要显式 PackageReference -->
   </ItemGroup>
@@ -53,6 +48,15 @@
   <ItemGroup>
     <None Remove="Assets\AppIcon.ico" />
     <Resource Include="Assets\AppIcon.ico" />
+  </ItemGroup>
+
+  <!-- PP-OCRv5 中英文模型分发：把 Assets\OcrModels\v5\ 下的 4 个文件原样 copy 到 bin\models\v5\，
+       与 RapidOcrNet 期望的目录结构对齐。覆盖 NuGet 包自带的 latin 模型，专门支持中英文识别。
+       模型来源：https://www.modelscope.cn/models/RapidAI/RapidOCR (RapidAI/RapidOCR v3.8.0) -->
+  <ItemGroup>
+    <None Include="Assets\OcrModels\v5\*.*" Link="models\v5\%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

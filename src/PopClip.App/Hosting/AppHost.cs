@@ -317,7 +317,7 @@ internal sealed class AppHost : IDisposable
         _tray?.Dispose();
         _clipHistory?.Dispose();
         _clipboardThread?.Dispose();
-        // PaddleOcrAll 持有 native inference 句柄与 ~百 MB 模型显存，应用退出时显式释放，
+        // RapidOcr 持有三个 ONNX InferenceSession 与 ~21 MB 模型句柄，应用退出时显式释放，
         // 避免 process tear-down 阶段 native finalizer 顺序不可控引发的崩溃
         _ocr?.Dispose();
         _instance?.Dispose();

@@ -111,10 +111,20 @@ internal partial class OcrSelectionWindow : Window
             _virtualTopPx + (int)Math.Round(rect.Y * _dpiScaleY),
             (int)Math.Round(rect.Width * _dpiScaleX),
             (int)Math.Round(rect.Height * _dpiScaleY));
-        // 立即关闭窗口再触发事件：截图过程中蒙层还在屏幕上会被一同截入
-        Close();
-        try { RegionSelected?.Invoke(physical); }
-        catch (Exception ex) { _log.Warn("ocr region callback failed", ("err", ex.Message)); }
+
+        // 关键：WPF 的 Close() 仅向消息队列投递 WM_CLOSE，蒙层在屏幕上消失需要等一次 DWM 合成。
+        // 必须先把窗口在视觉树上彻底隐藏（Hide + Visibility=Collapsed 让 DWM 跳过合成），
+        // 然后用 Dispatcher Background 优先级把截图事件推到下一帧 —— 此时蒙层已不在屏幕上。
+        // 之前直接 Close() + Invoke 会让 CopyFromScreen 截到半透明黑色蒙层，
+        // PaddleOCR detector 还能看出文字框轮廓但 recognizer 拿到的颜色全被压暗 → 输出乱码
+        Hide();
+        Visibility = Visibility.Collapsed;
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            Close();
+            try { RegionSelected?.Invoke(physical); }
+            catch (Exception ex) { _log.Warn("ocr region callback failed", ("err", ex.Message)); }
+        }), System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private void OnRightDown(object sender, MouseButtonEventArgs e)

@@ -749,6 +749,20 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         });
     }
 
+    /// <summary>独立锚点 toast：当浮窗本身不会显示（OCR 识别失败 / 加载中）时使用，
+    /// 直接给屏幕物理像素坐标做锚点。anchor 是 toast 的水平中心 + 顶部位置（DIP）。
+    /// 调用方负责物理像素 → DIP 的换算。</summary>
+    public void ShowToastAt(string text, double anchorCenterDip, double anchorTopDip,
+        bool isError = false, int durationMs = 3000)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            LastToastAtUtc = DateTime.UtcNow;
+            EnsureToastWindow();
+            _toastWindow!.Show(text, copyText: null, isError, durationMs, anchorCenterDip, anchorTopDip);
+        });
+    }
+
     private void EnsureToastWindow()
     {
         if (_toastWindow is not null) return;

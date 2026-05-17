@@ -156,7 +156,7 @@ public sealed class AppSettings
     public string ToolbarHotKey { get; set; } = "Ctrl+Alt+Space";
 
     /// <summary>区域 OCR 截选热键。按下后弹出全屏蒙层让用户拉框，
-    /// 截图区域被 Windows.Media.Ocr 识别后走与正常选区相同的浮窗 + 动作链路</summary>
+    /// 截图区域被 PaddleOCR 引擎识别后走与正常选区相同的浮窗 + 动作链路</summary>
     public string OcrHotKey { get; set; } = "Ctrl+Alt+Shift+O";
 
     // ================== 浮窗自动消失触发条件 ==================

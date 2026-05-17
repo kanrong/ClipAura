@@ -52,13 +52,16 @@ internal partial class ToolbarToastWindow : Window
 
             if (isError)
             {
-                // 错误态固定红底，不跟 toolbar 主题；红色更醒目，避免主题色与错误语义冲突
-                var errorBrush = new SolidColorBrush(Color.FromRgb(0x5A, 0x1E, 0x1E));
-                ToastBorder.Background = errorBrush;
+                // 错误态固定深红底 + 白字：与 toolbar 主题脱钩，让"出错"语义在任何主题下都醒目可读。
+                // ToolbarForeground 在浅色主题下是深色，叠加深红背景几乎不可见，
+                // 因此 Foreground 也必须强制成白色，保证 WCAG 对比度
+                ToastBorder.Background = new SolidColorBrush(Color.FromRgb(0xB1, 0x2A, 0x2A));
+                ToastText.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF));
             }
             else
             {
                 ToastBorder.ClearValue(System.Windows.Controls.Border.BackgroundProperty);
+                ToastText.ClearValue(System.Windows.Controls.TextBlock.ForegroundProperty);
             }
 
             // 先 measure 出 toast 实际宽度，再用 anchorCenterX 把它水平居中。

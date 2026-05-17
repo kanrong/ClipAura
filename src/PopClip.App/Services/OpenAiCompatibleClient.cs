@@ -206,7 +206,8 @@ public sealed class OpenAiCompatibleClient
 
             await using var stream = await res.Content.ReadAsStreamAsync(combined.Token).ConfigureAwait(false);
             using var reader = new StreamReader(stream);
-            while (!reader.EndOfStream)
+            // 直接 ReadLineAsync 循环，line==null 即流末尾；net10 analyzer 提示不要用 EndOfStream（同步 IO）
+            while (true)
             {
                 combined.Token.ThrowIfCancellationRequested();
                 var line = await reader.ReadLineAsync(combined.Token).ConfigureAwait(false);

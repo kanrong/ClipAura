@@ -11,6 +11,7 @@ using PopClip.App.Config;
 using PopClip.App.Ocr;
 using PopClip.App.Services;
 using PopClip.Core.Logging;
+using PopClip.Core.Text;
 using WpfPoint = System.Windows.Point;
 
 namespace PopClip.App.UI;
@@ -43,7 +44,7 @@ internal partial class OcrResultWindow : Window
     /// <summary>用户在结果窗点"Quick 输出"时调用：交给 Coordinator 走一遍 Quick 模式渲染
     /// （剪贴板 + 浮窗气泡 + toast），不修改 settings.OcrResultMode。
     /// 用户的 OCR 模式偏好通过设置面板永久切换，本按钮只影响当次输出</summary>
-    private readonly Action? _quickFallback;
+    private readonly Action<string>? _quickFallback;
 
     /// <summary>边框宽度（DIP）。bordered=true 时为 2.0，否则 0.0。
     /// 影响：1) WindowBorderFrame.BorderThickness；2) Window 总尺寸要扩出 2 * borderWidth
@@ -78,6 +79,7 @@ internal partial class OcrResultWindow : Window
 
     /// <summary>翻译期间禁用相关按钮 / 显示 loading 文案的标志位</summary>
     private bool _translating;
+    private string? _organizedFullText;
 
     public OcrResultWindow(
         ILog log,
@@ -87,7 +89,7 @@ internal partial class OcrResultWindow : Window
         ClipboardWriter clipboard,
         AppSettings settings,
         AiTextService? aiText,
-        Action? quickFallback = null,
+        Action<string>? quickFallback = null,
         Action? onCloseRequested = null)
     {
         _log = log;
@@ -494,6 +496,7 @@ internal partial class OcrResultWindow : Window
     private void OnCloseClicked(object sender, RoutedEventArgs e) => CommandClose();
     private void OnSelectAllMenu(object sender, RoutedEventArgs e) => SelectAll();
     private void OnSwitchToQuick(object sender, RoutedEventArgs e) => CommandSwitchToQuick();
+    private void OnOrganizeParagraphs(object sender, RoutedEventArgs e) => CommandOrganizeParagraphs();
     private void OnTranslateSelected(object sender, RoutedEventArgs e) => CommandTranslateSelected();
     private void OnTranslateAll(object sender, RoutedEventArgs e) => CommandTranslateAll();
     private void OnTranslateClear(object sender, RoutedEventArgs e) => CommandTranslateClear();
@@ -521,7 +524,7 @@ internal partial class OcrResultWindow : Window
 
     public void CommandCopyAll()
     {
-        var text = _result.FullText;
+        var text = EffectiveFullText();
         if (string.IsNullOrEmpty(text)) text = JoinAllText();
         if (string.IsNullOrEmpty(text))
         {
@@ -539,10 +542,10 @@ internal partial class OcrResultWindow : Window
     /// 本按钮只是一次性"我这次想要 Quick 风格的输出"的临时通道</summary>
     public void CommandSwitchToQuick()
     {
+        var text = EffectiveFullText();
         if (_quickFallback is null)
         {
             // 兜底：没传回调（理论上不会发生）— 至少把全文复制走，避免按钮按了什么都不做
-            var text = _result.FullText;
             if (!string.IsNullOrEmpty(text)) CopyTextSilently(text);
             ShowToast("已复制全部");
             Dispatcher.BeginInvoke(new Action(() => CloseSelf("switch-quick-fallback")), DispatcherPriority.Background);
@@ -556,9 +559,30 @@ internal partial class OcrResultWindow : Window
         Dispatcher.BeginInvoke(new Action(() =>
         {
             CloseSelf("quick-output");
-            try { fallback(); }
+            try { fallback(text); }
             catch (Exception ex) { _log.Warn("quick fallback failed", ("err", ex.Message)); }
         }), DispatcherPriority.Background);
+    }
+
+    public void CommandOrganizeParagraphs()
+    {
+        var source = OriginalFullText();
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            ShowToast("没有可整理的 OCR 文本");
+            return;
+        }
+
+        var organized = OcrParagraphOrganizer.Organize(source);
+        _organizedFullText = organized;
+        CopyTextSilently(organized);
+
+        var changed = !string.Equals(source.Trim(), organized, StringComparison.Ordinal);
+        var lineCount = CountLines(organized);
+        ShowToast(changed
+            ? $"已整理为 {lineCount} 行 / {organized.Length} 字，并复制"
+            : "段落无需整理，已复制全文");
+        UpdateStatusBar();
     }
 
     public void CommandTranslateAll() => _ = TranslateAsync(Enumerable.Range(0, _result.Blocks.Count).ToList());
@@ -757,6 +781,28 @@ internal partial class OcrResultWindow : Window
         return sb.ToString();
     }
 
+    private string EffectiveFullText()
+        => !string.IsNullOrWhiteSpace(_organizedFullText)
+            ? _organizedFullText!
+            : OriginalFullText();
+
+    private string OriginalFullText()
+    {
+        var text = _result.FullText;
+        return string.IsNullOrWhiteSpace(text) ? JoinAllOriginalText() : text.Trim();
+    }
+
+    private string JoinAllOriginalText()
+    {
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < _result.Blocks.Count; i++)
+        {
+            if (sb.Length > 0) sb.Append('\n');
+            sb.Append(_result.Blocks[i].Text);
+        }
+        return sb.ToString();
+    }
+
     private string GetEffectiveText(int i)
     {
         if (_translationOverlays[i]?.Child is TextBlock tb && !string.IsNullOrWhiteSpace(tb.Text))
@@ -793,11 +839,13 @@ internal partial class OcrResultWindow : Window
         _toolbarWindow?.SetTranslateAllEnabled(total > 0 && !_translating);
         bool hasTranslation = _translationOverlays.Any(o => o is not null);
         _toolbarWindow?.SetTranslateClearEnabled(hasTranslation && !_translating);
+        _toolbarWindow?.SetOrganizeEnabled(total > 0);
 
         // 同步右键菜单可用态
         MiCopySelected.IsEnabled = sel > 0;
         MiClearSel.IsEnabled = sel > 0;
         MiCopyAll.IsEnabled = total > 0;
+        MiOrganizeParagraphs.IsEnabled = total > 0;
         MiSelectAll.IsEnabled = total > 0 && sel < total;
         MiTranslateAll.IsEnabled = total > 0;
         MiTranslateSelected.IsEnabled = sel > 0;
@@ -823,6 +871,12 @@ internal partial class OcrResultWindow : Window
     {
         var compact = string.Join(' ', text.Split(new[] { '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries));
         return compact.Length <= 28 ? compact : compact[..28] + "…";
+    }
+
+    private static int CountLines(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return 0;
+        return text.Count(c => c == '\n') + 1;
     }
 
     private void CopyTextSilently(string text)

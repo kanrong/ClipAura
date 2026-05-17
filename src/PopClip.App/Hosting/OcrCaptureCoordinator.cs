@@ -222,7 +222,7 @@ internal sealed class OcrCaptureCoordinator
             // 剪贴板与浮窗气泡都不在这条路径触发，所有反馈走结果窗内部；
             // 但允许结果窗按用户意愿"临时切到 Quick 输出"，传 quickFallback 回调让它能调用同一套 Quick 渲染
             ShowInteractiveResult(result, pngBytes, anchorRect,
-                quickFallback: () => RenderQuickResult(fullText, anchorRect, provider.DisplayName));
+                quickFallback: text => RenderQuickResult(text, anchorRect, provider.DisplayName));
             return;
         }
 
@@ -236,6 +236,7 @@ internal sealed class OcrCaptureCoordinator
     /// 而不需要重新走一遍 RecognizeAsync。两种触发：
     /// 1) settings.OcrResultMode == Quick 时 RecognizeBitmapAsync 直接调；
     /// 2) settings.OcrResultMode == Interactive 时，用户在结果窗点"Quick 输出" → quickFallback 回调。
+    ///    如果结果窗里先做了"整理段落"，这里接收并输出整理后的文本。
     ///
     /// 气泡比单行 toast 优势：
     /// - 支持多行，长文本 OCR 不会被截断；
@@ -265,7 +266,7 @@ internal sealed class OcrCaptureCoordinator
     /// <summary>把 OcrResult 用 iOS 风格弹窗展示出来。
     /// 必须切到 UI 线程：OcrResultWindow 是 WPF Window，跨线程构造会抛 InvalidOperationException。
     /// 同时同一时刻只允许一个结果窗，新结果直接关掉旧窗（避免叠层 + 多个 topmost 抢焦点）</summary>
-    private void ShowInteractiveResult(OcrResult result, byte[] pngBytes, SelectionRect anchorPhysical, Action quickFallback)
+    private void ShowInteractiveResult(OcrResult result, byte[] pngBytes, SelectionRect anchorPhysical, Action<string> quickFallback)
     {
         WpfApplication.Current.Dispatcher.Invoke(() =>
         {

@@ -38,6 +38,7 @@ public sealed class ActionCatalog
             [BuiltInActionIds.Calculate] = new CalculateAction(),
             [BuiltInActionIds.WordCount] = new WordCountAction(),
             [BuiltInActionIds.ClipboardHistory] = new ClipboardHistoryAction(),
+            [BuiltInActionIds.OcrParagraphTidy] = new OcrParagraphTidyAction(),
             [BuiltInActionIds.AiChat] = new AiChatAction(),
             [BuiltInActionIds.AiExplain] = new AiExplainAction(),
             [BuiltInActionIds.JsonFormat] = new JsonFormatAction(),

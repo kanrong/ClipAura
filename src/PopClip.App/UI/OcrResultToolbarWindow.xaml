@@ -102,6 +102,11 @@
                         Style="{StaticResource ToolButtonStyle}"
                         Content="复制全部"
                         Click="OnCopyAll" />
+                <Button x:Name="OrganizeParagraphsButton"
+                        Style="{StaticResource ToolButtonStyle}"
+                        Content="整理段落"
+                        Click="OnOrganizeParagraphs"
+                        ToolTip="只调整 OCR 硬换行，整理后的全文会复制到剪贴板，并用于本窗的 Quick 输出" />
 
                 <Rectangle x:Name="TranslateSep"
                            Style="{StaticResource OcrToolbarSepStyle}"

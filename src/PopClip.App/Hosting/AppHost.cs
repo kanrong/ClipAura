@@ -153,9 +153,10 @@ internal sealed class AppHost : IDisposable
         // OcrCaptureCoordinator 需要 ClipboardWriter 和 FloatingToolbar：
         // 识别成功后会把文本写剪贴板兜底、再用 InlineToast 5s 给用户清晰反馈
         _ocr = new OcrService(_log);
-        _ocrCoordinator = new OcrCaptureCoordinator(_log, _ocr, _session, clipboardWriter, _toolbar, bubblePresenter);
+        _ocrCoordinator = new OcrCaptureCoordinator(_log, _ocr, _session, clipboardWriter, clipboardAccess, _toolbar, bubblePresenter);
         // 暴露给"剪贴板启动器"用作 OCR 按钮的点击回调
         _session.OcrLauncher = () => _ocrCoordinator?.Trigger();
+        _session.ClipboardImageOcrLauncher = anchor => _ocrCoordinator?.TriggerClipboardImage(anchor);
 
         _hotkeys = new HotKeyManager(_log);
         _hotkeys.PauseRequested += TogglePauseFromHotKey;

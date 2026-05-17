@@ -157,7 +157,7 @@ public sealed class AppSettings
 
     /// <summary>区域 OCR 截选热键。按下后弹出全屏蒙层让用户拉框，
     /// 截图区域被 RapidOcrNet (PP-OCRv5 ONNX) 引擎识别后走与正常选区相同的浮窗 + 动作链路</summary>
-    public string OcrHotKey { get; set; } = "Ctrl+Alt+Shift+O";
+    public string OcrHotKey { get; set; } = "Ctrl+Alt+O";
 
     // ================== 浮窗自动消失触发条件 ==================
     // 鼠标离开浮窗一段时间后自动关闭

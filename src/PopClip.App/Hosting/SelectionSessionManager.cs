@@ -41,6 +41,9 @@ internal sealed class SelectionSessionManager : IDisposable
     /// 由 AppHost 在初始化时挂到 OcrCaptureCoordinator.Trigger</summary>
     public Action? OcrLauncher { get; set; }
 
+    /// <summary>外部注入的"剪贴板图片 OCR"触发器；只在剪贴板当前包含图片时显示。</summary>
+    public Action<SelectionRect>? ClipboardImageOcrLauncher { get; set; }
+
     public SelectionSessionManager(
         ILog log,
         InputWatcher watcher,
@@ -308,6 +311,16 @@ internal sealed class SelectionSessionManager : IDisposable
             })));
         }
 
+        if (ClipboardImageOcrLauncher is not null && HasClipboardImage())
+        {
+            items.Add(new ToolbarItem("图片 OCR", "OcrImage", new DelegateCommand(() =>
+            {
+                _toolbar.DismissExternal("clipboard-image-ocr-invoked");
+                try { ClipboardImageOcrLauncher?.Invoke(mouseRect); }
+                catch (Exception ex) { _log.Warn("clipboard image ocr launcher failed", ("err", ex.Message)); }
+            })));
+        }
+
         if (_actionHost.ClipboardHistory is not null)
         {
             var anchor = new SelectionContext(
@@ -356,6 +369,16 @@ internal sealed class SelectionSessionManager : IDisposable
         catch (Exception ex)
         {
             _log.Warn("modifier-click clipboard check failed", ("err", ex.Message));
+            return false;
+        }
+    }
+
+    private bool HasClipboardImage()
+    {
+        try { return _clipboard.HasImage(); }
+        catch (Exception ex)
+        {
+            _log.Warn("modifier-click clipboard image check failed", ("err", ex.Message));
             return false;
         }
     }

@@ -97,18 +97,18 @@ public sealed class AppSettings
     public bool SuppressOnFullScreen { get; set; } = true;
     public int MinTextLength { get; set; } = 1;
     public int MaxTextLength { get; set; } = 100_000;
-    public bool LaunchAtStartup { get; set; }
+    public bool LaunchAtStartup { get; set; } = true;
     public bool FirstRunCompleted { get; set; }
-    public LogLevel LogLevel { get; set; } = LogLevel.Debug;
+    public LogLevel LogLevel { get; set; } = LogLevel.Warn;
 
     /// <summary>浮窗按钮显示方式，默认图标+文字</summary>
-    public ToolbarDisplayMode ToolbarDisplay { get; set; } = ToolbarDisplayMode.IconAndText;
+    public ToolbarDisplayMode ToolbarDisplay { get; set; } = ToolbarDisplayMode.IconOnly;
 
     /// <summary>浮窗颜色主题，默认跟随系统</summary>
     public ToolbarThemeMode ToolbarTheme { get; set; } = ToolbarThemeMode.Auto;
 
     /// <summary>浮窗外缘层次风格，默认阴影与细边框并用</summary>
-    public ToolbarSurfaceStyle ToolbarSurface { get; set; } = ToolbarSurfaceStyle.ShadowAndBorder;
+    public ToolbarSurfaceStyle ToolbarSurface { get; set; } = ToolbarSurfaceStyle.Shadow;
 
     public bool FollowAccentColor { get; set; } = true;
     public double ToolbarCornerRadius { get; set; } = 5;
@@ -133,13 +133,13 @@ public sealed class AppSettings
     /// 鼠标进入浮窗后会自动恢复为 1.0，离开后回到此值，避免遮挡背后内容</summary>
     public double ToolbarIdleOpacity { get; set; } = 1.0;
     public bool EnableToolbarKeyboardShortcuts { get; set; } = true;
-    public bool EnableToolbarTabNavigation { get; set; } = true;
+    public bool EnableToolbarTabNavigation { get; set; } = false;
     public bool EnableToolbarNumberShortcuts { get; set; } = true;
 
     /// <summary>浮窗按钮的分行策略。Single=完全按用户在动作页配置的顺序单行展示；
     /// SmartOnSeparateRow=智能动作单独成行；GroupRows=按 基础/智能/AI 三组各占一行。
     /// 后两种只在"实际有 ≥2 组可见动作"时才换行，单一类别仍走紧凑单行</summary>
-    public ToolbarLayoutMode ToolbarLayoutMode { get; set; } = ToolbarLayoutMode.Single;
+    public ToolbarLayoutMode ToolbarLayoutMode { get; set; } = ToolbarLayoutMode.SmartOnSeparateRow;
 
     public SelectionPopupMode PopupMode { get; set; } = SelectionPopupMode.Immediate;
     public int PopupDelayMs { get; set; } = 200;
@@ -183,9 +183,9 @@ public sealed class AppSettings
     // ================== 浮窗自动消失触发条件 ==================
     // 鼠标离开浮窗一段时间后自动关闭
     public bool DismissOnMouseLeave { get; set; } = true;
-    public int DismissMouseLeaveDelayMs { get; set; } = 800;
+    public int DismissMouseLeaveDelayMs { get; set; } = 2000;
     // 浮窗显示一段时间后自动关闭（毫秒）
-    public bool DismissOnTimeout { get; set; } = false;
+    public bool DismissOnTimeout { get; set; } = true;
     public int DismissTimeoutMs { get; set; } = 5000;
     // 前台窗口切换时关闭
     public bool DismissOnForegroundChanged { get; set; } = true;

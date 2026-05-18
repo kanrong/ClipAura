@@ -855,7 +855,7 @@ internal partial class OcrResultWindow : Window
         if (sel == 0)
         {
             status = total > 0
-                ? $"识别到 {total} 段 · 点击 / 拖框 / Ctrl+A 全选"
+                ? $"点击 / 拖框 / Ctrl+A 全选"
                 : "未识别到文本";
             copySelEnabled = false;
         }

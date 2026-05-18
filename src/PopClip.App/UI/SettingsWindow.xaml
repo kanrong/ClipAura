@@ -1184,12 +1184,12 @@
                                                Text="识别完成后如何处理结果。Interactive 会在原图位置弹出 iOS 风格的高亮选择窗，适合长文本 / 多段精修；Quick 直接复制全文 + 浮窗气泡，最少打扰。" />
                                     <RadioButton x:Name="OcrModeInteractiveRadio"
                                                  GroupName="OcrResultMode"
-                                                 Content="Interactive · iOS 风格高亮选择窗（默认）"
+                                                 Content="Interactive · iOS 风格高亮选择窗"
                                                  Margin="0,0,0,6"
                                                  Checked="OnOcrResultModeChanged" />
                                     <RadioButton x:Name="OcrModeQuickRadio"
                                                  GroupName="OcrResultMode"
-                                                 Content="Quick · 直接复制全文 + 浮窗气泡（旧版行为）"
+                                                 Content="Quick · 浮窗气泡 + 直接复制全文"
                                                  Checked="OnOcrResultModeChanged" />
                                     <ui:ToggleSwitch x:Name="OcrResultBorderedToggle"
                                                      Content="Interactive 结果窗显示四周边框"

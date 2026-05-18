@@ -19,6 +19,7 @@ public enum BuiltInActionGroup
 /// 智能识别类动作设为 true：CanRun 自带"按文本类型守门"，不会在不匹配的选区上显示，
 /// 默认启用让用户能开箱体验。AI 系列即使为 true，AI 没启用时也会被 SelectionSessionManager 屏蔽，
 /// 因此同样默认 true，待用户启用 AI 后自动出现</param>
+/// <param name="AutoAddToActionList">true 表示启动期可自动追加到动作列表；false 表示只在"添加内置动作"中供用户手动添加</param>
 public sealed record BuiltInActionSeed(
     string BuiltIn,
     string DescriptorId,
@@ -26,7 +27,8 @@ public sealed record BuiltInActionSeed(
     string IconKey,
     BuiltInActionGroup Group,
     string? Description = null,
-    bool DefaultEnabled = true);
+    bool DefaultEnabled = true,
+    bool AutoAddToActionList = true);
 
 /// <summary>内置动作的单一真理源。
 /// 顺序即"添加对话框"中的默认呈现顺序；新增内置动作只追加到对应分组的末尾，
@@ -38,22 +40,22 @@ public static class BuiltInActionSeeds
         new BuiltInActionSeed(BuiltInActionIds.Copy, "copy", "复制", "Copy", BuiltInActionGroup.Basic),
         new BuiltInActionSeed(BuiltInActionIds.Paste, "paste", "粘贴", "Paste", BuiltInActionGroup.Basic),
         new BuiltInActionSeed(BuiltInActionIds.OpenUrl, "open-url", "打开链接", "Url", BuiltInActionGroup.Basic, "选中文本是 URL 时一键打开"),
-        new BuiltInActionSeed(BuiltInActionIds.Mailto, "mailto", "发送邮件", "Mail", BuiltInActionGroup.Basic, "选中文本是邮箱时调起默认邮件客户端"),
+        new BuiltInActionSeed(BuiltInActionIds.Mailto, "mailto", "发送邮件", "Mail", BuiltInActionGroup.Basic, "选中文本是邮箱时调起默认邮件客户端", AutoAddToActionList: false),
         new BuiltInActionSeed(BuiltInActionIds.Search, "search", "搜索", "Search", BuiltInActionGroup.Basic, "用当前搜索引擎搜索选区文本"),
         new BuiltInActionSeed(BuiltInActionIds.Translate, "translate", "翻译", "Translate", BuiltInActionGroup.Basic, "AI 启用时走内联气泡，否则打开网页翻译"),
-        new BuiltInActionSeed(BuiltInActionIds.ToUpper, "upper", "大写", "Upper", BuiltInActionGroup.Basic),
-        new BuiltInActionSeed(BuiltInActionIds.ToLower, "lower", "小写", "Lower", BuiltInActionGroup.Basic),
-        new BuiltInActionSeed(BuiltInActionIds.ToTitle, "title", "标题大小写", "Title", BuiltInActionGroup.Basic),
         new BuiltInActionSeed(BuiltInActionIds.Calculate, "calc", "计算", "Calc", BuiltInActionGroup.Basic, "选中算式自动求值"),
         new BuiltInActionSeed(BuiltInActionIds.WordCount, "wc", "字数统计", "Count", BuiltInActionGroup.Basic),
         new BuiltInActionSeed(BuiltInActionIds.ClipboardHistory, "clipboard-history", "剪贴板历史", "ClipboardHistory", BuiltInActionGroup.Basic),
+        new BuiltInActionSeed(BuiltInActionIds.ToUpper, "upper", "大写", "Upper", BuiltInActionGroup.Smart, "选中文本含英文字母时显示", AutoAddToActionList: false),
+        new BuiltInActionSeed(BuiltInActionIds.ToLower, "lower", "小写", "Lower", BuiltInActionGroup.Smart, "选中文本含英文字母时显示", AutoAddToActionList: false),
+        new BuiltInActionSeed(BuiltInActionIds.ToTitle, "title", "标题大小写", "Title", BuiltInActionGroup.Smart, "选中文本首个非空白字符是英文字母时显示", AutoAddToActionList: false),
         new BuiltInActionSeed(BuiltInActionIds.JsonFormat, "json-format", "格式化 JSON", "Json", BuiltInActionGroup.Smart, "选中合法 JSON 时显示，缩进 2 空格"),
-        new BuiltInActionSeed(BuiltInActionIds.JsonToYaml, "json-to-yaml", "JSON → YAML", "JsonToYaml", BuiltInActionGroup.Smart, "选中合法 JSON 时显示，转 YAML 复制"),
+        new BuiltInActionSeed(BuiltInActionIds.JsonToYaml, "json-to-yaml", "JSON → YAML", "JsonToYaml", BuiltInActionGroup.Smart, "选中合法 JSON 时显示，转 YAML 复制", AutoAddToActionList: false),
         new BuiltInActionSeed(BuiltInActionIds.Color, "color", "颜色", "Color", BuiltInActionGroup.Smart, "识别 #HEX / rgb / rgba，输出 HEX / RGB / HSL"),
         new BuiltInActionSeed(BuiltInActionIds.Timestamp, "timestamp", "时间戳", "Time", BuiltInActionGroup.Smart, "识别 10/13 位 Unix 时间戳，转本地/UTC/相对时间"),
         new BuiltInActionSeed(BuiltInActionIds.PathOpen, "path-open", "在资源管理器打开", "FolderOpen", BuiltInActionGroup.Smart, "识别 Windows 路径，直接定位到文件"),
         new BuiltInActionSeed(BuiltInActionIds.MarkdownTableToCsv, "mdtable-to-csv", "MD 表 → CSV", "MdToCsv", BuiltInActionGroup.Smart, "识别 Markdown 表格，转 CSV 复制"),
-        new BuiltInActionSeed(BuiltInActionIds.CsvToMarkdown, "csv-to-mdtable", "CSV → MD 表", "Table", BuiltInActionGroup.Smart, "识别 CSV 文本（行列对齐），转 Markdown 表格"),
+        new BuiltInActionSeed(BuiltInActionIds.CsvToMarkdown, "csv-to-mdtable", "CSV → MD 表", "Table", BuiltInActionGroup.Smart, "识别 CSV 文本（行列对齐），转 Markdown 表格", AutoAddToActionList: false),
         new BuiltInActionSeed(BuiltInActionIds.TsvToCsv, "tsv-to-csv", "TSV → CSV", "TsvToCsv", BuiltInActionGroup.Smart, "识别 Tab 分隔文本（如从 Excel 复制），转 CSV 复制"),
         new BuiltInActionSeed(BuiltInActionIds.TsvToMarkdown, "tsv-to-mdtable", "TSV → MD 表", "TsvToMd", BuiltInActionGroup.Smart, "识别 Tab 分隔文本，转 Markdown 表格"),
         new BuiltInActionSeed(BuiltInActionIds.WordLookup, "word-lookup", "查词", "Dictionary", BuiltInActionGroup.Smart, "离线查询选中英文单词或短语，需放置 ECDICT SQLite 词库"),

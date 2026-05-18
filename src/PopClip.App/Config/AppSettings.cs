@@ -243,13 +243,6 @@ public sealed class AppSettings
     /// 该开关存在的意义是让习惯精简浮窗的用户能彻底关掉这个动作</summary>
     public bool ExplainActionEnabled { get; set; } = true;
 
-    /// <summary>已经被"内置动作 seed 机制"补齐过的 builtin id 集合。
-    /// 用途：让新版本新增的内置动作（如智能动作、AI 解释）能在老用户的 actions.json 中
-    /// 以 enabled=false 形式自动出现一次。
-    /// 一旦某 id 进入此集合，无论 actions.json 中是否被用户删除，都视为"用户已知晓"，
-    /// 下次启动不会再次补齐，保证用户的删除行为是终态</summary>
-    public HashSet<string> SeededBuiltInIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-
     /// <summary>用户自建 Prompt 模板。内置模板不存这里，按需用 PromptTemplateLibrary.Builtin 合并</summary>
     public List<PromptTemplateDefinition> PromptTemplates { get; set; } = new();
 }

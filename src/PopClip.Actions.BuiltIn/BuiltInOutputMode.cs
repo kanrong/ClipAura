@@ -7,44 +7,53 @@ using PopClip.Core.Model;
 namespace PopClip.Actions.BuiltIn;
 
 /// <summary>智能动作（CSV/MD/JSON/TSV 等）的结果落点模式。
-/// 与 AiOutputMode 平行存在：AI 模式是给 AI 模板用的（chat / replace / clipboard / bubble），
+/// 与 AiOutputMode 平行存在：AI 模式是给 AI 模板用的（chat / replace / clipboard / toast / bubble），
 /// 而 BuiltInOutputMode 是给"内置 + 有产出结果"的动作用的。
 ///
+/// 命名上与 AiOutputMode 对齐——"相同行为同名"原则：
+/// - Toast 与 AiOutputMode.Toast 行为一致（写剪贴板 + toast 提示，自动消失）
+/// - Bubble 与 AiOutputMode.Bubble 行为一致（仅气泡）
+/// - ClipboardAndBubble 借用 AiOutputMode.Clipboard 的"剪贴板兜底"概念组合 Bubble
+/// - Dialog 是内置侧独有：用 SmartResultWindow 承载长内容
+///
 /// 设计目标：让用户对"格式化 JSON 后该把结果丢到哪里"有完整控制权 —
-/// 短结果想看一眼就走 Bubble，长结果（如多页 CSV）走 Dialog，
-/// 要立刻粘到别处就走 Copy，最常用的 CopyAndBubble 保留剪贴板兜底 + 视觉确认</summary>
+/// 短结果走 Toast（顺带复制），中等结果走 Bubble（不打扰剪贴板），
+/// 高频路径走 ClipboardAndBubble（视觉确认 + 剪贴板兜底），长内容走 Dialog</summary>
 public enum BuiltInOutputMode
 {
-    /// <summary>仅写剪贴板，不弹任何窗口。等同于"复制到剪贴板"按钮</summary>
-    Copy,
-    /// <summary>只显示气泡（AiBubbleWindow 同款）；不写剪贴板</summary>
+    /// <summary>写剪贴板 + Toast 提示（自动消失）。
+    /// 与 AiOutputMode.Toast 行为一致；调用方可通过 SmartOutput.Publish 的 copyToast 自定义 toast 文案，
+    /// 例如把"格式化 JSON ✓（已复制）"换成"2+3 = 5（已复制）"以直接显示结果</summary>
+    Toast,
+    /// <summary>只显示气泡（AiBubbleWindow 同款）；不写剪贴板。
+    /// 与 AiOutputMode.Bubble 行为一致</summary>
     Bubble,
-    /// <summary>同时复制 + 气泡。默认值，照顾"既要看到又要能粘走"的高频路径</summary>
-    CopyAndBubble,
+    /// <summary>写剪贴板 + 气泡。默认值，照顾"既要看到又要能粘走"的高频路径。
+    /// 与 AiOutputMode.Clipboard + Bubble 的组合概念呼应——"剪贴板兜底 + 主显示走气泡"</summary>
+    ClipboardAndBubble,
     /// <summary>独立结果窗口（SmartResultWindow）。适合长内容、需要在窗口里反复滚动/复制片段</summary>
     Dialog,
 }
 
 /// <summary>BuiltInOutputMode 的解析与回写。
-/// 复用 ActionDescriptor.OutputMode（string 字段）做存储，键名与枚举值小写一致，
-/// 兼容历史空值（按 default 走）</summary>
+/// 复用 ActionDescriptor.OutputMode（string 字段）做存储，键名与枚举值小写驼峰一致</summary>
 public static class BuiltInOutputModes
 {
-    public const string Copy = "copy";
+    public const string Toast = "toast";
     public const string Bubble = "bubble";
-    public const string CopyAndBubble = "copyAndBubble";
+    public const string ClipboardAndBubble = "clipboardAndBubble";
     public const string Dialog = "dialog";
 
     /// <summary>读取 descriptor.OutputMode，无效或空时返回 fallback。
     /// 不抛异常：用户手改 actions.json 写错了字符串时也能优雅降级</summary>
-    public static BuiltInOutputMode Parse(string? value, BuiltInOutputMode fallback = BuiltInOutputMode.CopyAndBubble)
+    public static BuiltInOutputMode Parse(string? value, BuiltInOutputMode fallback = BuiltInOutputMode.ClipboardAndBubble)
     {
         if (string.IsNullOrWhiteSpace(value)) return fallback;
         return value.Trim() switch
         {
-            Copy => BuiltInOutputMode.Copy,
+            Toast => BuiltInOutputMode.Toast,
             Bubble => BuiltInOutputMode.Bubble,
-            CopyAndBubble => BuiltInOutputMode.CopyAndBubble,
+            ClipboardAndBubble => BuiltInOutputMode.ClipboardAndBubble,
             Dialog => BuiltInOutputMode.Dialog,
             _ => fallback,
         };
@@ -52,11 +61,11 @@ public static class BuiltInOutputModes
 
     public static string ToKey(BuiltInOutputMode mode) => mode switch
     {
-        BuiltInOutputMode.Copy => Copy,
+        BuiltInOutputMode.Toast => Toast,
         BuiltInOutputMode.Bubble => Bubble,
-        BuiltInOutputMode.CopyAndBubble => CopyAndBubble,
+        BuiltInOutputMode.ClipboardAndBubble => ClipboardAndBubble,
         BuiltInOutputMode.Dialog => Dialog,
-        _ => CopyAndBubble,
+        _ => ClipboardAndBubble,
     };
 
     /// <summary>判断指定动作是否支持配置 OutputMode。
@@ -110,7 +119,7 @@ public static class SmartOutput
         string primaryText,
         string? displayText = null,
         string? copyToast = null,
-        BuiltInOutputMode fallback = BuiltInOutputMode.CopyAndBubble)
+        BuiltInOutputMode fallback = BuiltInOutputMode.ClipboardAndBubble)
     {
         if (host is null) throw new ArgumentNullException(nameof(host));
         if (context is null) throw new ArgumentNullException(nameof(context));
@@ -136,10 +145,11 @@ public static class SmartOutput
             };
         }
 
-        // bubble/dialog 系也做"剪贴板兜底"：用户误关窗口后想再粘贴时仍能找到内容
+        // ClipboardAndBubble / Dialog 都做"剪贴板兜底"：用户误关窗口后想再粘贴时仍能找到内容；
+        // Bubble 单选不做兜底，保持"用户想要的就是不打扰剪贴板"的语义稳定
         switch (mode)
         {
-            case BuiltInOutputMode.Copy:
+            case BuiltInOutputMode.Toast:
                 host.Clipboard.SetText(safePrimary);
                 host.Notifier.Notify(safeToast);
                 break;
@@ -156,7 +166,7 @@ public static class SmartOutput
                     host.Notifier.Notify(safeToast);
                 }
                 break;
-            case BuiltInOutputMode.CopyAndBubble:
+            case BuiltInOutputMode.ClipboardAndBubble:
                 host.Clipboard.SetText(safePrimary);
                 if (host.Bubble is not null)
                 {

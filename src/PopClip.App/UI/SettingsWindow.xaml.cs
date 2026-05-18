@@ -103,7 +103,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     {
         new AiOutputModeChoice("chat", "进入对话窗口"),
         new AiOutputModeChoice("replace", "原地替换选区"),
-        new AiOutputModeChoice("clipboard", "写入剪贴板"),
+        new AiOutputModeChoice("clipboard", "写入剪贴板（仅提示）"),
+        new AiOutputModeChoice("toast", "结果浮窗提示（自动消失）"),
         new AiOutputModeChoice("bubble", "结果气泡（可复制/替换）"),
     };
 
@@ -111,9 +112,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     /// 避免再造一个等价类型；XAML 端通过 IsBuiltInOutputConfigurable 决定是否显示此下拉</summary>
     public IReadOnlyList<AiOutputModeChoice> BuiltInOutputModeChoices { get; } = new[]
     {
-        new AiOutputModeChoice(BuiltInOutputModes.Copy, "仅复制"),
-        new AiOutputModeChoice(BuiltInOutputModes.Bubble, "气泡窗口"),
-        new AiOutputModeChoice(BuiltInOutputModes.CopyAndBubble, "复制 + 气泡窗口"),
+        new AiOutputModeChoice(BuiltInOutputModes.Toast, "结果浮窗提示（自动消失）"),
+        new AiOutputModeChoice(BuiltInOutputModes.Bubble, "结果气泡"),
+        new AiOutputModeChoice(BuiltInOutputModes.ClipboardAndBubble, "剪贴板 + 气泡"),
         new AiOutputModeChoice(BuiltInOutputModes.Dialog, "对话框（独立结果窗口）"),
     };
 
@@ -485,12 +486,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
                 new() { Id = "copy", Type = "builtin", BuiltIn = BuiltInActionIds.Copy, Title = "复制", Icon = "Copy", Enabled = true },
                 new() { Id = "paste", Type = "builtin", BuiltIn = BuiltInActionIds.Paste, Title = "粘贴", Icon = "Paste", Enabled = true },
                 new() { Id = "open-url", Type = "builtin", BuiltIn = BuiltInActionIds.OpenUrl, Title = "打开链接", Icon = "Url", Enabled = true },
-                new() { Id = "mailto", Type = "builtin", BuiltIn = BuiltInActionIds.Mailto, Title = "邮件", Icon = "Mail", Enabled = true },
                 new() { Id = "search", Type = "builtin", BuiltIn = BuiltInActionIds.Search, Title = "搜索", Icon = "Search", Enabled = true },
                 new() { Id = "translate", Type = "builtin", BuiltIn = BuiltInActionIds.Translate, Title = "翻译", Icon = "Translate", Enabled = true },
-                new() { Id = "upper", Type = "builtin", BuiltIn = BuiltInActionIds.ToUpper, Title = "大写", Icon = "Upper", Enabled = true },
-                new() { Id = "lower", Type = "builtin", BuiltIn = BuiltInActionIds.ToLower, Title = "小写", Icon = "Lower", Enabled = true },
-                new() { Id = "title", Type = "builtin", BuiltIn = BuiltInActionIds.ToTitle, Title = "Title", Icon = "Title", Enabled = true },
                 new() { Id = "calc", Type = "builtin", BuiltIn = BuiltInActionIds.Calculate, Title = "计算", Icon = "Calc", Enabled = true },
                 new() { Id = "wc", Type = "builtin", BuiltIn = BuiltInActionIds.WordCount, Title = "字数", Icon = "Count", Enabled = true },
             },
@@ -1800,12 +1797,12 @@ public sealed class ActionEditorItem : INotifyPropertyChanged
     {
         // OutputMode 的默认值因类型而异：
         // - AI 动作走 AiOutputMode，默认 "chat"
-        // - 内置 smart 动作走 BuiltInOutputMode，默认 "copyAndBubble"
+        // - 内置 smart 动作走 BuiltInOutputMode，默认 "clipboardAndBubble"
         // - 其它内置（Copy/Paste/Search 等）不读取 OutputMode，留空即可
         var defaultOutputMode = string.Equals(descriptor.Type, "ai", StringComparison.OrdinalIgnoreCase)
             ? "chat"
             : (!string.IsNullOrEmpty(descriptor.BuiltIn) && BuiltInOutputModes.SupportsOutputMode(descriptor.BuiltIn)
-                ? BuiltInOutputModes.CopyAndBubble
+                ? BuiltInOutputModes.ClipboardAndBubble
                 : "");
         return new ActionEditorItem
         {
@@ -1833,7 +1830,7 @@ public sealed class ActionEditorItem : INotifyPropertyChanged
         else if (IsBuiltInOutputConfigurable)
         {
             persistedOutputMode = string.IsNullOrWhiteSpace(OutputMode)
-                ? BuiltInOutputModes.CopyAndBubble
+                ? BuiltInOutputModes.ClipboardAndBubble
                 : OutputMode;
         }
 

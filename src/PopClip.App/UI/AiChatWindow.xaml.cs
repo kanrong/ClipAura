@@ -9,7 +9,7 @@ using PopClip.Core.Actions;
 
 namespace PopClip.App.UI;
 
-public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
+public partial class AiChatWindow : Wpf.Ui.Controls.FluentWindow
 {
     private readonly IClipboardWriter _clipboard;
     private readonly Func<string, Task> _replaceAsync;
@@ -33,7 +33,7 @@ public partial class AiResultWindow : Wpf.Ui.Controls.FluentWindow
     private DateTime? _reasoningStartedAt;
     private string _modelLabel = "";
 
-    public AiResultWindow(
+    public AiChatWindow(
         string actionTitle,
         string sourceText,
         string model,

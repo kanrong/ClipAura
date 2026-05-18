@@ -16,10 +16,6 @@ public static class BuiltInActionIds
     public const string Paste = "builtin.paste";
     /// <summary>统一搜索动作；具体引擎 URL 通过 ISettingsProvider 注入，运行时从设置读取</summary>
     public const string Search = "builtin.search";
-    /// <summary>历史 ID，保留是为了兼容旧 actions.json；映射到 SearchAction 上</summary>
-    public const string GoogleSearch = "builtin.search.google";
-    /// <summary>历史 ID，同上</summary>
-    public const string BingSearch = "builtin.search.bing";
     public const string Translate = "builtin.translate.bing";
     public const string ToUpper = "builtin.case.upper";
     public const string ToLower = "builtin.case.lower";
@@ -58,6 +54,25 @@ internal abstract class BuiltInAction : IAction
     public abstract string IconKey { get; }
     public virtual bool CanRun(SelectionContext context) => !context.IsEmpty;
     public abstract Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct);
+}
+
+internal static class EnglishLetterProbe
+{
+    public static bool ContainsAsciiLetter(string text)
+        => text.Any(IsAsciiLetter);
+
+    public static bool StartsWithAsciiLetterAfterWhitespace(string text)
+    {
+        foreach (var c in text)
+        {
+            if (char.IsWhiteSpace(c)) continue;
+            return IsAsciiLetter(c);
+        }
+        return false;
+    }
+
+    private static bool IsAsciiLetter(char c)
+        => c is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
 }
 
 /// <summary>内置"复制"动作：等价于让用户按一次 Ctrl+C。
@@ -197,6 +212,8 @@ internal sealed class ToUpperAction : BuiltInAction
     public override string Id => BuiltInActionIds.ToUpper;
     public override string Title => "大写";
     public override string IconKey => "Upper";
+    public override bool CanRun(SelectionContext context)
+        => !context.IsEmpty && EnglishLetterProbe.ContainsAsciiLetter(context.Text);
     public override async Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
         => await host.Replacer.TryReplaceAsync(context, context.Text.ToUpperInvariant(), ct).ConfigureAwait(false);
 }
@@ -206,6 +223,8 @@ internal sealed class ToLowerAction : BuiltInAction
     public override string Id => BuiltInActionIds.ToLower;
     public override string Title => "小写";
     public override string IconKey => "Lower";
+    public override bool CanRun(SelectionContext context)
+        => !context.IsEmpty && EnglishLetterProbe.ContainsAsciiLetter(context.Text);
     public override async Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
         => await host.Replacer.TryReplaceAsync(context, context.Text.ToLowerInvariant(), ct).ConfigureAwait(false);
 }
@@ -215,6 +234,8 @@ internal sealed class ToTitleAction : BuiltInAction
     public override string Id => BuiltInActionIds.ToTitle;
     public override string Title => "标题大小写";
     public override string IconKey => "Title";
+    public override bool CanRun(SelectionContext context)
+        => !context.IsEmpty && EnglishLetterProbe.StartsWithAsciiLetterAfterWhitespace(context.Text);
 
     public override async Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
     {
@@ -401,6 +422,7 @@ public sealed class AiPromptAction : IAction
             "chat" => AiOutputMode.Chat,
             "replace" => AiOutputMode.Replace,
             "clipboard" => AiOutputMode.Clipboard,
+            "toast" => AiOutputMode.Toast,
             "bubble" => AiOutputMode.Bubble,
             _ => AiOutputMode.Chat,
         };

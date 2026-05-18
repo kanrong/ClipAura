@@ -20,15 +20,12 @@ public sealed class ActionCatalog
     public ActionCatalog(ILog log, IPasteService pasteService, IOfflineDictionaryService dictionary)
     {
         _log = log;
-        // 旧 GoogleSearch / BingSearch ID 全部别名到统一 SearchAction，兼容历史 actions.json
         var search = new SearchAction();
         _registry = new Dictionary<string, IAction>(StringComparer.OrdinalIgnoreCase)
         {
             [BuiltInActionIds.Copy] = new CopyAction(),
             [BuiltInActionIds.Paste] = new PasteAction(pasteService),
             [BuiltInActionIds.Search] = search,
-            [BuiltInActionIds.GoogleSearch] = search,
-            [BuiltInActionIds.BingSearch] = search,
             [BuiltInActionIds.Translate] = new TranslateAction(),
             [BuiltInActionIds.ToUpper] = new ToUpperAction(),
             [BuiltInActionIds.ToLower] = new ToLowerAction(),
@@ -117,7 +114,6 @@ public sealed class ActionCatalog
                 new() { Id = "paste", Type = "builtin", BuiltIn = BuiltInActionIds.Paste, Title = "粘贴", IconLocked = true },
                 new() { Id = "search", Type = "builtin", BuiltIn = BuiltInActionIds.Search, Title = "搜索", IconLocked = true },
                 new() { Id = "open-url", Type = "builtin", BuiltIn = BuiltInActionIds.OpenUrl, Title = "打开链接", IconLocked = true },
-                new() { Id = "mailto", Type = "builtin", BuiltIn = BuiltInActionIds.Mailto, Title = "发送邮件", IconLocked = true },
                 new() { Id = "ai-chat", Type = "builtin", BuiltIn = BuiltInActionIds.AiChat, Title = "AI 对话", IconLocked = true },
             },
         };

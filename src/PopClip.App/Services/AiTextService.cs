@@ -89,6 +89,7 @@ public sealed class AiTextService : IAiTextService
 
             case AiOutputMode.Replace:
             case AiOutputMode.Clipboard:
+            case AiOutputMode.Toast:
             case AiOutputMode.Bubble:
                 await RunNonChatAsync(request, context, expandedPrompt, expandedSystem, ct).ConfigureAwait(false);
                 break;
@@ -116,7 +117,7 @@ public sealed class AiTextService : IAiTextService
 
         var window = await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
         {
-            var created = new AiResultWindow(
+            var created = new AiChatWindow(
                 title,
                 referenceText,
                 options.Model,
@@ -161,9 +162,15 @@ public sealed class AiTextService : IAiTextService
         }
     }
 
-    /// <summary>Replace / Clipboard / Bubble 三种非对话模式。
-    /// Replace 与 Clipboard 走轻量提示；Bubble 直接进入 AiBubbleWindow 流式结果窗，
-    /// 不再复用 ToolbarToastWindow 承载正文，避免单行 toast 与长结果语义混淆</summary>
+    /// <summary>Replace / Clipboard / Toast / Bubble 四种非对话模式的统一入口。
+    /// Bubble 走独立的 AiBubbleWindow 流式分支；其余三种都"先攒完整结果再一次性落地"：
+    /// - Replace：写回原选区；失败时剪贴板兜底 + toast 提示
+    /// - Clipboard：写剪贴板 + toast "已复制"，不显示结果正文
+    /// - Toast：写剪贴板 + toast 显示截断的结果 preview，"看一眼立刻继续"语义
+    ///
+    /// Clipboard 与 Toast 拆成两个 enum 值的目的是让用户在配置时表达"是否要看到结果"的意图，
+    /// 而不是把它隐藏成 Notifier 的 toast 文案差异。两者共用同一条流式请求路径，
+    /// 仅在末尾的 switch 里挑不同的落地行为</summary>
     private async Task RunNonChatAsync(
         AiPromptRequest request,
         SelectionContext context,
@@ -220,6 +227,15 @@ public sealed class AiTextService : IAiTextService
                 _clipboard.SetText(result.Text);
                 await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
                     _notifier.Notify($"{request.Title} 已复制"));
+                break;
+
+            case AiOutputMode.Toast:
+                // 截断阈值 160 字符：单行 toast 在 1920×1080 / 96 DPI 下大约能放下 160-180 个 ASCII 或 80 个 CJK 字符；
+                // 取保守值避免在窄屏 / 高 DPI 下被截掉一半。结果正文完整写入剪贴板，让用户能 Ctrl+V 拿走未截断版
+                _clipboard.SetText(result.Text);
+                var preview = result.Text.Length > 160 ? result.Text[..160] + "…" : result.Text;
+                await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
+                    _notifier.Notify(preview));
                 break;
 
             case AiOutputMode.Bubble:

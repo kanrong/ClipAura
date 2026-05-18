@@ -36,7 +36,7 @@ public interface IActionHost
     /// 智能动作通过 Descriptor.OutputMode 决定输出落点（仅复制 / 仅气泡 / 复制+气泡 / 独立对话窗口）。
     /// 单例 ActionHost 自身永远返回 null，运行时由 ScopedActionHost 通过包装注入</summary>
     ActionDescriptor? Descriptor { get; }
-    /// <summary>把"独立结果窗口"模式的请求传给宿主：宿主用 AiResultWindow 同款窗口展示结果文本。
+    /// <summary>把"独立结果窗口"模式的请求传给宿主：宿主用 AiChatWindow 同款窗口展示结果文本。
     /// 仅 OutputMode=Dialog 时调用；非 GUI 场景（测试 / 命令行）可为 null</summary>
     IResultDialogPresenter? ResultDialog { get; }
     /// <summary>展示 AiBubbleWindow 同款气泡（流式 / 静态）；
@@ -45,7 +45,7 @@ public interface IActionHost
 }
 
 /// <summary>"独立结果窗口"展示能力。
-/// 智能动作 OutputMode=Dialog 时，宿主用 AiResultWindow 同款窗口承载结果，
+/// 智能动作 OutputMode=Dialog 时，宿主用 SmartResultWindow 承载结果（与 AiChatWindow 同款外观，但无追问输入框），
 /// 支持滚动多行、复制、关闭。窗口标题来自动作 Title，正文是动作产出的纯文本</summary>
 public interface IResultDialogPresenter
 {
@@ -117,14 +117,25 @@ public interface ISettingsProvider
     bool ExplainActionEnabled { get; }
 }
 
-/// <summary>AI 动作的输出落点。
-/// Chat=进入对话窗口（默认）；Replace=不弹窗直接替换选区；
-/// Clipboard=不弹窗只写剪贴板；Bubble=在浮窗附近显示可交互结果气泡</summary>
+/// <summary>AI 动作的输出落点。互斥单选，不再带"是否交互"等 bool 标记位，
+/// 让 switch 一眼能看全所有可能的落点路径。
+///
+/// 五项按"侵入度由低到高 + 由 UI 轻到重"排列：
+/// - Chat：进入 AiChatWindow 对话窗（默认）。最重，承载多轮追问与历史
+/// - Replace：直接替换选区文本，无主显示，仅末尾用 toast 报告成功/失败
+/// - Clipboard：写剪贴板 + toast 提示"已复制"，不显示结果
+/// - Toast：写剪贴板 + toast 显示结果 preview（自动消失），适合极短结果
+/// - Bubble：AiBubbleWindow 流式可交互气泡，带"插入/替换/复制/打开完整对话"按钮
+///
+/// Clipboard 与 Toast 的区分点：是否在 toast 里显示结果正文。
+/// Clipboard 适合"我只要剪贴板里有，不要打扰我"的长结果；
+/// Toast 适合"看一眼立刻继续工作"的短结果（单词翻译、单位换算、一句话答疑等）</summary>
 public enum AiOutputMode
 {
     Chat,
     Replace,
     Clipboard,
+    Toast,
     Bubble,
 }
 

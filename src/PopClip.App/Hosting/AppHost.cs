@@ -86,13 +86,6 @@ internal sealed class AppHost : IDisposable
         var cfg = _store.LoadActions();
         if (cfg is not null)
         {
-            // 启动期做一次幂等 seed：把新版本新增的内置动作（智能识别 / AI 解释）追加到老用户 actions.json，
-            // 默认 enabled=false 不打扰；SeededBuiltInIds 保证用户删除后下次不会复活
-            if (_store.SeedMissingBuiltInActions(cfg, _settings))
-            {
-                _store.SaveActions(cfg);
-                _store.SaveSettings(_settings);
-            }
             _catalog.Load(cfg);
         }
         else
@@ -231,7 +224,7 @@ internal sealed class AppHost : IDisposable
         });
     }
 
-    /// <summary>"对话历史"列表中双击某条 → 把消息重放进新 AiResultWindow。
+    /// <summary>"对话历史"列表中双击某条 → 把消息重放进新 AiChatWindow。
     /// 不复活流式状态，只把消息以静态形式展示并允许继续追问</summary>
     private void ReopenConversation(string conversationId)
     {

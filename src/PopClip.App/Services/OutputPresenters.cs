@@ -39,13 +39,16 @@ internal sealed class FloatingToolbarBubblePresenter : IInlineBubblePresenter
 
     public void ShowStatic(string title, string text, bool canReplace, Func<string, Task>? onReplace = null)
     {
-        var anchor = _toolbar?.GetCurrentBubbleAnchor()
-            ?? new BubbleAnchor(
-                SystemParameters.PrimaryScreenWidth / 2,
-                SystemParameters.PrimaryScreenHeight / 2,
-                double.PositiveInfinity,
-                0.0);
-        ShowStaticAt(title, text, anchor, canReplace, onReplace);
+        WpfApplication.Current.Dispatcher.Invoke(() =>
+        {
+            var anchor = _toolbar.GetCurrentBubbleAnchor()
+                ?? new BubbleAnchor(
+                    SystemParameters.PrimaryScreenWidth / 2,
+                    SystemParameters.PrimaryScreenHeight / 2,
+                    double.PositiveInfinity,
+                    0.0);
+            ShowStaticCore(title, text, anchor, canReplace, onReplace);
+        });
     }
 
     /// <summary>用调用方提供的 anchor 显示静态气泡，常用于没有浮窗可锚定的独立流程
@@ -54,27 +57,30 @@ internal sealed class FloatingToolbarBubblePresenter : IInlineBubblePresenter
     public void ShowStaticAt(string title, string text, BubbleAnchor anchor, bool canReplace = false, Func<string, Task>? onReplace = null)
     {
         WpfApplication.Current.Dispatcher.Invoke(() =>
-        {
-            // Pin 态复用：保留窗口本体 / 位置 / Pin 视觉状态，只刷新标题 + 内容；
-            // 未 Pin 时维持旧行为：关掉旧气泡，按 anchor 重新定位
-            var bubble = AiBubbleWindow.Current is { IsPinned: true } pinned
-                ? pinned
-                : NewBubble();
+            ShowStaticCore(title, text, anchor, canReplace, onReplace));
+    }
 
-            bubble.ShowAt(
-                title,
-                model: "",
-                canReplace: canReplace && onReplace is not null,
-                onInsert: onReplace,
-                onReplace: onReplace,
-                onOpenInChat: null,
-                anchorCenterX: anchor.CenterX,
-                anchorTopY: anchor.TopY,
-                monitorBottomY: anchor.MonitorBottomDip,
-                monitorTopY: anchor.MonitorTopDip);
-            bubble.SetCompleted(text ?? "", model: "", elapsed: TimeSpan.Zero, promptTok: 0, compTok: 0);
-            bubble.ScrollBodyToTop();
-        });
+    private void ShowStaticCore(string title, string text, BubbleAnchor anchor, bool canReplace, Func<string, Task>? onReplace)
+    {
+        // Pin 态复用：保留窗口本体 / 位置 / Pin 视觉状态，只刷新标题 + 内容；
+        // 未 Pin 时维持旧行为：关掉旧气泡，按 anchor 重新定位
+        var bubble = AiBubbleWindow.Current is { IsPinned: true } pinned
+            ? pinned
+            : NewBubble();
+
+        bubble.ShowAt(
+            title,
+            model: "",
+            canReplace: canReplace && onReplace is not null,
+            onInsert: onReplace,
+            onReplace: onReplace,
+            onOpenInChat: null,
+            anchorCenterX: anchor.CenterX,
+            anchorTopY: anchor.TopY,
+            monitorBottomY: anchor.MonitorBottomDip,
+            monitorTopY: anchor.MonitorTopDip);
+        bubble.SetCompleted(text ?? "", model: "", elapsed: TimeSpan.Zero, promptTok: 0, compTok: 0);
+        bubble.ScrollBodyToTop();
     }
 
     private AiBubbleWindow NewBubble()

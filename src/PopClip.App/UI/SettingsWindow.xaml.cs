@@ -104,7 +104,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         new AiOutputModeChoice("chat", "进入对话窗口"),
         new AiOutputModeChoice("replace", "原地替换选区"),
         new AiOutputModeChoice("clipboard", "写入剪贴板"),
-        new AiOutputModeChoice("inlineToast", "浮窗显示结果"),
+        new AiOutputModeChoice("bubble", "结果气泡（可复制/替换）"),
     };
 
     /// <summary>智能动作的输出模式选项。用 AiOutputModeChoice 类型复用同款 (Value, Label) 元组，

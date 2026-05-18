@@ -7,7 +7,7 @@ public sealed class PromptTemplateDefinition
     public string Id { get; set; } = "";
     public string Title { get; set; } = "";
     public string Icon { get; set; } = "Ai";
-    /// <summary>chat | replace | clipboard | inlineToast</summary>
+    /// <summary>chat | replace | clipboard | bubble</summary>
     public string OutputMode { get; set; } = "chat";
     public string Prompt { get; set; } = "";
     public string? SystemPrompt { get; set; }

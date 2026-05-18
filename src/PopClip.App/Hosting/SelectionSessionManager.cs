@@ -410,11 +410,13 @@ internal sealed class SelectionSessionManager : IDisposable
         _ = ShowClipboardLauncherAsync(foreground, SelectionRect.FromPoint(pt.X, pt.Y));
     }
 
-    /// <summary>外部采集到文本（目前仅 OCR）后调用，跳过 UIA / 剪贴板兜底，
-    /// 直接复用浮窗 + 动作链路。anchorRect 应给出截图框的物理像素矩形，
-    /// 浮窗会以它的左下作为基准定位（与正常选区一致）。
+    /// <summary>外部采集到文本后调用，跳过 UIA / 剪贴板兜底，直接复用浮窗 + 动作链路。
+    /// anchorRect 应给出锚点的物理像素矩形，浮窗会以它的左下作为基准定位（与正常选区一致）。
     ///
-    /// IsLikelyEditable 永远 false：OCR 来源无法回写源应用，"替换/插入"等动作由 IActionHost 的可见性逻辑自动屏蔽</summary>
+    /// 当前没有调用方：OCR 路径在 Quick 模式下已改为只显示气泡 / toast（不再走"剪贴板兜底动作浮窗"），
+    /// 此方法保留作为通用入口，留给未来的非 UIA 文本采集源（如语音转文字、AI 解析等）按需复用。
+    ///
+    /// IsLikelyEditable 永远 false：外部来源无法回写源应用，"替换/插入"等动作由 IActionHost 的可见性逻辑自动屏蔽</summary>
     public void ShowToolbarForExternalText(string text, SelectionRect anchorRect, AcquisitionSource source)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -527,8 +529,8 @@ internal sealed class SelectionSessionManager : IDisposable
             try
             {
                 // AI 动作的"处理中"提示交给 AI 服务自身负责：
-                // - bubble 模式（翻译/解释）在创建 AiBubbleWindow 时显示"请求中…"状态
-                // - 非 bubble 模式（replace/clipboard/inlineToast）由 AiTextService.RunInlineAsync
+                // - bubble 模式（翻译/解释/用户配置为气泡）在创建 AiBubbleWindow 时显示"请求中…"状态
+                // - 非 bubble 模式（replace/clipboard）由 AiTextService.RunNonChatAsync
                 //   主动发 Notify("处理中...")
                 // 这里不再统一弹长 6 秒 toast，避免在气泡正中央反复覆盖结果视线
                 var timeoutSeconds = isAiAction
@@ -581,11 +583,11 @@ internal sealed class SelectionSessionManager : IDisposable
 
     /// <summary>决定动作完成后是否补一个轻量"✓" toast。
     /// 规则：只有当结果用户感知不到（纯剪贴板 / 静默写入）时才补 toast；
-    /// 一旦动作产出可见 UI（气泡 / 对话窗 / 原地替换 / inline toast）就保持安静，避免遮挡结果。
+    /// 一旦动作产出可见 UI（气泡 / 对话窗 / 原地替换）就保持安静，避免遮挡结果。
     ///
     /// 判定依据是 descriptor.OutputMode 字符串：
     /// - 内置智能动作：BuiltInOutputMode 的 Bubble / CopyAndBubble / Dialog → 安静
-    /// - AI 动作：chat（独立对话窗）/ replace（原地）/ inlineToast（自身已 Notify） → 安静
+    /// - AI 动作：chat（独立对话窗）/ replace（原地）/ bubble（结果气泡） → 安静
     /// - 其余（Copy / clipboard / 缺省）→ 补 toast，告诉用户"动作已执行"
     ///
     /// 特例：内置 Translate 在 AI 启用且开启内联翻译时会走 AI 气泡，
@@ -615,7 +617,6 @@ internal sealed class SelectionSessionManager : IDisposable
             || trimmed.Equals("Dialog", StringComparison.OrdinalIgnoreCase)
             || trimmed.Equals("chat", StringComparison.OrdinalIgnoreCase)
             || trimmed.Equals("replace", StringComparison.OrdinalIgnoreCase)
-            || trimmed.Equals("inlineToast", StringComparison.OrdinalIgnoreCase)
             || trimmed.Equals("ai-bubble", StringComparison.OrdinalIgnoreCase);
     }
 

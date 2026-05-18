@@ -6,13 +6,12 @@ using PopClip.App.Config;
 using PopClip.App.Ocr;
 using PopClip.App.Services;
 using PopClip.App.UI;
-using PopClip.Core.Actions;
 using PopClip.Core.Logging;
 using PopClip.Core.Model;
+using PopClip.Hooks.Window;
 using PopClip.Ocr.Layout;
 using PopClip.Uia.Clipboard;
 using WpfApplication = System.Windows.Application;
-using WpfRect = System.Windows.Rect;
 
 namespace PopClip.App.Hosting;
 
@@ -32,7 +31,11 @@ internal sealed class OcrCaptureCoordinator
     private readonly ClipboardWriter _clipboard;
     private readonly ClipboardAccess _clipboardAccess;
     private readonly FloatingToolbar _toolbar;
-    private readonly IInlineBubblePresenter? _bubble;
+
+    /// <summary>结果气泡 presenter。声明为具体类型而非 IInlineBubblePresenter，
+    /// 是因为 OCR Quick 模式需要 ShowStaticAt 这个不在 Core 接口里的 anchor 重载——
+    /// OCR 截图框就是 anchor，浮窗根本不会出现，无法依赖 GetCurrentBubbleAnchor</summary>
+    private readonly FloatingToolbarBubblePresenter? _bubble;
 
     /// <summary>读取 OcrResultMode / OcrResultWindowBordered 等运行时偏好。
     /// 引用同一份主程序的 AppSettings 实例，设置面板写入后这里也能直接看到</summary>
@@ -51,7 +54,7 @@ internal sealed class OcrCaptureCoordinator
         FloatingToolbar toolbar,
         AppSettings settings,
         AiTextService aiText,
-        IInlineBubblePresenter? bubble = null)
+        FloatingToolbarBubblePresenter? bubble = null)
     {
         _log = log;
         _registry = registry;
@@ -235,7 +238,7 @@ internal sealed class OcrCaptureCoordinator
         RenderQuickResult(fullText, anchorRect, provider.DisplayName);
     }
 
-    /// <summary>Quick 模式的结果渲染逻辑：剪贴板 + 浮窗外部文本 + 气泡 / inline toast。
+    /// <summary>Quick 模式的结果渲染逻辑：剪贴板 + 气泡 / inline toast，锚点直接用 OCR 截图框。
     ///
     /// 抽出为独立方法是为了让 Interactive 结果窗的"Quick 输出"按钮能复用同一套展示，
     /// 而不需要重新走一遍 RecognizeAsync。两种触发：
@@ -243,52 +246,70 @@ internal sealed class OcrCaptureCoordinator
     /// 2) settings.OcrResultMode == Interactive 时，用户在结果窗点"Quick 输出" → quickFallback 回调。
     ///    结果窗会接收已按 OCR 版面分析过的全文，Quick 输出不再重复整理。
     ///
+    /// 不再走 SelectionSessionManager.ShowToolbarForExternalText：那是给"剪贴板兜底文本"展示动作浮窗用的，
+    /// OCR 框选是用户明确的截图识字操作，按钮浮窗会和气泡叠在一起干扰阅读；
+    /// 这里只显示气泡（多行可读 + 复制按钮）或 inline toast（短预览），用 anchorRect 直接锚定截图框下方。
+    ///
     /// 气泡比单行 toast 优势：
     /// - 支持多行，长文本 OCR 不会被截断；
-    /// - 用户能即时看到识别质量并手动复制 / 替换；
-    /// - 浮窗 timeout 关闭后气泡仍然存在，给用户充足时间处理结果</summary>
+    /// - 用户能即时看到识别质量并手动复制；
+    /// - 不依赖浮窗位置，OCR 截图框就是天然 anchor</summary>
     private void RenderQuickResult(string fullText, SelectionRect anchorRect, string providerDisplayName)
     {
         _clipboard.SetText(fullText);
-        _session.ShowToolbarForExternalText(fullText, anchorRect, AcquisitionSource.Ocr);
+
+        // anchor 物理像素 → DIP：取 anchor 所在 monitor 的真实 effective DPI，
+        // 跨屏异构 DPI 时副屏框选的气泡/toast 才不会按主屏 DPI 比例缩到错位。
+        var monitor = MonitorQuery.FromRect(
+            anchorRect.Left, anchorRect.Top, anchorRect.Right, anchorRect.Bottom);
+        double dpiScaleX = Math.Max(96, monitor.DpiX) / 96.0;
+        double dpiScaleY = Math.Max(96, monitor.DpiY) / 96.0;
+        double anchorCenterDip = (anchorRect.Left + anchorRect.Width / 2.0) / dpiScaleX;
+        double anchorTopDip = (anchorRect.Bottom + 8) / dpiScaleY;
+        double monitorBottomDip = monitor.WorkBottom / dpiScaleY;
+        double monitorTopDip = monitor.WorkTop / dpiScaleY;
 
         if (_bubble is not null)
         {
             _ = WpfApplication.Current.Dispatcher.BeginInvoke(new Action(() =>
-                _bubble.ShowStatic($"OCR · {providerDisplayName} · {fullText.Length} 字", fullText, canReplace: false)));
+                _bubble.ShowStaticAt(
+                    $"OCR · {providerDisplayName} · {fullText.Length} 字",
+                    fullText,
+                    new BubbleAnchor(anchorCenterDip, anchorTopDip, monitorBottomDip, monitorTopDip))));
         }
         else
         {
+            // 兜底：没有气泡 presenter 时（理论上不会发生），用独立锚点 toast 给出简短提示 + 复制按钮。
+            // ShowToastAt 直接接 DIP 坐标，与主浮窗解耦，OCR 框选区域下方就能显示
             var preview = BuildPreview(fullText);
             _ = WpfApplication.Current.Dispatcher.BeginInvoke(new Action(() =>
-                _toolbar.ShowInlineToast(
+                _toolbar.ShowToastAt(
                     $"OCR 已识别 {fullText.Length} 字 · 已复制：{preview}",
-                    copyText: fullText,
-                    durationMs: 5000)));
+                    anchorCenterDip, anchorTopDip,
+                    isError: false, durationMs: 5000)));
         }
     }
 
     /// <summary>把 OcrResult 用 iOS 风格弹窗展示出来。
     /// 必须切到 UI 线程：OcrResultWindow 是 WPF Window，跨线程构造会抛 InvalidOperationException。
-    /// 同时同一时刻只允许一个结果窗，新结果直接关掉旧窗（避免叠层 + 多个 topmost 抢焦点）</summary>
+    /// 同时同一时刻只允许一个结果窗，新结果直接关掉旧窗（避免叠层 + 多个 topmost 抢焦点）。
+    ///
+    /// DPI 走 <see cref="MonitorQuery.FromRect"/> 取 anchor 截图所在 monitor 的 effective DPI，
+    /// 而不是浮窗当前 PresentationSource 的 DPI —— 副屏框选 + 浮窗在主屏时两者不同，
+    /// 后者会让结果窗按主屏 DIP 解读跑回主屏。OcrResultWindow 内部用 Win32 SetWindowPos
+    /// 物理像素绝对定位，跟 FloatingToolbar / ToolbarToastWindow 走同一条多屏正确路径</summary>
     private void ShowInteractiveResult(OcrResult result, byte[] pngBytes, SelectionRect anchorPhysical, string layoutFullText, Action<string> quickFallback)
     {
         WpfApplication.Current.Dispatcher.Invoke(() =>
         {
-            // 物理像素 → DIP 转换：用浮窗的 PresentationSource 拿当前显示器的 DPI 变换，
-            // 与 ShowAnchoredToast 用一致的算法，多显异构 DPI 时与浮窗在同一坐标系
-            double dpiX = 1.0, dpiY = 1.0;
-            var src = PresentationSource.FromVisual(_toolbar);
-            if (src?.CompositionTarget is not null)
-            {
-                dpiX = src.CompositionTarget.TransformToDevice.M11;
-                dpiY = src.CompositionTarget.TransformToDevice.M22;
-            }
-            var dipRect = new WpfRect(
-                anchorPhysical.Left / dpiX,
-                anchorPhysical.Top / dpiY,
-                anchorPhysical.Width / dpiX,
-                anchorPhysical.Height / dpiY);
+            var monitor = MonitorQuery.FromRect(
+                anchorPhysical.Left, anchorPhysical.Top,
+                anchorPhysical.Right, anchorPhysical.Bottom);
+            var anchorRectangle = new Rectangle(
+                anchorPhysical.Left,
+                anchorPhysical.Top,
+                anchorPhysical.Width,
+                anchorPhysical.Height);
 
             // 旧窗存在则先关掉，避免叠层
             if (_resultWindow is not null)
@@ -297,7 +318,9 @@ internal sealed class OcrCaptureCoordinator
                 _resultWindow = null;
             }
 
-            var win = new OcrResultWindow(_log, result, pngBytes, dipRect, _clipboard,
+            var win = new OcrResultWindow(_log, result, pngBytes, anchorRectangle,
+                monitor.DpiX, monitor.DpiY,
+                _clipboard,
                 _settings, _aiText,
                 layoutFullText: layoutFullText,
                 quickFallback: quickFallback,
@@ -352,23 +375,22 @@ internal sealed class OcrCaptureCoordinator
     }
 
     /// <summary>把"截图框 + toast 显示"打包到 UI 线程一次性完成。
-    /// 必须在 UI 线程做：Application.MainWindow / PresentationSource / FloatingToolbar 全是 DispatcherObject，
+    /// 必须在 UI 线程做：Application.MainWindow / FloatingToolbar 都是 DispatcherObject，
     /// 跨线程访问会抛 InvalidOperationException（RunCaptureAsync 跑在后台线程，必须显式切回 UI 线程）。
-    /// DPI 取自浮窗 (FloatingToolbar 自己就是 Window) —— 这一步必须 UI 线程内做，
-    /// 多显异构 DPI 时副屏锚点可能略偏移几像素，但 toast 视觉宽容度足够，不影响可读性。</summary>
+    ///
+    /// DPI 走 MonitorQuery 取 anchor 截图所在 monitor 的真实 effective DPI，
+    /// 而不是浮窗当前 PresentationSource 的 DPI —— 副屏框选 + 浮窗在主屏时两者不同，
+    /// 后者会让 toast 按主屏 DIP 解读，副屏框选时 toast 飘到错位置</summary>
     private void ShowAnchoredToast(string text, SelectionRect anchorRect, bool isError, int durationMs)
     {
         WpfApplication.Current.Dispatcher.Invoke(() =>
         {
-            double dpiX = 1.0, dpiY = 1.0;
-            var src = PresentationSource.FromVisual(_toolbar);
-            if (src?.CompositionTarget is not null)
-            {
-                dpiX = src.CompositionTarget.TransformToDevice.M11;
-                dpiY = src.CompositionTarget.TransformToDevice.M22;
-            }
-            double centerDip = (anchorRect.Left + anchorRect.Width / 2.0) / dpiX;
-            double topDip = (anchorRect.Bottom + 8) / dpiY;
+            var monitor = MonitorQuery.FromRect(
+                anchorRect.Left, anchorRect.Top, anchorRect.Right, anchorRect.Bottom);
+            double dpiScaleX = Math.Max(96, monitor.DpiX) / 96.0;
+            double dpiScaleY = Math.Max(96, monitor.DpiY) / 96.0;
+            double centerDip = (anchorRect.Left + anchorRect.Width / 2.0) / dpiScaleX;
+            double topDip = (anchorRect.Bottom + 8) / dpiScaleY;
             _toolbar.ShowToastAt(text, centerDip, topDip, isError: isError, durationMs: durationMs);
         });
     }

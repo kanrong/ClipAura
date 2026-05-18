@@ -119,28 +119,24 @@ public interface ISettingsProvider
 
 /// <summary>AI 动作的输出落点。
 /// Chat=进入对话窗口（默认）；Replace=不弹窗直接替换选区；
-/// Clipboard=不弹窗只写剪贴板；InlineToast=不弹窗只显示在浮窗 toast</summary>
+/// Clipboard=不弹窗只写剪贴板；Bubble=在浮窗附近显示可交互结果气泡</summary>
 public enum AiOutputMode
 {
     Chat,
     Replace,
     Clipboard,
-    InlineToast,
+    Bubble,
 }
 
 public sealed record AiConversationRequest(string Title, string ReferenceText);
 
 /// <summary>由 actions.json 中的 type:ai 动作触发的运行时请求。
-/// Prompt 已经包含变量占位符的原模板，由 IAiTextService 在调用前展开。
-/// UseInteractiveBubble 仅对 OutputMode=InlineToast 生效：
-/// true 时改用流式可交互气泡窗呈现（带插入/替换/复制/打开完整对话按钮），
-/// false 时维持旧的"一次性 toast"行为（结果转 preview 投到现有 toast 上）</summary>
+/// Prompt 已经包含变量占位符的原模板，由 IAiTextService 在调用前展开</summary>
 public sealed record AiPromptRequest(
     string Title,
     string Prompt,
     string? SystemPrompt,
-    AiOutputMode OutputMode,
-    bool UseInteractiveBubble = false);
+    AiOutputMode OutputMode);
 
 public interface IAiTextService
 {

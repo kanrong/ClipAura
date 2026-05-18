@@ -11,7 +11,9 @@ using PopClip.App.Config;
 using PopClip.App.Ocr;
 using PopClip.App.Services;
 using PopClip.Core.Logging;
+using PopClip.Hooks.Interop;
 using WpfPoint = System.Windows.Point;
+using WinRectangle = System.Drawing.Rectangle;
 
 namespace PopClip.App.UI;
 
@@ -51,6 +53,16 @@ internal partial class OcrResultWindow : Window
     /// 让里面的 Image / Grid 区域仍与原截图等大，保证 Stretch="Fill" 时 1:1 像素映射、文字不糊</summary>
     private readonly double _borderWidth;
 
+    /// <summary>OCR 截图框的物理像素矩形（即 anchor monitor 上的真实像素坐标）。
+    /// 用 Win32 SetWindowPos 直接按物理像素定位窗口，规避 WPF Window.Left/Top 在 PerMonitor V2 下
+    /// 跨屏异构 DPI 时被错算到主屏的老问题（与 FloatingToolbar / ToolbarToastWindow 同一策略）</summary>
+    private readonly WinRectangle _anchorPhysical;
+
+    /// <summary>anchor 所在 monitor 的 effective DPI（用 MonitorQuery.FromRect 取得）。
+    /// DIP 与物理像素的换算基准；分 X / Y 以兼容显示器横竖 DPI 不同的极少数情况</summary>
+    private readonly uint _anchorDpiX;
+    private readonly uint _anchorDpiY;
+
     private OcrResultToolbarWindow? _toolbarWindow;
 
     /// <summary>每个 block 对应一个 Polygon overlay。
@@ -84,7 +96,9 @@ internal partial class OcrResultWindow : Window
         ILog log,
         OcrResult result,
         byte[] screenshotPng,
-        Rect targetRectDip,
+        WinRectangle anchorPhysical,
+        uint anchorDpiX,
+        uint anchorDpiY,
         ClipboardWriter clipboard,
         AppSettings settings,
         AiTextService? aiText,
@@ -100,6 +114,9 @@ internal partial class OcrResultWindow : Window
         _layoutFullText = string.IsNullOrWhiteSpace(layoutFullText) ? "" : layoutFullText.Trim();
         _quickFallback = quickFallback;
         _onCloseRequested = onCloseRequested;
+        _anchorPhysical = anchorPhysical;
+        _anchorDpiX = anchorDpiX == 0 ? 96 : anchorDpiX;
+        _anchorDpiY = anchorDpiY == 0 ? 96 : anchorDpiY;
         _selected = new bool[result.Blocks.Count];
         _translationOverlays = new Border?[result.Blocks.Count];
 
@@ -112,11 +129,17 @@ internal partial class OcrResultWindow : Window
         _borderWidth = _settings.OcrResultWindowBordered ? 2.0 : 0.0;
         WindowBorderFrame.BorderThickness = new Thickness(_borderWidth);
 
+        // 初始把窗口放到屏幕外（主屏负坐标），先让 WPF 完成 layout 测量；
+        // Loaded 阶段再用 Win32 SetWindowPos 把窗口精确定位到 anchor 物理像素位置。
+        // 不直接用目标 DIP 设置 Left/Top —— 跨屏异构 DPI 时 WPF Window.Left/Top 会按主屏 DPI 解读，
+        // 导致副屏框选的结果窗飘回主屏（与 FloatingToolbar / ToolbarToast 走 Win32 SetWindowPos 同因同治）
+        double dipScaleX = _anchorDpiX / 96.0;
+        double dipScaleY = _anchorDpiY / 96.0;
         WindowStartupLocation = WindowStartupLocation.Manual;
-        Left = targetRectDip.Left - _borderWidth;
-        Top = targetRectDip.Top - _borderWidth;
-        Width = Math.Max(120, targetRectDip.Width + _borderWidth * 2);
-        Height = Math.Max(80, targetRectDip.Height + _borderWidth * 2);
+        Left = -32000;
+        Top = -32000;
+        Width = Math.Max(120, anchorPhysical.Width / dipScaleX + _borderWidth * 2);
+        Height = Math.Max(80, anchorPhysical.Height / dipScaleY + _borderWidth * 2);
 
         // 加载截图作背景：用 BitmapImage 而不是 BitmapDecoder，让 WPF 自己处理像素格式
         ScreenshotImage.Source = LoadBitmap(screenshotPng);
@@ -157,7 +180,13 @@ internal partial class OcrResultWindow : Window
 
     private void OnWindowLoaded(object sender, RoutedEventArgs e)
     {
-        // 建 polygon 必须在 Loaded 之后：ActualWidth / ActualHeight 才有效
+        // 第一步：用 Win32 SetWindowPos 把窗口精确定位到 anchor 物理像素位置。
+        // WPF Window.Show 期间会按 Left=-32000 把窗口放到屏幕外，Loaded 时再次覆盖到 anchor monitor 上。
+        // 紧接着 UpdateLayout 让 WPF 在新 DPI 下重算 ActualWidth/ActualHeight，
+        // 后续 BuildPolygons 的缩放系数 = innerSize / SourceWidth 才是当前屏 DPI 下的真实 DIP 比例
+        PlaceWindowAtAnchorPhysical();
+        UpdateLayout();
+
         BuildPolygons();
 
         // 工具条窗口在主窗 Loaded 之后再 Show：此时主窗 Left/Top/ActualWidth/ActualHeight 都是稳定值，
@@ -174,6 +203,33 @@ internal partial class OcrResultWindow : Window
         Focus();
         Keyboard.Focus(this);
         Activate();
+    }
+
+    /// <summary>用 Win32 SetWindowPos 把窗口物理像素绝对定位到 anchor 截图区域上方。
+    /// 必须在 Loaded 之后调（WPF Show 内部会先按 Window.Left=-32000 摆放一次窗口）。
+    /// SWP_NOACTIVATE 表示本次不抢焦点 —— 激活由后续 Activate() 处理，避免与 WPF Show 流程的激活竞争。
+    ///
+    /// 跨屏异构 DPI 下用此路径替代 WPF Window.Left/Top 的根本原因：
+    /// PerMonitor V2 模式下 WPF 把 Window.Left/Top 解读为"基于当前所在 monitor 的 DPI"的 DIP，
+    /// 但窗口在 Show 前并不知道自己会落在哪个 monitor —— 早期解读用主屏 DPI，导致副屏框选时
+    /// 算出的 DIP 值再被解读时落到主屏物理像素位置，飘回主屏</summary>
+    private void PlaceWindowAtAnchorPhysical()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == 0) return;
+
+        int borderPxX = (int)Math.Round(_borderWidth * _anchorDpiX / 96.0);
+        int borderPxY = (int)Math.Round(_borderWidth * _anchorDpiY / 96.0);
+        int x = _anchorPhysical.Left - borderPxX;
+        int y = _anchorPhysical.Top - borderPxY;
+        int w = _anchorPhysical.Width + borderPxX * 2;
+        int h = _anchorPhysical.Height + borderPxY * 2;
+
+        NativeMethods.SetWindowPos(
+            hwnd,
+            NativeMethods.HWND_TOPMOST,
+            x, y, Math.Max(1, w), Math.Max(1, h),
+            NativeMethods.SWP_NOACTIVATE);
     }
 
     /// <summary>把工具条窗口放到主窗下方居中。

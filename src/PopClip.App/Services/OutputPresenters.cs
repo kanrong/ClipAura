@@ -39,6 +39,20 @@ internal sealed class FloatingToolbarBubblePresenter : IInlineBubblePresenter
 
     public void ShowStatic(string title, string text, bool canReplace, Func<string, Task>? onReplace = null)
     {
+        var anchor = _toolbar?.GetCurrentBubbleAnchor()
+            ?? new BubbleAnchor(
+                SystemParameters.PrimaryScreenWidth / 2,
+                SystemParameters.PrimaryScreenHeight / 2,
+                double.PositiveInfinity,
+                0.0);
+        ShowStaticAt(title, text, anchor, canReplace, onReplace);
+    }
+
+    /// <summary>用调用方提供的 anchor 显示静态气泡，常用于没有浮窗可锚定的独立流程
+    /// （如 OCR Quick 模式：截图框就是 anchor，浮窗根本不会出现）。
+    /// caller 负责把 OCR 截图框等物理像素信息换算到 DIP，避免本方法依赖具体 anchor 来源</summary>
+    public void ShowStaticAt(string title, string text, BubbleAnchor anchor, bool canReplace = false, Func<string, Task>? onReplace = null)
+    {
         WpfApplication.Current.Dispatcher.Invoke(() =>
         {
             // Pin 态复用：保留窗口本体 / 位置 / Pin 视觉状态，只刷新标题 + 内容；
@@ -47,11 +61,6 @@ internal sealed class FloatingToolbarBubblePresenter : IInlineBubblePresenter
                 ? pinned
                 : NewBubble();
 
-            var anchor = _toolbar?.GetCurrentBubbleAnchor();
-            var (cx, ty, mb, mt) = anchor.HasValue
-                ? (anchor.Value.CenterX, anchor.Value.TopY, anchor.Value.MonitorBottomDip, anchor.Value.MonitorTopDip)
-                : (SystemParameters.PrimaryScreenWidth / 2, SystemParameters.PrimaryScreenHeight / 2, double.PositiveInfinity, 0.0);
-
             bubble.ShowAt(
                 title,
                 model: "",
@@ -59,10 +68,10 @@ internal sealed class FloatingToolbarBubblePresenter : IInlineBubblePresenter
                 onInsert: onReplace,
                 onReplace: onReplace,
                 onOpenInChat: null,
-                anchorCenterX: cx,
-                anchorTopY: ty,
-                monitorBottomY: mb,
-                monitorTopY: mt);
+                anchorCenterX: anchor.CenterX,
+                anchorTopY: anchor.TopY,
+                monitorBottomY: anchor.MonitorBottomDip,
+                monitorTopY: anchor.MonitorTopDip);
             bubble.SetCompleted(text ?? "", model: "", elapsed: TimeSpan.Zero, promptTok: 0, compTok: 0);
             bubble.ScrollBodyToTop();
         });

@@ -89,8 +89,8 @@ public sealed class AiTextService : IAiTextService
 
             case AiOutputMode.Replace:
             case AiOutputMode.Clipboard:
-            case AiOutputMode.InlineToast:
-                await RunInlineAsync(request, context, expandedPrompt, expandedSystem, ct).ConfigureAwait(false);
+            case AiOutputMode.Bubble:
+                await RunNonChatAsync(request, context, expandedPrompt, expandedSystem, ct).ConfigureAwait(false);
                 break;
         }
     }
@@ -161,14 +161,10 @@ public sealed class AiTextService : IAiTextService
         }
     }
 
-    /// <summary>原地替换 / 写剪贴板 / inline toast 三种"不弹窗"模式。
-    /// 流式累积到 StringBuilder，过程中只在浮窗 toast 显示进度指示，
-    /// 完成后按输出模式落地结果，并在失败时上抛由 SessionManager 显示错误 toast。
-    ///
-    /// InlineToast + UseInteractiveBubble=true 走独立的气泡分支：
-    /// 创建一个 AiBubbleWindow，订阅流式回调实时填充正文；用户在气泡上自行决定"插入/替换/复制/打开完整对话"。
-    /// 该分支不走 _notifier.Notify，让浮窗 toast 区域留给"处理中"等过程提示，避免与气泡叠加</summary>
-    private async Task RunInlineAsync(
+    /// <summary>Replace / Clipboard / Bubble 三种非对话模式。
+    /// Replace 与 Clipboard 走轻量提示；Bubble 直接进入 AiBubbleWindow 流式结果窗，
+    /// 不再复用 ToolbarToastWindow 承载正文，避免单行 toast 与长结果语义混淆</summary>
+    private async Task RunNonChatAsync(
         AiPromptRequest request,
         SelectionContext context,
         string expandedPrompt,
@@ -178,7 +174,7 @@ public sealed class AiTextService : IAiTextService
         var options = CreateOptions(GetCurrentApiKey());
         var messages = BuildPromptMessages(_settings.AiDefaultLanguage, expandedSystem, expandedPrompt);
 
-        if (request.OutputMode == AiOutputMode.InlineToast && request.UseInteractiveBubble)
+        if (request.OutputMode == AiOutputMode.Bubble)
         {
             await RunInteractiveBubbleAsync(request, context, options, messages, ct).ConfigureAwait(false);
             return;
@@ -198,7 +194,7 @@ public sealed class AiTextService : IAiTextService
         }
         catch (Exception ex)
         {
-            _log.Warn("ai inline run failed", ("err", ex.Message), ("kind", request.OutputMode.ToString()));
+            _log.Warn("ai non-chat run failed", ("err", ex.Message), ("kind", request.OutputMode.ToString()));
             throw;
         }
 
@@ -226,11 +222,7 @@ public sealed class AiTextService : IAiTextService
                     _notifier.Notify($"{request.Title} 已复制"));
                 break;
 
-            case AiOutputMode.InlineToast:
-                var preview = result.Text.Length > 160 ? result.Text[..160] + "…" : result.Text;
-                await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
-                    _notifier.Notify(preview));
-                _clipboard.SetText(result.Text);
+            case AiOutputMode.Bubble:
                 break;
         }
     }

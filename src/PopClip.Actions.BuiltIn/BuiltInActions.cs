@@ -158,8 +158,7 @@ internal sealed class TranslateAction : BuiltInAction
                 Title: "翻译",
                 Prompt: "把下面的文本翻译为{language}。只输出译文，不要任何解释或附加说明：\n\n{text}",
                 SystemPrompt: null,
-                OutputMode: AiOutputMode.InlineToast,
-                UseInteractiveBubble: true);
+                OutputMode: AiOutputMode.Bubble);
             return host.Ai.RunPromptAsync(request, context, ct);
         }
 
@@ -188,8 +187,7 @@ internal sealed class AiExplainAction : BuiltInAction
             Title: "解释",
             Prompt: "用{language}解释下面的文本，面向不熟悉背景的人，先给一句话结论，再补充必要细节：\n\n{text}",
             SystemPrompt: null,
-            OutputMode: AiOutputMode.InlineToast,
-            UseInteractiveBubble: true);
+            OutputMode: AiOutputMode.Bubble);
         return host.Ai.RunPromptAsync(request, context, ct);
     }
 }
@@ -403,7 +401,7 @@ public sealed class AiPromptAction : IAction
             "chat" => AiOutputMode.Chat,
             "replace" => AiOutputMode.Replace,
             "clipboard" => AiOutputMode.Clipboard,
-            "inlinetoast" or "toast" or "inline" => AiOutputMode.InlineToast,
+            "bubble" => AiOutputMode.Bubble,
             _ => AiOutputMode.Chat,
         };
     }

@@ -7,7 +7,7 @@ using PopClip.Core.Model;
 namespace PopClip.Actions.BuiltIn;
 
 /// <summary>智能动作（CSV/MD/JSON/TSV 等）的结果落点模式。
-/// 与 AiOutputMode 平行存在：AI 模式是给 AI 模板用的（chat / replace / clipboard / inlineToast），
+/// 与 AiOutputMode 平行存在：AI 模式是给 AI 模板用的（chat / replace / clipboard / bubble），
 /// 而 BuiltInOutputMode 是给"内置 + 有产出结果"的动作用的。
 ///
 /// 设计目标：让用户对"格式化 JSON 后该把结果丢到哪里"有完整控制权 —

@@ -21,7 +21,7 @@ public sealed class ActionDescriptor
     /// <summary>type=ai 时附加的 system prompt；为空则使用默认助手 prompt</summary>
     public string? SystemPrompt { get; set; }
 
-    /// <summary>type=ai 时的输出方式：chat / replace / clipboard / inlineToast；默认 chat</summary>
+    /// <summary>type=ai 时的输出方式：chat / replace / clipboard / bubble；默认 chat</summary>
     public string? OutputMode { get; set; }
 
     /// <summary>true=图标固定不可在 UI 修改。

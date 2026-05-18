@@ -19,6 +19,8 @@ namespace PopClip.App.UI;
 /// 单实例复用：每次只重写文字 / 重新定位 / 重置计时，避免反复 Window 创建销毁。</summary>
 internal partial class ToolbarToastWindow : Window
 {
+    private const string ToolbarToastBackgroundKey = "ToolbarToastBackground";
+    private const string ToolbarForegroundKey = "ToolbarForeground";
     private readonly ILog _log;
     private CancellationTokenSource? _hideCts;
     private string? _copyText;
@@ -54,14 +56,19 @@ internal partial class ToolbarToastWindow : Window
             {
                 // 错误态固定深红底 + 白字：与 toolbar 主题脱钩，让"出错"语义在任何主题下都醒目可读。
                 // ToolbarForeground 在浅色主题下是深色，叠加深红背景几乎不可见，
-                // 因此 Foreground 也必须强制成白色，保证 WCAG 对比度
+                // 因此正文与按钮文字都必须强制成白色，保证 WCAG 对比度
                 ToastBorder.Background = new SolidColorBrush(Color.FromRgb(0xB1, 0x2A, 0x2A));
                 ToastText.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF));
+                ToastCopyButton.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF));
             }
             else
             {
-                ToastBorder.ClearValue(System.Windows.Controls.Border.BackgroundProperty);
-                ToastText.ClearValue(System.Windows.Controls.TextBlock.ForegroundProperty);
+                // 这里不能用 ClearValue：XAML 上的 DynamicResource 也是 local value，
+                // 清掉后属性会退回到系统默认黑字，深色主题下会出现"黑字贴深底"的可读性问题。
+                // 改为显式重新挂回资源引用，让 toast 与浮窗其它区域走同一套主题切换链路
+                ToastBorder.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, ToolbarToastBackgroundKey);
+                ToastText.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, ToolbarForegroundKey);
+                ToastCopyButton.SetResourceReference(System.Windows.Controls.Button.ForegroundProperty, ToolbarForegroundKey);
             }
 
             // 先 measure 出 toast 实际宽度，再用 anchorCenterX 把它水平居中。

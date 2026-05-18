@@ -14,7 +14,7 @@ public enum ToolbarItemGroup
     Basic,
     /// <summary>智能识别动作（JSON / 颜色 / 时间戳 / 路径 / Markdown 表 / CSV / TSV / ...）</summary>
     Smart,
-    /// <summary>AI 动作（含内置 AI 解释 / AI 对话 + 用户自定义 ai 模板派生动作）</summary>
+    /// <summary>AI 动作（含内置 AI 解释 / AI 对话 + 用户自定义 ai 模板添加动作）</summary>
     Ai,
 }
 

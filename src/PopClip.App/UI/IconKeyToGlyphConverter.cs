@@ -33,6 +33,13 @@ internal sealed class IconKeyToGlyphConverter : IValueConverter
         ["AiExplain"] = "\uE946",
         ["AiReply"] = "\uE8F2",
         ["AiTidy"] = "\uE8A4",
+        ["AiTranslateEn"] = "\uE774",
+        ["AiTranslateZh"] = "\uE902",
+        ["AiCodeExplain"] = "\uE943",
+        ["AiCommit"] = "\uE8A5",
+        ["AiFormalReply"] = "\uE70E",
+        ["AiQuickReply"] = "\uE8BD",
+        ["AiExplainText"] = "\uE8A1",
         // 智能动作图标（Segoe Fluent Icons 兜底字形）。
         // 同一系列的转换动作（JsonToYaml / MdToCsv / TsvToCsv / TsvToMd）必须互不相同，
         // 浮窗多个智能动作同时出现时仍能一眼区分
@@ -124,6 +131,13 @@ internal sealed class IconKeyToMaterialDesignKindConverter : IValueConverter
         ["AiExplain"] = PackIconMaterialDesignKind.InfoRound,
         ["AiReply"] = PackIconMaterialDesignKind.ReplyRound,
         ["AiTidy"] = PackIconMaterialDesignKind.FormatLineSpacingRound,
+        ["AiTranslateEn"] = PackIconMaterialDesignKind.TranslateRound,
+        ["AiTranslateZh"] = PackIconMaterialDesignKind.GTranslateRound,
+        ["AiCodeExplain"] = PackIconMaterialDesignKind.CodeRound,
+        ["AiCommit"] = PackIconMaterialDesignKind.LabelRound,
+        ["AiFormalReply"] = PackIconMaterialDesignKind.EmailRound,
+        ["AiQuickReply"] = PackIconMaterialDesignKind.ReplyAllRound,
+        ["AiExplainText"] = PackIconMaterialDesignKind.LightbulbRound,
         // ============ 智能动作图标（IconLocked=true，不参与用户图标选择器） ============
         // 转换链动作（JsonToYaml / MdToCsv / TsvToCsv / TsvToMd）必须互不相同，
         // 浮窗同时出现多个智能动作（如 CSV 选区下 CsvToMarkdown + 普通 SearchAction）时不冲突

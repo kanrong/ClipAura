@@ -857,7 +857,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         }
     }
 
-    /// <summary>"添加用户动作"：弹 AddUserActionDialog 让用户选 URL / AI 自定义 / 从内置 AI 模板派生。
+    /// <summary>"添加用户动作"：弹 AddUserActionDialog 让用户选 URL / AI 自定义 / 从内置 AI 模板添加。
     /// 与"添加内置动作"互补：那个对话框管"系统预置 + 不可重复"，本对话框管"用户自定义 + 可重复"，
     /// 旧版独立的"添加 URL"/"添加 AI 动作"/"快速从模板"三个入口合并到这一个对话框</summary>
     private void OnAddUserAction(object sender, RoutedEventArgs e)
@@ -870,14 +870,21 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         if (dialog.ShowDialog() != true || dialog.CreatedItem is null) return;
 
         var created = dialog.CreatedItem;
-        var seed = string.Equals(created.Type, "url-template", StringComparison.OrdinalIgnoreCase)
-            ? "url"
-            : "ai";
-        created.Id = UniqueActionId(seed);
+        if (string.IsNullOrWhiteSpace(created.Id))
+        {
+            var seed = string.Equals(created.Type, "url-template", StringComparison.OrdinalIgnoreCase)
+                ? "url"
+                : "ai";
+            created.Id = UniqueActionId(seed);
+        }
+        else
+        {
+            created.Id = UniqueActionId(created.Id);
+        }
         AddAction(created);
     }
 
-    /// <summary>从内置 Prompt 模板派生 ai 动作。
+    /// <summary>从内置 Prompt 模板添加 ai 动作。
     /// 模板代表"预定义功能"，图标承载语义，因此 IconLocked=true 不允许后续在 UI 中改图标</summary>
     private void OnAddFromTemplate(object sender, RoutedEventArgs e)
     {
@@ -1353,7 +1360,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         });
     }
 
-    /// <summary>从内置 Prompt 模板派生动作。
+    /// <summary>从内置 Prompt 模板添加动作。
     /// 已有同 id 时跳过；图标永久跟随模板（IconLocked=true）。
     /// 注意：ActionEditorItem.Id 经过 UniqueActionId 归一化（点号变短横线），
     /// 因此查重必须比较"模板归一化后的 id"而不是原始 tpl.Id（含点号），

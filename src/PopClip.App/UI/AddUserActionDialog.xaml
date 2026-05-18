@@ -105,7 +105,7 @@
                     </Grid>
                 </Border>
 
-                <!-- 从模板派生 -->
+                <!-- 从模板添加 -->
                 <Border Style="{StaticResource Settings.Card}" Padding="14">
                     <StackPanel>
                         <StackPanel Orientation="Horizontal">
@@ -114,13 +114,13 @@
                                        FontWeight="SemiBold"
                                        FontSize="14"
                                        VerticalAlignment="Center"
-                                       Text="从内置 AI 模板派生" />
+                                       Text="从内置 AI 模板添加" />
                         </StackPanel>
                         <TextBlock Margin="0,4,0,10"
                                    FontSize="12"
                                    Foreground="{DynamicResource Settings.SubtleForeground}"
                                    TextWrapping="Wrap"
-                                   Text="基于内置 Prompt 模板复制一份成可编辑的用户动作；同一模板可以派生多次。" />
+                                   Text="基于内置 Prompt 模板添加为用户动作；同一模板可以添加多次。" />
                         <ItemsControl ItemsSource="{Binding Templates, RelativeSource={RelativeSource AncestorType=Window}}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
@@ -165,9 +165,9 @@
                                             <ui:Button Grid.Column="1"
                                                        VerticalAlignment="Center"
                                                        Appearance="Secondary"
-                                                       Content="派生"
+                                                       Content="添加"
                                                        Tag="{Binding}"
-                                                       Click="OnDeriveFromTemplate" />
+                                                       Click="OnAddFromTemplate" />
                                         </Grid>
                                     </Border>
                                 </DataTemplate>

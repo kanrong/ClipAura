@@ -55,7 +55,7 @@ public static class PromptTemplateLibrary
         {
             Id = "tpl.translate-en",
             Title = "译为英文",
-            Icon = "AiTranslate",
+            Icon = "AiTranslateEn",
             OutputMode = "replace",
             BuiltIn = true,
             Description = "翻译为英文并原地替换",
@@ -65,7 +65,7 @@ public static class PromptTemplateLibrary
         {
             Id = "tpl.translate-zh",
             Title = "译为中文",
-            Icon = "AiTranslate",
+            Icon = "AiTranslateZh",
             OutputMode = "replace",
             BuiltIn = true,
             Description = "翻译为简体中文并原地替换",
@@ -75,7 +75,7 @@ public static class PromptTemplateLibrary
         {
             Id = "tpl.code-explain",
             Title = "解释代码",
-            Icon = "AiExplain",
+            Icon = "AiCodeExplain",
             OutputMode = "chat",
             BuiltIn = true,
             Description = "用中文解释这段代码做了什么",
@@ -85,7 +85,7 @@ public static class PromptTemplateLibrary
         {
             Id = "tpl.commit-message",
             Title = "生成 commit",
-            Icon = "AiRewrite",
+            Icon = "AiCommit",
             OutputMode = "clipboard",
             BuiltIn = true,
             Description = "把改动描述/diff 转成 conventional commit",
@@ -95,7 +95,7 @@ public static class PromptTemplateLibrary
         {
             Id = "tpl.formal-reply",
             Title = "正式回复",
-            Icon = "AiReply",
+            Icon = "AiFormalReply",
             OutputMode = "chat",
             BuiltIn = true,
             Description = "根据消息生成一段礼貌、正式的回复",
@@ -105,7 +105,7 @@ public static class PromptTemplateLibrary
         {
             Id = "tpl.explain",
             Title = "解释",
-            Icon = "AiExplain",
+            Icon = "AiExplainText",
             OutputMode = "chat",
             BuiltIn = true,
             Description = "面向非专家解释下文，先结论后细节",
@@ -131,7 +131,7 @@ public static class PromptTemplateLibrary
         {
             Id = "tpl.quick-reply",
             Title = "口语回复",
-            Icon = "AiReply",
+            Icon = "AiQuickReply",
             OutputMode = "chat",
             BuiltIn = true,
             Description = "用日常口语风格起草一段简短回复",

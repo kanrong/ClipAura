@@ -11,9 +11,9 @@ namespace PopClip.App.UI;
 /// <summary>"添加用户动作"对话框。
 /// 与 AddBuiltInActionDialog 平行：
 /// - AddBuiltInActionDialog 负责"添加预置动作"（基础 / 智能 / AI 内置，不可重复）
-/// - 本对话框负责"添加用户自定义动作"（URL / AI 空白 / AI 模板派生，可重复）
+/// - 本对话框负责"添加用户自定义动作"（URL / AI 空白 / 从 AI 模板添加，可重复）
 ///
-/// 不直接修改外部 ActionItems：用户点击对应"创建/派生"按钮后，把结果暴露在
+/// 不直接修改外部 ActionItems：用户点击对应"创建/添加"按钮后，把结果暴露在
 /// CreatedItem 字段并以 DialogResult=true 关闭，由调用方决定如何并入动作列表</summary>
 public partial class AddUserActionDialog : FluentWindow
 {
@@ -37,7 +37,7 @@ public partial class AddUserActionDialog : FluentWindow
     {
         // 当前内置 AI 动作 ↔ Prompt 模板的等价映射。
         // 仅用于在 UI 上提示"该模板已被内置 AI 动作覆盖"，
-        // 仍允许用户派生 —— 重复 / 个性化版本本来就是用户动作的合理用法
+        // 仍允许用户添加 —— 重复 / 个性化版本本来就是用户动作的合理用法
         return template.Id switch
         {
             "tpl.explain" => existingBuiltInIds.Contains(BuiltInActionIds.AiExplain),
@@ -74,22 +74,21 @@ public partial class AddUserActionDialog : FluentWindow
         Close();
     }
 
-    private void OnDeriveFromTemplate(object sender, RoutedEventArgs e)
+    private void OnAddFromTemplate(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement fe || fe.Tag is not TemplateChoice choice) return;
         var tpl = choice.Template;
         CreatedItem = new ActionEditorItem
         {
+            Id = tpl.Id.Replace("tpl.", "ai-", StringComparison.OrdinalIgnoreCase),
             Type = "ai",
             Title = tpl.Title,
             Icon = string.IsNullOrWhiteSpace(tpl.Icon) ? "Ai" : tpl.Icon,
             Prompt = tpl.Prompt,
             SystemPrompt = tpl.SystemPrompt,
             OutputMode = string.IsNullOrWhiteSpace(tpl.OutputMode) ? "chat" : tpl.OutputMode,
-            // 模板派生：图标已经承担语义（如 AiRewrite / AiTranslate），允许用户后续在动作页改成自己想要的图标。
-            // 这与之前 OnAddFromTemplate 的 IconLocked=true 不同：用户动作就该可编辑，
-            // "锁图标"只对"内置预置动作"成立
-            IconLocked = false,
+            // 与"从模板添加"保持一致：模板图标承载语义，锁定避免误改
+            IconLocked = true,
             Enabled = true,
         };
         DialogResult = true;

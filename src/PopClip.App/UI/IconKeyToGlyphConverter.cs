@@ -28,6 +28,7 @@ internal sealed class IconKeyToGlyphConverter : IValueConverter
         ["AiChat"] = "\uE8F2",
         ["AiSummary"] = "\uE8FD",
         ["AiRewrite"] = "\uE70F",
+        ["AiPolish"] = "\uE8D7",
         ["AiTranslate"] = "\uE774",  // Globe2 — 与基础 Translate (F2B7) 区分
         ["AiExplain"] = "\uE946",
         ["AiReply"] = "\uE8F2",
@@ -116,6 +117,7 @@ internal sealed class IconKeyToMaterialDesignKindConverter : IValueConverter
         // 这些 key 仅供 PromptTemplateLibrary.Builtin 引用，写入 actions.json 后通过 IconLocked=true 锁死不可改
         ["AiSummary"] = PackIconMaterialDesignKind.SummarizeRound,
         ["AiRewrite"] = PackIconMaterialDesignKind.AutoFixHighRound,
+        ["AiPolish"] = PackIconMaterialDesignKind.BrushRound,
         // AiTranslate 改用 LanguageRound：原本与基础 Translate 同为 TranslateRound，
         // 老用户启用了"翻译"+"AI 翻译模板"两个动作时浮窗显示同图标，无法区分
         ["AiTranslate"] = PackIconMaterialDesignKind.LanguageRound,

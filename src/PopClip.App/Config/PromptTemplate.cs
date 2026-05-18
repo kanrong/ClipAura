@@ -35,7 +35,7 @@ public static class PromptTemplateLibrary
         {
             Id = "tpl.polish",
             Title = "润色",
-            Icon = "AiRewrite",
+            Icon = "AiPolish",
             OutputMode = "replace",
             BuiltIn = true,
             Description = "在不改变原意的前提下让表达更自然、清晰",

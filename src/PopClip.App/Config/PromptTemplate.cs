@@ -103,16 +103,6 @@ public static class PromptTemplateLibrary
         },
         new PromptTemplateDefinition
         {
-            Id = "tpl.explain",
-            Title = "解释",
-            Icon = "AiExplainText",
-            OutputMode = "chat",
-            BuiltIn = true,
-            Description = "面向非专家解释下文，先结论后细节",
-            Prompt = "用{language}解释下面的文本，面向不熟悉背景的人，先给一句话结论，再补充必要细节：\n\n{text}",
-        },
-        new PromptTemplateDefinition
-        {
             Id = "tpl.tidy",
             Title = "整理格式",
             Icon = "AiTidy",

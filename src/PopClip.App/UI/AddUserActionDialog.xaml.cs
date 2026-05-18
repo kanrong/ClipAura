@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
-using PopClip.Actions.BuiltIn;
 using PopClip.App.Config;
 using Wpf.Ui.Controls;
 
@@ -23,26 +22,13 @@ public partial class AddUserActionDialog : FluentWindow
     /// 调用方读取该字段并写回 ActionItems</summary>
     public ActionEditorItem? CreatedItem { get; private set; }
 
-    public AddUserActionDialog(IEnumerable<PromptTemplateDefinition> templates, IEnumerable<string> existingBuiltInIds)
+    public AddUserActionDialog(IEnumerable<PromptTemplateDefinition> templates)
     {
         InitializeComponent();
-        var existingSet = new HashSet<string>(existingBuiltInIds, StringComparer.OrdinalIgnoreCase);
         Templates = templates
-            .Select(t => new TemplateChoice(t, IsTemplateCoveredByBuiltIn(t, existingSet)))
+            .Select(t => new TemplateChoice(t, hasBuiltInCounterpart: false))
             .ToList();
         DataContext = this;
-    }
-
-    private static bool IsTemplateCoveredByBuiltIn(PromptTemplateDefinition template, HashSet<string> existingBuiltInIds)
-    {
-        // 当前内置 AI 动作 ↔ Prompt 模板的等价映射。
-        // 仅用于在 UI 上提示"该模板已被内置 AI 动作覆盖"，
-        // 仍允许用户添加 —— 重复 / 个性化版本本来就是用户动作的合理用法
-        return template.Id switch
-        {
-            "tpl.explain" => existingBuiltInIds.Contains(BuiltInActionIds.AiExplain),
-            _ => false,
-        };
     }
 
     private void OnCreateUrl(object sender, RoutedEventArgs e)

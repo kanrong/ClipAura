@@ -862,11 +862,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     /// 旧版独立的"添加 URL"/"添加 AI 动作"/"快速从模板"三个入口合并到这一个对话框</summary>
     private void OnAddUserAction(object sender, RoutedEventArgs e)
     {
-        var existingBuiltInIds = ActionItems
-            .Where(a => string.Equals(a.Type, "builtin", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(a.BuiltIn))
-            .Select(a => a.BuiltIn!)
-            .ToList();
-        var dialog = new AddUserActionDialog(BuiltinPromptTemplates, existingBuiltInIds) { Owner = this };
+        var dialog = new AddUserActionDialog(BuiltinPromptTemplates) { Owner = this };
         if (dialog.ShowDialog() != true || dialog.CreatedItem is null) return;
 
         var created = dialog.CreatedItem;

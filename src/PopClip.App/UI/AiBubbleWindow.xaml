@@ -1,6 +1,7 @@
 <Window x:Class="PopClip.App.UI.AiBubbleWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
         x:ClassModifier="internal"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -9,8 +10,10 @@
         ShowInTaskbar="False"
         ShowActivated="False"
         Focusable="False"
-        ResizeMode="NoResize"
+        ResizeMode="CanResize"
         SizeToContent="WidthAndHeight"
+        MinWidth="320"
+        MinHeight="180"
         UseLayoutRounding="True"
         FontFamily="{DynamicResource ToolbarFontFamily}"
         TextOptions.TextFormattingMode="Display"
@@ -99,8 +102,10 @@
     </Window.Resources>
 
     <!-- 外层 8 DIP 留给阴影外扩，避免 DropShadowEffect 被透明窗口边界裁切；
-         三层结构（阴影底板 → 主面板 → 描边层）与 ToolbarToastWindow / FloatingToolbar 同款 -->
-    <Grid Margin="8" SnapsToDevicePixels="True" MaxWidth="520">
+         三层结构（阴影底板 → 主面板 → 描边层）与 ToolbarToastWindow / FloatingToolbar 同款。
+         MaxWidth=520 是 SizeToContent 自适应模式下的默认上限，避免长流式文本把窗口横向铺得太宽；
+         用户拖右下角 ResizeGrip 时 OnResizeGripMouseDown 会清掉 MaxWidth，让窗口可任意拉宽 -->
+    <Grid x:Name="RootGrid" Margin="8" SnapsToDevicePixels="True" MaxWidth="520">
         <Border Background="{DynamicResource ToolbarToastBackground}"
                 CornerRadius="8"
                 SnapsToDevicePixels="True">
@@ -177,19 +182,44 @@
                             ToolTip="关闭 (Esc)" />
                 </Grid>
 
-                <!-- Body：流式正文 -->
-                <ScrollViewer Grid.Row="1"
-                              x:Name="BodyScroll"
-                              MaxHeight="360"
-                              MinWidth="320"
-                              VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Disabled"
-                              Margin="14,2,14,8">
-                    <TextBox x:Name="BodyText"
-                             Style="{StaticResource BubbleBodyTextBox}" />
-                </ScrollViewer>
+                <!-- Body：流式正文 + 右下角 resize grip -->
+                <Grid Grid.Row="1">
+                    <ScrollViewer x:Name="BodyScroll"
+                                  MaxHeight="360"
+                                  MinWidth="320"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  Margin="14,2,14,8">
+                        <TextBox x:Name="BodyText"
+                                 Style="{StaticResource BubbleBodyTextBox}" />
+                    </ScrollViewer>
 
-                <!-- 操作按钮栏 -->
+                    <!-- 右下角 resize grip：透明 18×18，按下触发 Win32 NCHITTEST resize。
+                         SizeToContent 在按下时被切到 Manual，让 OS 接管尺寸控制 -->
+                    <Border x:Name="ResizeGrip"
+                            Width="18"
+                            Height="18"
+                            Background="Transparent"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Bottom"
+                            Cursor="SizeNWSE"
+                            ToolTip="拖动调整气泡大小">
+                        <iconPacks:PackIconMaterialDesign Kind="DragHandleRound"
+                                                          Width="13" Height="13"
+                                                          Foreground="{DynamicResource ToolbarForeground}"
+                                                          Opacity="0.4"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center"
+                                                          RenderTransformOrigin="0.5,0.5">
+                            <iconPacks:PackIconMaterialDesign.RenderTransform>
+                                <RotateTransform Angle="-45" />
+                            </iconPacks:PackIconMaterialDesign.RenderTransform>
+                        </iconPacks:PackIconMaterialDesign>
+                    </Border>
+                </Grid>
+
+                <!-- 操作按钮栏：翻译按钮放在复制按钮左边，按用户期望布局；
+                     翻译按钮仅在 AI 启用 + ShowStaticAt 流程下注入翻译能力时可见 -->
                 <Border Grid.Row="2"
                         BorderBrush="{DynamicResource ToolbarSeparator}"
                         BorderThickness="0,1,0,0"
@@ -207,6 +237,13 @@
                                 Click="OnInsertClicked"
                                 IsEnabled="False"
                                 ToolTip="把结果插入到光标处" />
+                        <Button x:Name="TranslateButton"
+                                Content="翻译"
+                                Style="{StaticResource BubbleFlatButton}"
+                                Click="OnTranslateClicked"
+                                IsEnabled="False"
+                                Visibility="Collapsed"
+                                ToolTip="把当前正文翻译成默认语言（再次点击切回原文，缓存复用不重发请求）" />
                         <Button x:Name="CopyButton"
                                 Content="复制"
                                 Style="{StaticResource BubbleFlatButton}"

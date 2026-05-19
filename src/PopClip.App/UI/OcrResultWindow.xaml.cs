@@ -75,9 +75,21 @@ internal partial class OcrResultWindow : Window
     /// 顺序与 _result.Blocks 一致，下标可双向查询。</summary>
     private readonly List<Polygon> _polygons = new();
 
-    /// <summary>每个 block 对应的"译文覆盖框"。null 表示该 block 还没翻译。
-    /// 顺序与 _result.Blocks 一致。</summary>
+    /// <summary>每个 block 对应的"译文覆盖框"。null 表示该 block 当前没有 overlay 显示。
+    /// 与 _translatedText 解耦：用户切回原文时清掉 overlay（设为 null），但 _translatedText 保留
+    /// 让二次切换译文显示能直接走缓存，免去重新调用 AI</summary>
     private readonly Border?[] _translationOverlays;
+
+    /// <summary>每个 block 的译文文本缓存。null = 从未翻译过；非空字符串 = 已翻译过且文本可复用。
+    /// 切换"显示译文 → 原文 → 译文"时，第二次切回不需要重新请求 AI；仅当用户主动调 CommandTranslateClear
+    /// 清空缓存，或选中段落集合扩张到新的未缓存段时，才会触发新的 AI 请求</summary>
+    private readonly string?[] _translatedText;
+
+    /// <summary>当前是否处于"展示译文"态。
+    /// false（默认）：原文模式，TranslationCanvas 上没有 overlay；
+    /// true：译文模式，相关 block 的 overlay 已绘制并可见。
+    /// CommandToggleTranslation 翻转此状态机，工具栏按钮图标 / ToolTip 也据此切换</summary>
+    private bool _showingTranslation;
 
     /// <summary>当前 selected 状态：bitmap-like 集合，下标对应 _result.Blocks。
     /// 改成 HashSet&lt;int&gt; 也 OK，但 block 一般不超过 100 个，bool[] 更直接。</summary>
@@ -127,6 +139,7 @@ internal partial class OcrResultWindow : Window
         _anchorDpiY = anchorDpiY == 0 ? 96 : anchorDpiY;
         _selected = new bool[result.Blocks.Count];
         _translationOverlays = new Border?[result.Blocks.Count];
+        _translatedText = new string?[result.Blocks.Count];
 
         InitializeComponent();
 
@@ -340,19 +353,52 @@ internal partial class OcrResultWindow : Window
     {
         if (_textPanelWindow is null)
         {
+            // 面板复制走的是"当前显示内容"，自然涵盖原文 / 译文两种态。
+            // 翻译回调只在 AI 启用时传入；面板根据回调是否为 null 决定是否显示翻译按钮
+            Func<string, Task<string?>>? translateAsync = (_aiText is not null && _aiText.CanRun)
+                ? async (source) =>
+                {
+                    if (string.IsNullOrWhiteSpace(source)) return null;
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                    try
+                    {
+                        var list = await _aiText!.TranslateBatchAsync(new[] { source }, cts.Token).ConfigureAwait(true);
+                        return list.Count > 0 ? (list[0] ?? "").Trim() : null;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        ShowToast("翻译超时（60 秒）");
+                        return null;
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Warn("panel translate failed", ("err", ex.Message));
+                        ShowToast("翻译失败：" + ex.Message);
+                        return null;
+                    }
+                }
+                : null;
+
             _textPanelWindow = new OcrResultTextPanelWindow(
                 onCopyAll: () =>
                 {
-                    var text = EffectiveFullText();
-                    if (string.IsNullOrEmpty(text)) text = JoinAllText();
+                    var text = _textPanelWindow?.CurrentDisplayedText ?? "";
+                    if (string.IsNullOrEmpty(text))
+                    {
+                        text = EffectiveFullText();
+                        if (string.IsNullOrEmpty(text)) text = JoinAllText();
+                    }
                     if (!string.IsNullOrEmpty(text)) CopyTextSilently(text);
-                    ShowToast(string.IsNullOrEmpty(text) ? "没有识别到内容" : $"已复制全部 / {text.Length} 字");
+                    // 反馈走面板自己的 ShowLocalToast — 比飞回主结果窗中央 toast 更贴近用户操作点
+                    var msg = string.IsNullOrEmpty(text) ? "没有识别到内容" : $"已复制 / {text.Length} 字";
+                    _textPanelWindow?.ShowLocalToast(msg);
                 },
                 onClose: () =>
                 {
                     // 用户点关闭：直接收起面板，保留窗口对象方便下次切换显示时复用位置 / 内容
                     HideTextPanel();
-                });
+                },
+                translateAsync: translateAsync);
             _textPanelWindow.Owner = this;
             // 关键：刚 new 出来时不要在 OS 默认 (0,0) 闪现，先挪屏外再 Show
             _textPanelWindow.Left = -32000;
@@ -446,6 +492,10 @@ internal partial class OcrResultWindow : Window
     /// <summary>用当前 _result + 选中状态 + 译文 overlay 刷新文本面板内容。
     /// 内容选择：有选中 → 显示选中段落；无选中 → 显示整段识别文本。
     /// 顶部元信息显示"段数 / 字数"，让用户对识别结果体量一目了然</summary>
+    /// <summary>同步预览面板的"源文本"。一直传原文，不传 Effective（带主窗 polygon overlay 译文的）—
+    /// 否则工具栏切到译文模式时面板正文会被主窗 polygon overlay 污染。
+    /// 预览面板拥有自己的翻译按钮和缓存，原文 / 译文显示状态由面板自身维护，与工具栏完全独立。
+    /// SetContent 内部会自动判断 _originalText 是否变化、是否需要让缓存失效</summary>
     private void UpdateTextPanelContent()
     {
         if (_textPanelWindow is null) return;
@@ -454,17 +504,28 @@ internal partial class OcrResultWindow : Window
         string meta;
         if (sel > 0)
         {
-            body = JoinSelectedText();
+            body = JoinSelectedOriginalText();
             meta = $"已选 {sel}/{_result.Blocks.Count} 段 · {body.Length} 字";
         }
         else
         {
-            body = EffectiveFullText();
-            if (string.IsNullOrEmpty(body)) body = JoinAllText();
+            body = OriginalFullText();
             meta = $"{_result.Blocks.Count} 段 · {body.Length} 字";
         }
         _textPanelWindow.SetContent(body);
         _textPanelWindow.SetMeta(meta);
+    }
+
+    private string JoinSelectedOriginalText()
+    {
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < _result.Blocks.Count; i++)
+        {
+            if (!_selected[i]) continue;
+            if (sb.Length > 0) sb.Append('\n');
+            sb.Append(_result.Blocks[i].Text);
+        }
+        return sb.ToString();
     }
 
     /// <summary>工具栏按钮触发：在显隐两态之间切换。
@@ -522,7 +583,9 @@ internal partial class OcrResultWindow : Window
                     new WpfPoint(b.Box.X4 * sx, b.Box.Y4 * sy),
                 },
                 Fill = fill,
-                Opacity = 0.18,
+                // 默认态比旧的 0.18 略加深，让"哪些行被识别成 block"一眼看清；
+                // 与 Hover (0.45) / Selected (0.7) 的对比仍足够明显，不会与 hover 视觉混淆
+                Opacity = 0.32,
                 Stroke = Brushes.Transparent,
                 StrokeThickness = 1,
                 Cursor = Cursors.IBeam,
@@ -546,17 +609,17 @@ internal partial class OcrResultWindow : Window
         switch (state)
         {
             case BoxState.Default:
-                p.Opacity = 0.18;
+                p.Opacity = 0.32;
                 p.Stroke = Brushes.Transparent;
                 p.StrokeThickness = 1;
                 break;
             case BoxState.Hover:
-                p.Opacity = 0.42;
+                p.Opacity = 0.50;
                 p.Stroke = (Brush?)TryFindResource("ToolbarForeground") ?? Brushes.White;
                 p.StrokeThickness = 1;
                 break;
             case BoxState.Selected:
-                p.Opacity = 0.70;
+                p.Opacity = 0.72;
                 p.Stroke = (Brush?)TryFindResource("ToolbarForeground") ?? Brushes.White;
                 p.StrokeThickness = 2;
                 break;
@@ -736,9 +799,38 @@ internal partial class OcrResultWindow : Window
     private void OnCloseClicked(object sender, RoutedEventArgs e) => CommandClose();
     private void OnSelectAllMenu(object sender, RoutedEventArgs e) => SelectAll();
     private void OnSwitchToQuick(object sender, RoutedEventArgs e) => CommandSwitchToQuick();
-    private void OnTranslateSelected(object sender, RoutedEventArgs e) => CommandTranslateSelected();
-    private void OnTranslateAll(object sender, RoutedEventArgs e) => CommandTranslateAll();
-    private void OnTranslateClear(object sender, RoutedEventArgs e) => CommandTranslateClear();
+    private void OnTranslateSelected(object sender, RoutedEventArgs e) => CommandTranslateMenu(selectedOnly: true);
+    private void OnTranslateAll(object sender, RoutedEventArgs e) => CommandTranslateMenu(selectedOnly: false);
+
+    /// <summary>右键菜单"翻译全部 / 翻译选中"入口。
+    /// 与工具栏 toggle 走相同的 ShowTranslationAsync，自动复用缓存。
+    /// selectedOnly=true 但用户未选任何段时给 toast 提示</summary>
+    private void CommandTranslateMenu(bool selectedOnly)
+    {
+        if (_aiText is null || !_aiText.CanRun)
+        {
+            ShowToast("请先在设置启用 AI 并配置 API Key");
+            return;
+        }
+        if (_translating) { ShowToast("翻译进行中，请稍候"); return; }
+
+        List<int> indices;
+        if (selectedOnly)
+        {
+            indices = new();
+            for (int i = 0; i < _selected.Length; i++) if (_selected[i]) indices.Add(i);
+            if (indices.Count == 0)
+            {
+                ShowToast("没有选中任何文本（点高亮 / 拖框先选）");
+                return;
+            }
+        }
+        else
+        {
+            indices = Enumerable.Range(0, _result.Blocks.Count).ToList();
+        }
+        _ = ShowTranslationAsync(indices);
+    }
 
     private void OnClearSelectionMenu(object sender, RoutedEventArgs e)
     {
@@ -749,29 +841,33 @@ internal partial class OcrResultWindow : Window
 
     // ============== Command 方法（工具条 / 右键菜单 / 键盘共用入口）==============
 
-    public void CommandCopySelected()
+    /// <summary>复制选中段落到剪贴板。toastSink 为 null 时反馈走主窗中央 toast；
+    /// 非 null 时（如工具栏按钮调用时传自己的 ShowLocalToast）反馈贴近触发点</summary>
+    public void CommandCopySelected(Action<string>? toastSink = null)
     {
+        var sink = toastSink ?? ShowToast;
         var text = JoinSelectedText();
         if (string.IsNullOrEmpty(text))
         {
-            ShowToast("没有选中任何文本");
+            sink("没有选中任何文本");
             return;
         }
         CopyTextSilently(text);
-        ShowToast($"已复制 {SelectedCount()} 段 / {text.Length} 字");
+        sink($"已复制 {SelectedCount()} 段 / {text.Length} 字");
     }
 
-    public void CommandCopyAll()
+    public void CommandCopyAll(Action<string>? toastSink = null)
     {
+        var sink = toastSink ?? ShowToast;
         var text = EffectiveFullText();
         if (string.IsNullOrEmpty(text)) text = JoinAllText();
         if (string.IsNullOrEmpty(text))
         {
-            ShowToast("没有识别到内容");
+            sink("没有识别到内容");
             return;
         }
         CopyTextSilently(text);
-        ShowToast($"已复制全部 / {text.Length} 字");
+        sink($"已复制全部 / {text.Length} 字");
     }
 
     public void CommandClose() => CloseSelf("command");
@@ -817,80 +913,141 @@ internal partial class OcrResultWindow : Window
         catch (Exception ex) { _log.Warn("open ai settings failed", ("err", ex.Message)); }
     }
 
-    public void CommandTranslateAll() => _ = TranslateAsync(Enumerable.Range(0, _result.Blocks.Count).ToList());
-
-    public void CommandTranslateSelected()
+    /// <summary>工具栏"翻译 / 原文"切换按钮入口。
+    /// 状态机：原文 → 译文（按需调 AI） → 原文（隐藏 overlay） → 译文（直接走缓存）……
+    ///
+    /// 决定翻译范围：有选中段则译选中段，否则译全部段。这与"复制选中 / 复制全部"自适应行为一致，
+    /// 只用一个按钮即可承载两种意图，UI 更紧凑。
+    /// 缓存复用：_translatedText 在窗口生命周期内保留，多次切回译文显示时不需要重新请求 AI；
+    /// 仅当用户主动调 CommandTranslateClear 清空，或新选中段未曾翻译时，才会发请求</summary>
+    public void CommandToggleTranslation(Action<string>? toastSink = null)
     {
+        if (_aiText is null || !_aiText.CanRun)
+        {
+            toastSink?.Invoke("请先在设置启用 AI 并配置 API Key");
+            return;
+        }
+        if (_translating) { toastSink?.Invoke("翻译进行中，请稍候"); return; }
+
+        if (_showingTranslation)
+        {
+            // 当前是译文模式 → 切回原文。仅清理 overlay 视觉层，保留 _translatedText 缓存
+            HideAllTranslationOverlays();
+            _showingTranslation = false;
+            UpdateStatusBar();
+            toastSink?.Invoke("已切换为原文显示");
+            return;
+        }
+
+        // 当前是原文模式 → 切到译文。先决定本次要展示译文的 block 集合
         var indices = new List<int>();
         for (int i = 0; i < _selected.Length; i++) if (_selected[i]) indices.Add(i);
         if (indices.Count == 0)
         {
-            ShowToast("没有选中任何文本（点高亮 / 拖框先选）");
+            // 无选中 → 全部段都译
+            indices = Enumerable.Range(0, _result.Blocks.Count).ToList();
+        }
+        if (indices.Count == 0)
+        {
+            toastSink?.Invoke("没有识别到内容");
             return;
         }
-        _ = TranslateAsync(indices);
-    }
 
-    public void CommandTranslateClear()
-    {
-        ClearAllTranslations();
-        UpdateStatusBar();
-        ShowToast("已清除所有译文");
+        _ = ShowTranslationAsync(indices, toastSink);
     }
 
     // ============== 翻译 ==============
 
-    private async Task TranslateAsync(IReadOnlyList<int> blockIndices)
+    /// <summary>翻译并渲染指定 block 集合的译文 overlay。
+    /// - 命中缓存的段直接渲染（_translatedText[i] 不为空时跳过 AI 请求）；
+    /// - 未缓存的段批量调用 AI 翻译，结果写入缓存。
+    /// 全部成功后切到译文显示模式</summary>
+    private async Task ShowTranslationAsync(IReadOnlyList<int> indices, Action<string>? toastSink = null)
     {
-        if (_aiText is null || !_aiText.CanRun)
-        {
-            ShowToast("请先在设置启用 AI 并配置 API Key");
-            return;
-        }
-        if (blockIndices.Count == 0) return;
-        if (_translating) { ShowToast("翻译进行中，请稍候"); return; }
+        var needTranslate = indices.Where(i => string.IsNullOrEmpty(_translatedText[i])).ToList();
 
         _translating = true;
-        var prevStatus = _toolbarWindow is not null ? "translating" : null;
-        _toolbarWindow?.SetTranslateAllEnabled(false);
-        _toolbarWindow?.SetTranslateSelectedEnabled(false);
-        _toolbarWindow?.SetTranslateClearEnabled(false);
-        _toolbarWindow?.SetStatus($"翻译中… ({blockIndices.Count} 段)");
+        _toolbarWindow?.SetTranslateToggleEnabled(false);
+        if (needTranslate.Count > 0)
+        {
+            _toolbarWindow?.SetStatus($"翻译中… ({needTranslate.Count} 段)");
+        }
 
         try
         {
-            var sources = blockIndices.Select(i => _result.Blocks[i].Text).ToList();
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-            IReadOnlyList<string> translations;
-            try
+            if (needTranslate.Count > 0)
             {
-                translations = await _aiText.TranslateBatchAsync(sources, cts.Token).ConfigureAwait(true);
-            }
-            catch (OperationCanceledException)
-            {
-                ShowToast("翻译超时（60 秒）");
-                return;
-            }
-            catch (Exception ex)
-            {
-                _log.Warn("ocr translate failed", ("err", ex.Message), ("blocks", blockIndices.Count));
-                ShowToast("翻译失败：" + ex.Message);
-                return;
+                var sources = needTranslate.Select(i => _result.Blocks[i].Text).ToList();
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                IReadOnlyList<string> translations;
+                try
+                {
+                    translations = await _aiText!.TranslateBatchAsync(sources, cts.Token).ConfigureAwait(true);
+                }
+                catch (OperationCanceledException)
+                {
+                    toastSink?.Invoke("翻译超时（60 秒）");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _log.Warn("ocr translate failed", ("err", ex.Message), ("blocks", needTranslate.Count));
+                    toastSink?.Invoke("翻译失败：" + ex.Message);
+                    return;
+                }
+
+                for (int k = 0; k < needTranslate.Count && k < translations.Count; k++)
+                {
+                    var bi = needTranslate[k];
+                    var translated = (translations[k] ?? "").Trim();
+                    if (translated.Length == 0) continue;
+                    _translatedText[bi] = translated;
+                }
             }
 
-            for (int k = 0; k < blockIndices.Count && k < translations.Count; k++)
+            // 渲染所有 indices 的 overlay（缓存命中即直接画，没命中刚才已请求并写入缓存）
+            int rendered = 0;
+            foreach (var i in indices)
             {
-                var bi = blockIndices[k];
-                var translated = (translations[k] ?? "").Trim();
-                if (translated.Length == 0) continue;
-                RenderTranslationOverlay(bi, translated);
+                var text = _translatedText[i];
+                if (string.IsNullOrEmpty(text)) continue;
+                RenderTranslationOverlay(i, text);
+                rendered++;
             }
-            ShowToast($"已翻译 {blockIndices.Count} 段");
+
+            _showingTranslation = rendered > 0;
+            int cached = indices.Count - needTranslate.Count;
+            if (needTranslate.Count > 0 && cached > 0)
+            {
+                toastSink?.Invoke($"已翻译 {needTranslate.Count} 段（{cached} 段走缓存）");
+            }
+            else if (needTranslate.Count > 0)
+            {
+                toastSink?.Invoke($"已翻译 {needTranslate.Count} 段");
+            }
+            else
+            {
+                toastSink?.Invoke($"已显示译文 {indices.Count} 段");
+            }
         }
         finally
         {
             _translating = false;
             UpdateStatusBar();
+        }
+    }
+
+    /// <summary>把 TranslationCanvas 上所有 overlay 移除，但保留 _translatedText 缓存。
+    /// 切换"译文 → 原文"显示时使用，让二次切回译文时直接复用缓存</summary>
+    private void HideAllTranslationOverlays()
+    {
+        for (int i = 0; i < _translationOverlays.Length; i++)
+        {
+            if (_translationOverlays[i] is { } b)
+            {
+                TranslationCanvas.Children.Remove(b);
+                _translationOverlays[i] = null;
+            }
         }
     }
 
@@ -962,6 +1119,8 @@ internal partial class OcrResultWindow : Window
                 TranslationCanvas.Children.Remove(b);
                 _translationOverlays[i] = null;
             }
+            // 同时清掉文本缓存：下次切到译文模式会重新调 AI（"清除"= 完全重置）
+            _translatedText[i] = null;
         }
     }
 
@@ -1073,10 +1232,8 @@ internal partial class OcrResultWindow : Window
         _toolbarWindow?.SetStatus(status);
         _toolbarWindow?.SetCopySelectedEnabled(copySelEnabled);
         _toolbarWindow?.SetCopyAllEnabled(total > 0);
-        _toolbarWindow?.SetTranslateSelectedEnabled(sel > 0 && !_translating);
-        _toolbarWindow?.SetTranslateAllEnabled(total > 0 && !_translating);
-        bool hasTranslation = _translationOverlays.Any(o => o is not null);
-        _toolbarWindow?.SetTranslateClearEnabled(hasTranslation && !_translating);
+        _toolbarWindow?.SetTranslateToggleEnabled(total > 0 && !_translating);
+        _toolbarWindow?.SetTranslateToggleShowingTranslation(_showingTranslation);
 
         // 选区变化时同步刷新文本面板内容（仅当面板已经打开）
         if (_textPanelWindow is not null && _textPanelWindow.Visibility == Visibility.Visible)
@@ -1089,16 +1246,14 @@ internal partial class OcrResultWindow : Window
         MiClearSel.IsEnabled = sel > 0;
         MiCopyAll.IsEnabled = total > 0;
         MiSelectAll.IsEnabled = total > 0 && sel < total;
-        MiTranslateAll.IsEnabled = total > 0;
-        MiTranslateSelected.IsEnabled = sel > 0;
-        MiTranslateClear.IsEnabled = hasTranslation;
+        MiTranslateAll.IsEnabled = total > 0 && !_translating;
+        MiTranslateSelected.IsEnabled = sel > 0 && !_translating;
 
         // AI 未启用时把右键菜单的翻译项也隐藏
         var aiAvailable = _aiText is not null && _aiText.CanRun;
         var vis = aiAvailable ? Visibility.Visible : Visibility.Collapsed;
         MiTranslateAll.Visibility = vis;
         MiTranslateSelected.Visibility = vis;
-        MiTranslateClear.Visibility = vis;
     }
 
     private void ShowToast(string text)

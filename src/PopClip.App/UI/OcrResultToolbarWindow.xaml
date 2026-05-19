@@ -72,11 +72,16 @@
         </Style>
     </Window.Resources>
 
-    <!-- 外层 6px 留白给阴影 -->
+    <!-- 外层 6px 留白给阴影；两行 Grid 让 toast 自然从工具栏下方弹出 -->
     <Grid Margin="6">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
         <!-- ToolbarBorder 本身就是拖动响应区：除按钮以外的任意位置按下都触发 DragMove。
              这样不再需要专门的 grip ⋮⋮ 占据左侧空间，整体观感更紧凑、操作更直接 -->
         <Border x:Name="ToolbarBorder"
+                Grid.Row="0"
                 Padding="6,4"
                 Background="{DynamicResource ToolbarToastBackground}"
                 BorderBrush="{DynamicResource ToolbarBorder}"
@@ -126,27 +131,17 @@
                     <iconPacks:PackIconMaterialDesign Kind="SmartToyRound" Width="16" Height="16" />
                 </Button>
 
-                <!-- 翻译组：AI 启用时显示，未启用时整组隐藏让位给上方"启用 AI"引导按钮 -->
-                <Button x:Name="TranslateAllButton"
+                <!-- 翻译切换按钮：AI 启用时显示，未启用时整组隐藏让位给上方"启用 AI"引导按钮。
+                     单按钮承载"翻译显示 / 原文显示"两态切换；图标 + ToolTip 随状态同步刷新。
+                     翻译范围自适应：有选中段译选中段，否则译全部，与"复制选中/全部"按钮同款思路 -->
+                <Button x:Name="TranslateToggleButton"
                         Style="{StaticResource OcrToolIconButtonStyle}"
-                        Click="OnTranslateAll"
+                        Click="OnToggleTranslation"
                         Visibility="Collapsed"
-                        ToolTip="翻译全部识别文本 · 走当前 AI Provider">
-                    <iconPacks:PackIconMaterialDesign Kind="TranslateRound" Width="16" Height="16" />
-                </Button>
-                <Button x:Name="TranslateSelectedButton"
-                        Style="{StaticResource OcrToolIconButtonStyle}"
-                        Click="OnTranslateSelected"
-                        Visibility="Collapsed"
-                        ToolTip="翻译已选段落 · 仅当有选中段落时可用">
-                    <iconPacks:PackIconMaterialDesign Kind="GTranslateRound" Width="16" Height="16" />
-                </Button>
-                <Button x:Name="TranslateClearButton"
-                        Style="{StaticResource OcrToolIconButtonStyle}"
-                        Click="OnTranslateClear"
-                        Visibility="Collapsed"
-                        ToolTip="清除已添加的译文覆盖层">
-                    <iconPacks:PackIconMaterialDesign Kind="LayersClearRound" Width="16" Height="16" />
+                        ToolTip="翻译并显示译文 · 有选中段译选中段，否则译全部">
+                    <iconPacks:PackIconMaterialDesign x:Name="TranslateToggleIcon"
+                                                     Kind="TranslateRound"
+                                                     Width="16" Height="16" />
                 </Button>
 
                 <Rectangle Style="{StaticResource OcrToolbarSepStyle}" />
@@ -177,6 +172,26 @@
                     <iconPacks:PackIconMaterialDesign Kind="CloseRound" Width="16" Height="16" />
                 </Button>
             </StackPanel>
+        </Border>
+
+        <!-- 工具栏自己的轻量 toast：默认 Collapsed 时 Grid.Row 高度归零，不影响布局；
+             有反馈消息时短暂弹出在工具栏正下方，让"复制 / 翻译"等动作的反馈贴近用户视线 -->
+        <Border x:Name="LocalToastBorder"
+                Grid.Row="1"
+                HorizontalAlignment="Center"
+                Margin="0,4,0,0"
+                Padding="10,4"
+                Background="{DynamicResource ToolbarToastBackground}"
+                BorderBrush="{DynamicResource ToolbarBorder}"
+                BorderThickness="1"
+                CornerRadius="12"
+                Visibility="Collapsed">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="8" ShadowDepth="2" Direction="270" Opacity="0.35" Color="Black" />
+            </Border.Effect>
+            <TextBlock x:Name="LocalToastText"
+                       Foreground="{DynamicResource ToolbarForeground}"
+                       FontSize="11.5" />
         </Border>
     </Grid>
 </Window>

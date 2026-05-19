@@ -76,7 +76,6 @@
                     <Separator />
                     <MenuItem x:Name="MiTranslateSelected" Header="翻译选中" Click="OnTranslateSelected" />
                     <MenuItem x:Name="MiTranslateAll" Header="翻译全部" Click="OnTranslateAll" />
-                    <MenuItem x:Name="MiTranslateClear" Header="清除译文" Click="OnTranslateClear" />
                     <Separator />
                     <MenuItem x:Name="MiSelectAll" Header="全选 (Ctrl+A)" Click="OnSelectAllMenu" />
                     <MenuItem x:Name="MiClearSel" Header="清除选区" Click="OnClearSelectionMenu" />

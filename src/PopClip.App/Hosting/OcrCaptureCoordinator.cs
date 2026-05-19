@@ -278,11 +278,16 @@ internal sealed class OcrCaptureCoordinator
 
         if (_bubble is not null)
         {
+            // 标题去掉 OCR 后端名（用户反馈"已识别"后展示后端名信息冗余）；
+            // 仅保留"OCR · 字数"作为最简一行，状态栏会展示完成时间，元信息无需再重复 provider
+            var bubbleTitle = $"OCR · {fullText.Length} 字";
+            var translateFn = BuildBubbleTranslateFunc();
             _ = WpfApplication.Current.Dispatcher.BeginInvoke(new Action(() =>
                 _bubble.ShowStaticAt(
-                    $"OCR · {providerDisplayName} · {fullText.Length} 字",
+                    bubbleTitle,
                     fullText,
-                    new BubbleAnchor(anchorCenterDip, anchorTopDip, monitorBottomDip, monitorTopDip))));
+                    new BubbleAnchor(anchorCenterDip, anchorTopDip, monitorBottomDip, monitorTopDip),
+                    translateAsync: translateFn)));
         }
         else
         {
@@ -342,6 +347,29 @@ internal sealed class OcrCaptureCoordinator
             win.Show();
             win.Activate();
         });
+    }
+
+    /// <summary>给 Quick 模式气泡返回一个"翻译当前正文"的回调。
+    /// AI 未启用 / 未配置 Key 时返回 null，让气泡不显示翻译按钮 — 用户不会按到"按了无反应"的死按钮。
+    /// 60s 超时与主流程一致；超时与异常都在 catch 中吞并返回 null，UI 层据此回到原文态</summary>
+    private Func<string, Task<string?>>? BuildBubbleTranslateFunc()
+    {
+        if (_aiText is null || !_aiText.CanRun) return null;
+        return async (source) =>
+        {
+            if (string.IsNullOrWhiteSpace(source)) return null;
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            try
+            {
+                var list = await _aiText.TranslateBatchAsync(new[] { source }, cts.Token).ConfigureAwait(true);
+                return list.Count > 0 ? (list[0] ?? "").Trim() : null;
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("ocr quick bubble translate failed", ("err", ex.Message));
+                return null;
+            }
+        };
     }
 
     private IOcrProvider? PickActiveOrNotify()

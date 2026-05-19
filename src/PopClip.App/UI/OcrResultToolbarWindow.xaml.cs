@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Threading;
 using MahApps.Metro.IconPacks;
 
 namespace PopClip.App.UI;
@@ -24,6 +25,7 @@ internal partial class OcrResultToolbarWindow : Window
 {
     private readonly OcrResultWindow _host;
     private bool _textPanelVisible;
+    private DispatcherTimer? _localToastTimer;
 
     public OcrResultToolbarWindow(OcrResultWindow host, bool aiAvailable)
     {
@@ -36,14 +38,10 @@ internal partial class OcrResultToolbarWindow : Window
         ToolbarBorder.MouseLeftButtonDown += OnBorderMouseDown;
 
         var v = aiAvailable ? Visibility.Visible : Visibility.Collapsed;
-        TranslateAllButton.Visibility = v;
-        TranslateSelectedButton.Visibility = v;
-        TranslateClearButton.Visibility = v;
-        TranslateSep.Visibility = v;
+        TranslateToggleButton.Visibility = v;
         // AI 未启用时显示"启用 AI"引导按钮，占据原翻译组位置 —— 把原本的引导提示文案转化为按钮，
         // 用户点击直接跳到设置 AI 页配置 Provider / API Key，比 Toast / 提示文字更直接
         EnableAiButton.Visibility = aiAvailable ? Visibility.Collapsed : Visibility.Visible;
-        // 分隔条仅在按钮组实际有内容时显示，避免空分隔
         TranslateSep.Visibility = Visibility.Visible;
     }
 
@@ -76,9 +74,19 @@ internal partial class OcrResultToolbarWindow : Window
 
     public void SetCopySelectedEnabled(bool enabled) => CopySelectedButton.IsEnabled = enabled;
     public void SetCopyAllEnabled(bool enabled) => CopyAllButton.IsEnabled = enabled;
-    public void SetTranslateSelectedEnabled(bool enabled) => TranslateSelectedButton.IsEnabled = enabled;
-    public void SetTranslateAllEnabled(bool enabled) => TranslateAllButton.IsEnabled = enabled;
-    public void SetTranslateClearEnabled(bool enabled) => TranslateClearButton.IsEnabled = enabled;
+    public void SetTranslateToggleEnabled(bool enabled) => TranslateToggleButton.IsEnabled = enabled;
+
+    /// <summary>同步翻译切换按钮的视觉态：当前展示译文时改为"显示原文"图标 + ToolTip；
+    /// 反之恢复"翻译"图标。host 在 UpdateStatusBar 调用，让按钮总是反映"再次点击会发生什么"</summary>
+    public void SetTranslateToggleShowingTranslation(bool showingTranslation)
+    {
+        TranslateToggleIcon.Kind = showingTranslation
+            ? PackIconMaterialDesignKind.TextFieldsRound
+            : PackIconMaterialDesignKind.TranslateRound;
+        TranslateToggleButton.ToolTip = showingTranslation
+            ? "切回原文显示 · 译文缓存保留，再次点击不会重新调 AI"
+            : "翻译并显示译文 · 有选中段译选中段，否则译全部";
+    }
 
     /// <summary>同步右侧文本面板按钮的视觉态：打开 / 关闭两种图标，方便用户从工具栏看出当前面板状态</summary>
     public void SetTextPanelVisible(bool visible)
@@ -92,13 +100,32 @@ internal partial class OcrResultToolbarWindow : Window
             : "显示识别文本侧边面板 · 整段文字可全选 / 复制";
     }
 
+    /// <summary>工具栏自己的轻量 toast：用于复制 / 翻译切换等动作的反馈，
+    /// 让消息出现在按钮正下方而不是飘到主结果窗中央。1.8 秒后自动隐藏。
+    /// 与主窗的 ShowToast 解耦，避免反馈位置离用户操作点过远</summary>
+    public void ShowLocalToast(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        LocalToastText.Text = text;
+        LocalToastBorder.Visibility = Visibility.Visible;
+        if (_localToastTimer is null)
+        {
+            _localToastTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1800) };
+            _localToastTimer.Tick += (_, _) =>
+            {
+                _localToastTimer!.Stop();
+                LocalToastBorder.Visibility = Visibility.Collapsed;
+            };
+        }
+        _localToastTimer.Stop();
+        _localToastTimer.Start();
+    }
+
     // ============== 按钮事件转发 ==============
 
-    private void OnCopySelected(object sender, RoutedEventArgs e) => _host.CommandCopySelected();
-    private void OnCopyAll(object sender, RoutedEventArgs e) => _host.CommandCopyAll();
-    private void OnTranslateSelected(object sender, RoutedEventArgs e) => _host.CommandTranslateSelected();
-    private void OnTranslateAll(object sender, RoutedEventArgs e) => _host.CommandTranslateAll();
-    private void OnTranslateClear(object sender, RoutedEventArgs e) => _host.CommandTranslateClear();
+    private void OnCopySelected(object sender, RoutedEventArgs e) => _host.CommandCopySelected(ShowLocalToast);
+    private void OnCopyAll(object sender, RoutedEventArgs e) => _host.CommandCopyAll(ShowLocalToast);
+    private void OnToggleTranslation(object sender, RoutedEventArgs e) => _host.CommandToggleTranslation(ShowLocalToast);
     private void OnSwitchToQuick(object sender, RoutedEventArgs e) => _host.CommandSwitchToQuick();
     private void OnCloseClicked(object sender, RoutedEventArgs e) => _host.CommandClose();
     private void OnToggleTextPanel(object sender, RoutedEventArgs e) => _host.CommandToggleTextPanel();

@@ -251,6 +251,26 @@ public static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GetWindowRect(nint hWnd, out RECT lpRect);
 
+    // === 拖拉调整窗口大小（WindowStyle="None" + AllowsTransparency 透明窗口走的非客户区命中模拟路径） ===
+    // 配合 ReleaseCapture + SendMessage(WM_NCLBUTTONDOWN, HTBOTTOMRIGHT) 让 OS 接管 resize，
+    // 比 Thumb 手动改 Width/Height 流畅、不抖、自动遵循 MinWidth/MinHeight 与 SystemParameters.MinimumWindowTrackSize
+    public const int WM_NCLBUTTONDOWN = 0x00A1;
+    public const int HTLEFT = 10;
+    public const int HTRIGHT = 11;
+    public const int HTTOP = 12;
+    public const int HTTOPLEFT = 13;
+    public const int HTTOPRIGHT = 14;
+    public const int HTBOTTOM = 15;
+    public const int HTBOTTOMLEFT = 16;
+    public const int HTBOTTOMRIGHT = 17;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern nint SendMessage(nint hWnd, int msg, nint wParam, nint lParam);
+
     [DllImport("user32.dll")]
     public static extern nint WindowFromPoint(POINT pt);
 

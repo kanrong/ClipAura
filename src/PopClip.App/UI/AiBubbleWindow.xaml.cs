@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using PopClip.Core.Logging;
+using PopClip.Hooks.Interop;
 using PopClip.Hooks.Window;
 
 namespace PopClip.App.UI;
@@ -38,7 +39,17 @@ internal partial class AiBubbleWindow : Window
     private Func<string, Task>? _onInsert;
     private Func<string, Task>? _onReplace;
     private Action<string>? _onOpenInChat;
+    private Func<string, Task<string?>>? _onTranslate;
     private bool _streamingDone;
+
+    /// <summary>用于"翻译/原文"切换的缓存。
+    /// _originalText：流式完成后的原文快照；用户首次按"翻译"时把它发给 AI；
+    /// _translatedText：缓存的译文。第二次点"翻译"按钮（从原文态）直接显示缓存，不重新调 AI；
+    /// _showingTranslation：当前 BodyText 内容是原文还是译文</summary>
+    private string _originalText = "";
+    private string? _translatedText;
+    private bool _showingTranslation;
+    private bool _translating;
     /// <summary>缓存的窗口句柄。
     /// 必须缓存而不是每次访问 WindowInteropHelper.Handle：
     /// ContainsScreenPoint 由 SelectionSessionManager.InputPumpAsync 在 ThreadPool 线程调用，
@@ -61,6 +72,7 @@ internal partial class AiBubbleWindow : Window
         SourceInitialized += OnSourceInitialized;
         Closed += OnClosedInternal;
         IsVisibleChanged += OnIsVisibleChanged;
+        ResizeGrip.MouseLeftButtonDown += OnResizeGripMouseDown;
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
@@ -104,6 +116,10 @@ internal partial class AiBubbleWindow : Window
         MetaText.Text = _model;
         StatusText.Text = "请求中…";
         _accumText = "";
+        _originalText = "";
+        _translatedText = null;
+        _showingTranslation = false;
+        _translating = false;
         BodyText.Text = "";
         _streamingDone = false;
         _onInsert = onInsert;
@@ -118,9 +134,18 @@ internal partial class AiBubbleWindow : Window
         ReplaceButton.IsEnabled = false;
         CopyButton.IsEnabled = false;
         OpenChatButton.IsEnabled = false;
+        TranslateButton.IsEnabled = false;
+        UpdateTranslateButtonVisual();
         ReplaceButton.Visibility = canReplace ? Visibility.Visible : Visibility.Collapsed;
         InsertButton.Visibility = onInsert is not null ? Visibility.Visible : Visibility.Collapsed;
         OpenChatButton.Visibility = onOpenInChat is not null ? Visibility.Visible : Visibility.Collapsed;
+        // 默认隐藏翻译按钮，调用方通过 ConfigureTranslate 显式开启
+        TranslateButton.Visibility = Visibility.Collapsed;
+        // 每次 ShowAt 重置 SizeToContent，让新内容能自适应大小；用户拖 ResizeGrip 后会切到 Manual。
+        // 同时把 MaxWidth / MaxHeight 上限恢复，确保上一轮被用户拉宽 / 拉高的窗口不影响本轮自适应
+        SizeToContent = SizeToContent.WidthAndHeight;
+        RootGrid.MaxWidth = 520;
+        BodyScroll.MaxHeight = 360;
 
         // 先把窗口贴到屏幕外测量真实尺寸，再瞬移到目标坐标，避免用户看到 (0,0) → 目标 的 1 帧闪动
         SizeToContent = SizeToContent.WidthAndHeight;
@@ -183,9 +208,15 @@ internal partial class AiBubbleWindow : Window
         }
         if (!string.IsNullOrWhiteSpace(model)) _model = model;
 
-        StatusText.Text = "已完成";
+        // 状态显示完成时间（HH:mm:ss），让用户对"何时完成"有更准确的感知 —
+        // 旧"已完成"文案在 Quick 模式静态展示场景下信息量近乎为 0
+        StatusText.Text = DateTime.Now.ToString("HH:mm:ss");
         var meta = _model;
-        meta += string.IsNullOrEmpty(meta) ? $"{elapsed.TotalSeconds:0.0}s" : $" · {elapsed.TotalSeconds:0.0}s";
+        // elapsed=Zero 通常是 Quick 模式（OCR 静态结果）调用：跳过秒数显示
+        if (elapsed > TimeSpan.Zero)
+        {
+            meta += string.IsNullOrEmpty(meta) ? $"{elapsed.TotalSeconds:0.0}s" : $" · {elapsed.TotalSeconds:0.0}s";
+        }
         if (promptTok > 0 || compTok > 0) meta += $" · {promptTok}→{compTok} tok";
         MetaText.Text = meta;
 
@@ -194,6 +225,24 @@ internal partial class AiBubbleWindow : Window
         ReplaceButton.IsEnabled = has && _onReplace is not null;
         CopyButton.IsEnabled = has;
         OpenChatButton.IsEnabled = has && _onOpenInChat is not null;
+
+        // 记录原文快照供翻译按钮使用；本次 streaming 的"原文"就是 finalText
+        _originalText = _accumText;
+        _translatedText = null;
+        _showingTranslation = false;
+        UpdateTranslateButtonVisual();
+        TranslateButton.IsEnabled = has && _onTranslate is not null;
+    }
+
+    /// <summary>由调用方在 SetCompleted 之后调用，注入"翻译当前正文"的能力。
+    /// 设为 null = 不显示翻译按钮（与默认态一致）。
+    /// 翻译只在气泡内显示，缓存独立于外部：第二次点击切回原文走缓存，不重新发请求</summary>
+    public void ConfigureTranslate(Func<string, Task<string?>>? translateAsync)
+    {
+        _onTranslate = translateAsync;
+        TranslateButton.Visibility = translateAsync is not null ? Visibility.Visible : Visibility.Collapsed;
+        var has = !string.IsNullOrWhiteSpace(_accumText);
+        TranslateButton.IsEnabled = has && _onTranslate is not null;
     }
 
     public void ScrollBodyToTop()
@@ -369,5 +418,90 @@ internal partial class AiBubbleWindow : Window
             _log.Warn("ai bubble open-in-chat failed", ("err", ex.Message));
         }
         Close();
+    }
+
+    /// <summary>翻译切换按钮入口。原文 ↔ 译文，二次切回译文时直接走缓存，不重新调 AI。
+    /// 翻译失败 / 超时通过 StatusText 反馈，按钮状态回到原文态</summary>
+    private async void OnTranslateClicked(object sender, RoutedEventArgs e)
+    {
+        if (_onTranslate is null || _translating) return;
+        if (_showingTranslation)
+        {
+            BodyText.Text = _originalText;
+            _showingTranslation = false;
+            UpdateTranslateButtonVisual();
+            BodyText.ScrollToHome();
+            BodyScroll.ScrollToTop();
+            return;
+        }
+
+        // 缓存命中
+        if (!string.IsNullOrEmpty(_translatedText))
+        {
+            BodyText.Text = _translatedText;
+            _showingTranslation = true;
+            UpdateTranslateButtonVisual();
+            BodyText.ScrollToHome();
+            BodyScroll.ScrollToTop();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_originalText)) return;
+        _translating = true;
+        TranslateButton.IsEnabled = false;
+        var prevStatus = StatusText.Text;
+        StatusText.Text = "翻译中…";
+        try
+        {
+            var result = await _onTranslate(_originalText).ConfigureAwait(true);
+            if (string.IsNullOrWhiteSpace(result))
+            {
+                StatusText.Text = "翻译失败";
+                return;
+            }
+            _translatedText = result.Trim();
+            BodyText.Text = _translatedText;
+            _showingTranslation = true;
+            UpdateTranslateButtonVisual();
+            BodyText.ScrollToHome();
+            BodyScroll.ScrollToTop();
+            StatusText.Text = prevStatus;
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("ai bubble translate failed", ("err", ex.Message));
+            StatusText.Text = "翻译失败";
+        }
+        finally
+        {
+            _translating = false;
+            TranslateButton.IsEnabled = !string.IsNullOrWhiteSpace(_accumText);
+        }
+    }
+
+    private void UpdateTranslateButtonVisual()
+    {
+        TranslateButton.Content = _showingTranslation ? "原文" : "翻译";
+        TranslateButton.ToolTip = _showingTranslation
+            ? "切回原文显示（再次点击会重新出译文，走缓存不重发请求）"
+            : "把当前正文翻译成默认语言（再次点击切回原文，缓存复用不重发请求）";
+    }
+
+    /// <summary>右下角 grip 按下：把 SizeToContent 切到 Manual 让窗口允许任意尺寸，
+    /// 然后通过 ReleaseCapture + SendMessage(WM_NCLBUTTONDOWN, HTBOTTOMRIGHT) 让 OS 接管 resize。
+    /// AllowsTransparency=True 时 OS 不会显示边缘 cursor / hit-test，所以我们显式提供 grip 区域。
+    ///
+    /// 同时解除 RootGrid 的 MaxWidth / BodyScroll 的 MaxHeight 限制 — 这些上限是 SizeToContent 模式下
+    /// 不让正文无限拉宽/拉高用的，用户主动拖大窗口后这些限制反而会让"窗口变大但内容不变大"，违背直觉</summary>
+    private void OnResizeGripMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left || e.ButtonState != MouseButtonState.Pressed) return;
+        if (_hwnd == 0) return;
+        SizeToContent = SizeToContent.Manual;
+        RootGrid.MaxWidth = double.PositiveInfinity;
+        BodyScroll.MaxHeight = double.PositiveInfinity;
+        NativeMethods.ReleaseCapture();
+        NativeMethods.SendMessage(_hwnd, NativeMethods.WM_NCLBUTTONDOWN, NativeMethods.HTBOTTOMRIGHT, IntPtr.Zero);
+        e.Handled = true;
     }
 }

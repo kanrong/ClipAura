@@ -8,11 +8,15 @@
         Background="Transparent"
         ShowInTaskbar="False"
         Topmost="True"
-        ResizeMode="NoResize"
+        ResizeMode="CanResize"
         Focusable="True"
         ShowActivated="False"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
+        MinWidth="240"
+        MinHeight="160"
+        Width="360"
+        Height="420"
         Title="OCR 识别文本"
         FontFamily="{DynamicResource ToolbarFontFamily}">
 
@@ -51,6 +55,35 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- 与 AiBubbleWindow.BubbleBodyTextBox 同款只读 TextBox 模板：仅 ScrollViewer + ContentHost，
+             去掉 WPF 默认主题的灰色下划线 / focus 描边，
+             让 OCR 识别文本与 Quick 气泡的正文视觉风格一致 -->
+        <Style x:Key="PanelBodyTextBoxStyle" TargetType="TextBox">
+            <Setter Property="IsReadOnly" Value="True" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarForeground}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="AcceptsReturn" Value="True" />
+            <Setter Property="VerticalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="HorizontalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Background="Transparent"
+                                      Focusable="False"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollBarVisibility="Hidden" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <!-- 外层 6px 留白给阴影 -->
@@ -69,7 +102,8 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <!-- 顶部标题条：左侧标题 + 右侧操作图标按钮，整条作为拖动响应区 -->
+                <!-- 顶部标题条：左侧标题 + 右侧操作图标按钮，整条作为拖动响应区。
+                     翻译按钮放在复制按钮左边：与 Quick 模式 AiBubble 的"复制 / 翻译"按钮组语义一致 -->
                 <Border x:Name="HeaderBorder"
                         Grid.Row="0"
                         Padding="10,6,6,6"
@@ -77,7 +111,7 @@
                         Background="Transparent"
                         BorderBrush="{DynamicResource ToolbarSeparator}"
                         BorderThickness="0,0,0,1"
-                        ToolTip="按住标题栏可拖动到屏幕任意位置">
+                        ToolTip="按住标题栏可拖动到屏幕任意位置 · 右下角拖拉调整大小">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -101,11 +135,29 @@
                                        Opacity="0.65"
                                        Margin="8,0,0,0"
                                        VerticalAlignment="Center" />
+                            <!-- 翻译进行中提示：仅在 AI 请求期间显示，完成 / 失败后自动恢复 Collapsed -->
+                            <TextBlock x:Name="HeaderStatus"
+                                       Foreground="{DynamicResource ToolbarForeground}"
+                                       FontSize="11"
+                                       FontStyle="Italic"
+                                       Opacity="0.85"
+                                       Margin="8,0,0,0"
+                                       VerticalAlignment="Center"
+                                       Visibility="Collapsed" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button x:Name="TranslateButton"
+                                    Style="{StaticResource PanelIconButtonStyle}"
+                                    Click="OnToggleTranslation"
+                                    Visibility="Collapsed"
+                                    ToolTip="翻译识别文本 · 仅在本面板显示译文，不在原图上叠加">
+                                <iconPacks:PackIconMaterialDesign x:Name="TranslateIcon"
+                                                                 Kind="TranslateRound"
+                                                                 Width="13" Height="13" />
+                            </Button>
                             <Button Style="{StaticResource PanelIconButtonStyle}"
                                     Click="OnCopyAll"
-                                    ToolTip="复制全部识别文本">
+                                    ToolTip="复制当前显示的文本">
                                 <iconPacks:PackIconMaterialDesign Kind="ContentCopyRound" Width="13" Height="13" />
                             </Button>
                             <Button Style="{StaticResource PanelIconButtonStyle}"
@@ -117,24 +169,61 @@
                     </Grid>
                 </Border>
 
-                <!-- 主体：只读 TextBox，整段文字可滚动、可全选、可复制；
-                     选中后右键也能弹出系统默认上下文菜单 -->
-                <ScrollViewer Grid.Row="1"
-                              VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Disabled"
-                              Padding="10,8,4,10">
-                    <TextBox x:Name="ContentBox"
-                             IsReadOnly="True"
-                             Background="Transparent"
-                             BorderThickness="0"
-                             Foreground="{DynamicResource ToolbarForeground}"
-                             FontSize="12.5"
-                             TextWrapping="Wrap"
-                             AcceptsReturn="True"
-                             VerticalScrollBarVisibility="Disabled"
-                             HorizontalScrollBarVisibility="Disabled"
-                             SnapsToDevicePixels="True" />
-                </ScrollViewer>
+                <!-- 主体 + 右下角拖拉柄。
+                     主体只读 TextBox 风格与 Quick 气泡 (AiBubbleWindow) 完全一致 —
+                     在不同窗口里阅读 OCR 文本视觉感受统一 -->
+                <Grid Grid.Row="1">
+                    <ScrollViewer x:Name="BodyScroll"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  Padding="10,8,8,8">
+                        <TextBox x:Name="ContentBox"
+                                 Style="{StaticResource PanelBodyTextBoxStyle}" />
+                    </ScrollViewer>
+
+                    <!-- 右下角 resize grip：4px 直角 + 一个对角线图标，按下触发 Win32 NCHITTEST resize。
+                         IsHitTestVisible=true 仅在 grip 自身区域，主体 TextBox 不会被拦截选中 -->
+                    <Border x:Name="ResizeGrip"
+                            Width="18"
+                            Height="18"
+                            Background="Transparent"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Bottom"
+                            Cursor="SizeNWSE"
+                            ToolTip="拖动调整面板大小">
+                        <iconPacks:PackIconMaterialDesign Kind="DragHandleRound"
+                                                          Width="14" Height="14"
+                                                          Foreground="{DynamicResource ToolbarForeground}"
+                                                          Opacity="0.45"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center"
+                                                          RenderTransformOrigin="0.5,0.5">
+                            <iconPacks:PackIconMaterialDesign.RenderTransform>
+                                <RotateTransform Angle="-45" />
+                            </iconPacks:PackIconMaterialDesign.RenderTransform>
+                        </iconPacks:PackIconMaterialDesign>
+                    </Border>
+
+                    <!-- 本地 toast：复制等动作的反馈贴近面板底部，避免飞回主窗中央。
+                         默认 Collapsed，DispatcherTimer 1.8s 自动隐藏 -->
+                    <Border x:Name="LocalToastBorder"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Bottom"
+                            Margin="0,0,0,12"
+                            Padding="10,4"
+                            Background="{DynamicResource ToolbarToastBackground}"
+                            BorderBrush="{DynamicResource ToolbarBorder}"
+                            BorderThickness="1"
+                            CornerRadius="12"
+                            Visibility="Collapsed">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="8" ShadowDepth="2" Direction="270" Opacity="0.35" Color="Black" />
+                        </Border.Effect>
+                        <TextBlock x:Name="LocalToastText"
+                                   Foreground="{DynamicResource ToolbarForeground}"
+                                   FontSize="11.5" />
+                    </Border>
+                </Grid>
             </Grid>
         </Border>
     </Grid>

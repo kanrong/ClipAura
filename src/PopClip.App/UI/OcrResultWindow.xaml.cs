@@ -12,6 +12,7 @@ using PopClip.App.Ocr;
 using PopClip.App.Services;
 using PopClip.Core.Logging;
 using PopClip.Hooks.Interop;
+using PopClip.Hooks.Window;
 using WpfPoint = System.Windows.Point;
 using WinRectangle = System.Drawing.Rectangle;
 
@@ -190,10 +191,13 @@ internal partial class OcrResultWindow : Window
         BuildPolygons();
 
         // 工具条窗口在主窗 Loaded 之后再 Show：此时主窗 Left/Top/ActualWidth/ActualHeight 都是稳定值，
-        // 可以根据主窗位置算出工具条初始位置
+        // 可以根据主窗位置算出工具条初始位置。
+        // base.Show 前先把工具条挪到屏幕外（-32000），避免 Show 期间在 OS 默认位置短暂闪现
         var aiAvailable = _aiText is not null && _aiText.CanRun;
         _toolbarWindow = new OcrResultToolbarWindow(this, aiAvailable);
-        // 工具条 SizeToContent=WidthAndHeight，必须先 Show 一次让它测出尺寸才能算居中
+        _toolbarWindow.Left = -32000;
+        _toolbarWindow.Top = -32000;
+        // 工具条 SizeToContent=WidthAndHeight，必须先 Show 一次让它测出 ActualWidth/Height
         _toolbarWindow.Show();
         PositionToolbarInitially();
 
@@ -233,60 +237,71 @@ internal partial class OcrResultWindow : Window
     }
 
     /// <summary>把工具条窗口放到主窗下方居中。
-    /// 如果主窗下方超出当前显示器（截图贴屏底）则改放到主窗内部底部居中，避免工具条飘出屏幕看不见。
-    /// 用户拖动后自负其责，后续位置不再受约束（独立 Window 可跨屏任意拖）</summary>
+    /// 如果主窗下方超出 anchor monitor 工作区（截图贴屏底）则改放到主窗内部底部居中，避免工具条飘出屏幕看不见。
+    /// 用户拖动后自负其责，后续位置不再受约束（独立 Window 可跨屏任意拖）。
+    ///
+    /// 跨屏跑回主屏的根因：WPF Window.Left/Top setter 在 PerMonitor V2 下用"窗口当前所在屏 DPI"做 DIP→物理像素换算，
+    /// 而工具条 base.Show() 时常驻主屏（96 DPI），主窗已在副屏（144 DPI），同一个 DIP 数值在两套 DPI 下指向不同物理像素，
+    /// 工具条被推到主屏对应物理像素位置。修复路径：直接用 Win32 SetWindowPos 物理像素绝对定位工具条，
+    /// 与 FloatingToolbar / OcrResultWindow 走同一条多屏正确路径</summary>
     private void PositionToolbarInitially()
     {
         if (_toolbarWindow is null) return;
         var tb = _toolbarWindow;
-        // 必须等 Loaded 之后 ActualWidth/Height 才有效；本方法在主窗 Loaded 内调，工具条 Show() 后取到合法值
-        var tbW = tb.ActualWidth > 0 ? tb.ActualWidth : 400;
-        var tbH = tb.ActualHeight > 0 ? tb.ActualHeight : 44;
 
-        double left = Left + (Width - tbW) / 2;
-        double topBelow = Top + Height + 8;       // 主窗下方 8px
-        double topInside = Top + Height - tbH - 12; // 主窗内部底部 12px
-
-        // 当前显示器的工作区底（用 Win32 API 拿）
-        double workBottom = GetWorkAreaBottomDip();
-
-        double top = (topBelow + tbH) <= workBottom ? topBelow : topInside;
-        tb.Left = Math.Max(0, left);
-        tb.Top = Math.Max(0, top);
-    }
-
-    /// <summary>取当前窗口所在显示器的工作区底（去除任务栏后的可用底 Y），单位 DIP。
-    /// 失败时退化为 SystemParameters.PrimaryScreenHeight（主屏全屏，不一定准确但能跑）</summary>
-    private double GetWorkAreaBottomDip()
-    {
-        try
+        var tbHwnd = new WindowInteropHelper(tb).Handle;
+        if (tbHwnd == IntPtr.Zero)
         {
-            var hwnd = new WindowInteropHelper(this).Handle;
-            if (hwnd == IntPtr.Zero) return SystemParameters.PrimaryScreenHeight;
-            var hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-            var mi = new MONITORINFO { cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MONITORINFO>() };
-            if (!GetMonitorInfo(hMon, ref mi)) return SystemParameters.PrimaryScreenHeight;
-            // monitor info 给的是 physical pixel，需转 DIP
-            var src = PresentationSource.FromVisual(this);
-            double dpiY = src?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
-            return mi.rcWork.bottom / dpiY;
+            // 极少数情况：工具条 hwnd 还没创建好。回退到 WPF DIP 定位（旧路径，跨屏可能偏，至少能看见）
+            var fallbackTbW = tb.ActualWidth > 0 ? tb.ActualWidth : 400;
+            var fallbackTbH = tb.ActualHeight > 0 ? tb.ActualHeight : 44;
+            tb.Left = Math.Max(0, Left + (Width - fallbackTbW) / 2);
+            tb.Top = Math.Max(0, Top + Height + 8);
+            return;
         }
-        catch { return SystemParameters.PrimaryScreenHeight; }
+
+        // 工具条 ActualWidth/Height 是 DIP（PerMonitor V2 下与所在屏 DPI 无关，content 大小恒定）。
+        // 跨到 anchor monitor 后视觉一致 → 物理像素 = DIP × anchor DPI / 96
+        var tbWDip = tb.ActualWidth > 0 ? tb.ActualWidth : 400;
+        var tbHDip = tb.ActualHeight > 0 ? tb.ActualHeight : 44;
+        int tbWPx = (int)Math.Ceiling(tbWDip * _anchorDpiX / 96.0);
+        int tbHPx = (int)Math.Ceiling(tbHDip * _anchorDpiY / 96.0);
+
+        // 主窗物理像素几何（含边框扩展，与 PlaceWindowAtAnchorPhysical 同算法）
+        int borderPxX = (int)Math.Round(_borderWidth * _anchorDpiX / 96.0);
+        int borderPxY = (int)Math.Round(_borderWidth * _anchorDpiY / 96.0);
+        int mainLeftPx = _anchorPhysical.Left - borderPxX;
+        int mainTopPx = _anchorPhysical.Top - borderPxY;
+        int mainWidthPx = _anchorPhysical.Width + borderPxX * 2;
+        int mainHeightPx = _anchorPhysical.Height + borderPxY * 2;
+        int mainBottomPx = mainTopPx + mainHeightPx;
+
+        // 水平居中；垂直下方 8 DIP / 主窗内部底部 12 DIP，都按 anchor monitor DPI 缩放到物理像素
+        int gapBelowPx = (int)Math.Round(8 * _anchorDpiY / 96.0);
+        int gapInsidePx = (int)Math.Round(12 * _anchorDpiY / 96.0);
+        int leftPx = mainLeftPx + (mainWidthPx - tbWPx) / 2;
+        int topBelowPx = mainBottomPx + gapBelowPx;
+        int topInsidePx = mainBottomPx - tbHPx - gapInsidePx;
+
+        // anchor monitor 工作区底部物理像素：直接拿 anchor 所在屏的 rcWork，与位置计算同口径（物理像素）
+        var monitor = MonitorQuery.FromRect(
+            _anchorPhysical.Left, _anchorPhysical.Top,
+            _anchorPhysical.Right, _anchorPhysical.Bottom);
+        int workBottomPx = monitor.WorkBottom;
+
+        int topPx = (topBelowPx + tbHPx) <= workBottomPx ? topBelowPx : topInsidePx;
+
+        // 边界保护：避免工具条横向被推出 anchor monitor 工作区外（主窗贴屏左/右时会发生）
+        if (leftPx < monitor.WorkLeft) leftPx = monitor.WorkLeft;
+        if (leftPx + tbWPx > monitor.WorkRight) leftPx = monitor.WorkRight - tbWPx;
+        if (topPx < monitor.WorkTop) topPx = monitor.WorkTop;
+
+        NativeMethods.SetWindowPos(
+            tbHwnd,
+            NativeMethods.HWND_TOPMOST,
+            leftPx, topPx, Math.Max(1, tbWPx), Math.Max(1, tbHPx),
+            NativeMethods.SWP_NOACTIVATE);
     }
-
-    private const uint MONITOR_DEFAULTTONEAREST = 2;
-
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct RECT { public int left, top, right, bottom; }
-
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct MONITORINFO { public uint cbSize; public RECT rcMonitor; public RECT rcWork; public uint dwFlags; }
-
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
-
-    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
-    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
     private void OnWindowClosed(object? sender, EventArgs e)
     {

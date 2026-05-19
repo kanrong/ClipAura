@@ -2,6 +2,7 @@
         x:ClassModifier="internal"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
@@ -17,14 +18,17 @@
         FontFamily="{DynamicResource ToolbarFontFamily}">
 
     <Window.Resources>
-        <Style x:Key="ToolButtonStyle" TargetType="Button">
+        <!-- 图标按钮模板：内层 IconHost 容纳 PackIconMaterialDesign，
+             仅在视觉上呈现图标 + 可选小角标，避免文字干扰阅读源图 -->
+        <Style x:Key="OcrToolIconButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{DynamicResource ToolbarForeground}" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="9,5" />
-            <Setter Property="Margin" Value="2,0" />
+            <Setter Property="Padding" Value="7,5" />
+            <Setter Property="Margin" Value="1,0" />
             <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="FontSize" Value="12" />
+            <Setter Property="MinWidth" Value="30" />
+            <Setter Property="MinHeight" Value="30" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -42,7 +46,7 @@
                                 <Setter TargetName="BorderRoot" Property="Background" Value="{DynamicResource ToolbarAccentSoft}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.4" />
+                                <Setter Property="Opacity" Value="0.35" />
                                 <Setter Property="Cursor" Value="Arrow" />
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -51,89 +55,127 @@
             </Setter>
         </Style>
 
+        <!-- 状态文本胶囊：仅当 host 主动赋值 status 时短暂出现，平时折叠让工具条更轻 -->
+        <Style x:Key="OcrStatusPillStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource ToolbarAccentSoft}" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="9,3" />
+            <Setter Property="Margin" Value="0,0,4,0" />
+            <Setter Property="Opacity" Value="0.95" />
+        </Style>
+
         <Style x:Key="OcrToolbarSepStyle" TargetType="Rectangle">
             <Setter Property="Width" Value="1" />
-            <Setter Property="Margin" Value="4,4" />
+            <Setter Property="Margin" Value="4,5" />
             <Setter Property="Fill" Value="{DynamicResource ToolbarSeparator}" />
-            <Setter Property="Opacity" Value="0.6" />
+            <Setter Property="Opacity" Value="0.5" />
         </Style>
     </Window.Resources>
 
-    <!-- 阴影靠 Border.Effect 单独实现；外层留点 margin 给阴影留位 -->
+    <!-- 外层 6px 留白给阴影 -->
     <Grid Margin="6">
+        <!-- ToolbarBorder 本身就是拖动响应区：除按钮以外的任意位置按下都触发 DragMove。
+             这样不再需要专门的 grip ⋮⋮ 占据左侧空间，整体观感更紧凑、操作更直接 -->
         <Border x:Name="ToolbarBorder"
-                Padding="4,4"
+                Padding="6,4"
                 Background="{DynamicResource ToolbarToastBackground}"
                 BorderBrush="{DynamicResource ToolbarBorder}"
                 BorderThickness="1"
-                CornerRadius="8">
+                CornerRadius="10"
+                Cursor="SizeAll"
+                ToolTip="按住空白区域可拖动到屏幕任意位置">
             <Border.Effect>
-                <DropShadowEffect BlurRadius="10" ShadowDepth="2" Direction="270" Opacity="0.4" Color="Black" />
+                <DropShadowEffect BlurRadius="12" ShadowDepth="2" Direction="270" Opacity="0.42" Color="Black" />
             </Border.Effect>
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <!-- 拖动 grip：响应 MouseLeftButtonDown → Window.DragMove() 拖到屏幕任意位置 -->
-                <Border x:Name="ToolbarGrip"
-                        Background="Transparent"
-                        Cursor="SizeAll"
-                        Padding="6,0"
-                        VerticalAlignment="Stretch"
-                        Margin="0,0,2,0"
-                        ToolTip="按住拖动可移动到屏幕任意位置">
-                    <TextBlock Foreground="{DynamicResource ToolbarForeground}"
-                               Opacity="0.45"
-                               FontSize="14"
-                               VerticalAlignment="Center"
-                               Text="⋮⋮" />
+                <!-- 状态胶囊：默认折叠；host 在"已选 N 段 / 翻译中..."等真状态来时显示。
+                     去掉了原有的"点击 / 拖框 / Ctrl+A 全选"引导文字，避免对老用户的视觉污染 -->
+                <Border x:Name="StatusPill"
+                        Style="{StaticResource OcrStatusPillStyle}"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="StatusText"
+                               Foreground="{DynamicResource ToolbarForeground}"
+                               FontSize="11.5"
+                               VerticalAlignment="Center" />
                 </Border>
 
-                <TextBlock x:Name="StatusText"
-                           Foreground="{DynamicResource ToolbarForeground}"
-                           FontSize="12"
-                           VerticalAlignment="Center"
-                           Margin="2,0,8,0" />
-
-                <Rectangle Style="{StaticResource OcrToolbarSepStyle}" />
-
-                <Button x:Name="CopySelectedButton"
-                        Style="{StaticResource ToolButtonStyle}"
-                        Content="复制选中"
-                        Click="OnCopySelected" />
+                <!-- 复制组：复制全部 / 复制选中 -->
                 <Button x:Name="CopyAllButton"
-                        Style="{StaticResource ToolButtonStyle}"
-                        Content="复制全部"
-                        Click="OnCopyAll" />
+                        Style="{StaticResource OcrToolIconButtonStyle}"
+                        Click="OnCopyAll"
+                        ToolTip="复制全部识别文本 · 取布局还原后的整段文字">
+                    <iconPacks:PackIconMaterialDesign Kind="ContentCopyRound" Width="16" Height="16" />
+                </Button>
+                <Button x:Name="CopySelectedButton"
+                        Style="{StaticResource OcrToolIconButtonStyle}"
+                        Click="OnCopySelected"
+                        ToolTip="复制已选段落 (Ctrl+C) · 仅当工具栏左侧显示已选数量时可用">
+                    <iconPacks:PackIconMaterialDesign Kind="LibraryAddCheckRound" Width="16" Height="16" />
+                </Button>
 
                 <Rectangle x:Name="TranslateSep"
                            Style="{StaticResource OcrToolbarSepStyle}"
                            Visibility="Collapsed" />
 
-                <!-- 翻译按钮仅在 AI 启用时可见 -->
-                <Button x:Name="TranslateSelectedButton"
-                        Style="{StaticResource ToolButtonStyle}"
-                        Content="翻译选中"
-                        Click="OnTranslateSelected"
-                        Visibility="Collapsed" />
+                <!-- 启用 AI 引导按钮：AI 未启用时占用翻译组位置，点击直达设置 AI 页 -->
+                <Button x:Name="EnableAiButton"
+                        Style="{StaticResource OcrToolIconButtonStyle}"
+                        Click="OnOpenAiSettings"
+                        Visibility="Collapsed"
+                        ToolTip="启用 AI 翻译 · 点击跳到设置面板配置 Provider / API Key">
+                    <iconPacks:PackIconMaterialDesign Kind="SmartToyRound" Width="16" Height="16" />
+                </Button>
+
+                <!-- 翻译组：AI 启用时显示，未启用时整组隐藏让位给上方"启用 AI"引导按钮 -->
                 <Button x:Name="TranslateAllButton"
-                        Style="{StaticResource ToolButtonStyle}"
-                        Content="翻译全部"
+                        Style="{StaticResource OcrToolIconButtonStyle}"
                         Click="OnTranslateAll"
-                        Visibility="Collapsed" />
+                        Visibility="Collapsed"
+                        ToolTip="翻译全部识别文本 · 走当前 AI Provider">
+                    <iconPacks:PackIconMaterialDesign Kind="TranslateRound" Width="16" Height="16" />
+                </Button>
+                <Button x:Name="TranslateSelectedButton"
+                        Style="{StaticResource OcrToolIconButtonStyle}"
+                        Click="OnTranslateSelected"
+                        Visibility="Collapsed"
+                        ToolTip="翻译已选段落 · 仅当有选中段落时可用">
+                    <iconPacks:PackIconMaterialDesign Kind="GTranslateRound" Width="16" Height="16" />
+                </Button>
                 <Button x:Name="TranslateClearButton"
-                        Style="{StaticResource ToolButtonStyle}"
-                        Content="清除译文"
+                        Style="{StaticResource OcrToolIconButtonStyle}"
                         Click="OnTranslateClear"
-                        Visibility="Collapsed" />
+                        Visibility="Collapsed"
+                        ToolTip="清除已添加的译文覆盖层">
+                    <iconPacks:PackIconMaterialDesign Kind="LayersClearRound" Width="16" Height="16" />
+                </Button>
 
                 <Rectangle Style="{StaticResource OcrToolbarSepStyle}" />
 
-                <Button Style="{StaticResource ToolButtonStyle}"
-                        Content="Quick 输出"
+                <!-- 文本面板切换：打开 / 关闭右侧识别文本面板 -->
+                <Button x:Name="ToggleTextPanelButton"
+                        Style="{StaticResource OcrToolIconButtonStyle}"
+                        Click="OnToggleTextPanel"
+                        ToolTip="切换识别文本侧边面板 · 显示整段文字方便整体阅读 / 复制">
+                    <iconPacks:PackIconMaterialDesign x:Name="ToggleTextPanelIcon"
+                                                     Kind="ChromeReaderModeRound"
+                                                     Width="16" Height="16" />
+                </Button>
+
+                <!-- Quick 输出：保持原本功能，仅替换图标 -->
+                <Button Style="{StaticResource OcrToolIconButtonStyle}"
                         Click="OnSwitchToQuick"
-                        ToolTip="把本次结果按 Quick 模式输出：复制全文 + 浮窗气泡（仅本次，不修改设置）" />
-                <Button Style="{StaticResource ToolButtonStyle}"
-                        Content="关闭"
+                        ToolTip="切换 Quick 输出 · 一次性按 Quick 模式输出本次结果（不修改设置）">
+                    <iconPacks:PackIconMaterialDesign Kind="BoltRound" Width="16" Height="16" />
+                </Button>
+
+                <Rectangle Style="{StaticResource OcrToolbarSepStyle}" />
+
+                <!-- 关闭按钮：用 Material Close 图标 -->
+                <Button Style="{StaticResource OcrToolIconButtonStyle}"
                         Click="OnCloseClicked"
-                        ToolTip="关闭 (Esc)" />
+                        ToolTip="关闭 (Esc)">
+                    <iconPacks:PackIconMaterialDesign Kind="CloseRound" Width="16" Height="16" />
+                </Button>
             </StackPanel>
         </Border>
     </Grid>

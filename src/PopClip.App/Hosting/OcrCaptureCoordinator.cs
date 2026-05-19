@@ -42,6 +42,11 @@ internal sealed class OcrCaptureCoordinator
     private readonly AppSettings _settings;
     private readonly AiTextService _aiText;
 
+    /// <summary>"打开设置面板并定位到某个分页"的跨层回调。
+    /// 由 AppHost 注入，参数为页面 tag（如 "AI" / "Ocr"），方便结果窗里的
+    /// "启用 AI / 调整 OCR" 类引导按钮直达对应设置位置。可空：宿主未传入时按钮仅在 Toast 提示</summary>
+    private readonly Action<string>? _openSettings;
+
     private OcrSelectionWindow? _currentWindow;
     private OcrResultWindow? _resultWindow;
 
@@ -54,7 +59,8 @@ internal sealed class OcrCaptureCoordinator
         FloatingToolbar toolbar,
         AppSettings settings,
         AiTextService aiText,
-        FloatingToolbarBubblePresenter? bubble = null)
+        FloatingToolbarBubblePresenter? bubble = null,
+        Action<string>? openSettings = null)
     {
         _log = log;
         _registry = registry;
@@ -65,6 +71,7 @@ internal sealed class OcrCaptureCoordinator
         _settings = settings;
         _aiText = aiText;
         _bubble = bubble;
+        _openSettings = openSettings;
     }
 
     public void Trigger()
@@ -324,6 +331,7 @@ internal sealed class OcrCaptureCoordinator
                 _settings, _aiText,
                 layoutFullText: layoutFullText,
                 quickFallback: quickFallback,
+                openSettings: _openSettings,
                 onCloseRequested: () =>
                 {
                     if (ReferenceEquals(_resultWindow, null)) return;

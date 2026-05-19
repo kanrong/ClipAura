@@ -290,6 +290,12 @@
                                 <TextBlock Text="快捷键" VerticalAlignment="Center" />
                             </StackPanel>
                         </ListBoxItem>
+                        <ListBoxItem Tag="Ocr">
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="Scan24" FontSize="14" Width="20" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                <TextBlock Text="OCR" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ListBoxItem>
                         <ListBoxItem Tag="AI">
                             <StackPanel Orientation="Horizontal">
                                 <ui:SymbolIcon Symbol="Bot24" FontSize="14" Width="20" Margin="0,0,8,0" VerticalAlignment="Center" />
@@ -1102,7 +1108,7 @@
                         <StackPanel x:Name="HotkeysPage" Visibility="Collapsed">
                             <TextBlock Style="{StaticResource Settings.PageTitle}" Text="快捷键" />
                             <TextBlock Style="{StaticResource Settings.PageDescription}"
-                                       Text="全局快捷键。格式：Ctrl+Alt+P，支持 Ctrl / Alt / Shift / Win 修饰键" />
+                                       Text="全局快捷键。格式：Ctrl+Alt+P，支持 Ctrl / Alt / Shift / Win 修饰键。OCR 截选热键统一在 OCR 页设置。" />
 
                             <Border Style="{StaticResource Settings.Card}">
                                 <StackPanel>
@@ -1114,7 +1120,7 @@
                                         <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="暂停 / 恢复" />
                                         <ui:TextBox Grid.Column="1" x:Name="PauseHotKeyBox" />
                                     </Grid>
-                                    <Grid Margin="0,0,0,14">
+                                    <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="180" />
                                             <ColumnDefinition Width="280" />
@@ -1122,20 +1128,31 @@
                                         <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="唤起工具栏" />
                                         <ui:TextBox Grid.Column="1" x:Name="ToolbarHotKeyBox" />
                                     </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- ===================== OCR ===================== -->
+                        <StackPanel x:Name="OcrPage" Visibility="Collapsed">
+                            <TextBlock Style="{StaticResource Settings.PageTitle}" Text="OCR" />
+                            <TextBlock Style="{StaticResource Settings.PageDescription}"
+                                       Text="区域截图文字识别。后端可选 RapidOCR / WeChat OCR，结果可直接复制或弹出 iOS 风格高亮窗精修。" />
+
+                            <!-- 截选热键独立成卡片：与下方 Provider / 展示模式串成一条流程 -->
+                            <Border Style="{StaticResource Settings.Card}">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="截选热键" Margin="0,0,0,4" />
+                                    <TextBlock Style="{StaticResource Settings.HintText}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,12"
+                                               Text="按下后全屏蒙层弹出，拖框选区域后启动识别。" />
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="180" />
                                             <ColumnDefinition Width="280" />
-                                            <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="区域 OCR 截选" />
                                         <ui:TextBox Grid.Column="1" x:Name="OcrHotKeyBox" />
-                                        <TextBlock Grid.Column="2"
-                                                   Style="{StaticResource Settings.HintText}"
-                                                   TextWrapping="Wrap"
-                                                   VerticalAlignment="Center"
-                                                   Margin="12,0,0,0"
-                                                   Text="按下后全屏蒙层弹出，拖框识别后走与正常选区相同的浮窗。" />
                                     </Grid>
                                 </StackPanel>
                             </Border>

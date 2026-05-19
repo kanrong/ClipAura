@@ -49,6 +49,10 @@ internal partial class OcrResultWindow : Window
     /// 用户的 OCR 模式偏好通过设置面板永久切换，本按钮只影响当次输出</summary>
     private readonly Action<string>? _quickFallback;
 
+    /// <summary>"打开设置某一分页"的跨层回调（如 "AI" / "Ocr"）。
+    /// 为空时跳转入口降级为 Toast 提示，避免空引用</summary>
+    private readonly Action<string>? _openSettings;
+
     /// <summary>边框宽度（DIP）。bordered=true 时为 2.0，否则 0.0。
     /// 影响：1) WindowBorderFrame.BorderThickness；2) Window 总尺寸要扩出 2 * borderWidth
     /// 让里面的 Image / Grid 区域仍与原截图等大，保证 Stretch="Fill" 时 1:1 像素映射、文字不糊</summary>
@@ -65,6 +69,7 @@ internal partial class OcrResultWindow : Window
     private readonly uint _anchorDpiY;
 
     private OcrResultToolbarWindow? _toolbarWindow;
+    private OcrResultTextPanelWindow? _textPanelWindow;
 
     /// <summary>每个 block 对应一个 Polygon overlay。
     /// 顺序与 _result.Blocks 一致，下标可双向查询。</summary>
@@ -105,6 +110,7 @@ internal partial class OcrResultWindow : Window
         AiTextService? aiText,
         string? layoutFullText = null,
         Action<string>? quickFallback = null,
+        Action<string>? openSettings = null,
         Action? onCloseRequested = null)
     {
         _log = log;
@@ -114,6 +120,7 @@ internal partial class OcrResultWindow : Window
         _aiText = aiText;
         _layoutFullText = string.IsNullOrWhiteSpace(layoutFullText) ? "" : layoutFullText.Trim();
         _quickFallback = quickFallback;
+        _openSettings = openSettings;
         _onCloseRequested = onCloseRequested;
         _anchorPhysical = anchorPhysical;
         _anchorDpiX = anchorDpiX == 0 ? 96 : anchorDpiX;
@@ -200,6 +207,10 @@ internal partial class OcrResultWindow : Window
         // 工具条 SizeToContent=WidthAndHeight，必须先 Show 一次让它测出 ActualWidth/Height
         _toolbarWindow.Show();
         PositionToolbarInitially();
+
+        // 文本面板默认开启：让用户立刻看到整段识别文本，弥补 Interactive 模式
+        // "需要逐段点击 / 框选才能凑齐全文"的可读性短板
+        OpenTextPanel(initial: true);
 
         UpdateStatusBar();
         // 让主窗拿到键盘焦点，否则 Ctrl+A / ESC 都收不到。
@@ -305,11 +316,168 @@ internal partial class OcrResultWindow : Window
 
     private void OnWindowClosed(object? sender, EventArgs e)
     {
-        // 主窗关闭时一并关闭工具条；Owner=this 在 .NET WPF 也会自动关，这里显式调以防 Owner 链路异常
+        // 主窗关闭时一并关闭工具条 / 文本面板；Owner=this 在 .NET WPF 也会自动关，
+        // 这里显式调以防 Owner 链路异常
         if (_toolbarWindow is not null)
         {
             try { _toolbarWindow.Close(); } catch { }
             _toolbarWindow = null;
+        }
+        if (_textPanelWindow is not null)
+        {
+            try { _textPanelWindow.Close(); } catch { }
+            _textPanelWindow = null;
+        }
+    }
+
+    /// <summary>打开右侧识别文本面板（不存在则新建，已存在则显示并刷新）。
+    /// initial=true 时按"主窗右侧"策略放置；后续切换显隐时尊重用户拖动后的位置。
+    ///
+    /// 创建顺序与 PositionToolbarInitially 保持一致：先 Show 让面板测出 ActualWidth/Height，
+    /// 再用 Win32 SetWindowPos 把面板按物理像素绝对定位到目标位置，规避 PerMonitor V2 下
+    /// Window.Left/Top setter 用主屏 DPI 解读 DIP 的跨屏跳屏问题</summary>
+    public void OpenTextPanel(bool initial)
+    {
+        if (_textPanelWindow is null)
+        {
+            _textPanelWindow = new OcrResultTextPanelWindow(
+                onCopyAll: () =>
+                {
+                    var text = EffectiveFullText();
+                    if (string.IsNullOrEmpty(text)) text = JoinAllText();
+                    if (!string.IsNullOrEmpty(text)) CopyTextSilently(text);
+                    ShowToast(string.IsNullOrEmpty(text) ? "没有识别到内容" : $"已复制全部 / {text.Length} 字");
+                },
+                onClose: () =>
+                {
+                    // 用户点关闭：直接收起面板，保留窗口对象方便下次切换显示时复用位置 / 内容
+                    HideTextPanel();
+                });
+            _textPanelWindow.Owner = this;
+            // 关键：刚 new 出来时不要在 OS 默认 (0,0) 闪现，先挪屏外再 Show
+            _textPanelWindow.Left = -32000;
+            _textPanelWindow.Top = -32000;
+            _textPanelWindow.Width = 320;
+            _textPanelWindow.Height = Math.Max(160, Math.Min(560, ActualHeight));
+            _textPanelWindow.Show();
+            UpdateTextPanelContent();
+            PositionTextPanelInitially();
+        }
+        else
+        {
+            UpdateTextPanelContent();
+            _textPanelWindow.Show();
+            if (initial) PositionTextPanelInitially();
+        }
+
+        _toolbarWindow?.SetTextPanelVisible(true);
+    }
+
+    public void HideTextPanel()
+    {
+        try { _textPanelWindow?.Hide(); } catch { }
+        _toolbarWindow?.SetTextPanelVisible(false);
+    }
+
+    /// <summary>把文本面板放到主窗右侧；右侧空间不够时落到左侧；左侧也不够时落到主窗下方。
+    /// 与 PositionToolbarInitially 同一策略：用 anchor monitor 的物理像素绝对定位，
+    /// 跨屏不会跳屏，多 DPI 下尺寸视觉一致</summary>
+    private void PositionTextPanelInitially()
+    {
+        if (_textPanelWindow is null) return;
+        var tp = _textPanelWindow;
+
+        var tpHwnd = new WindowInteropHelper(tp).Handle;
+        if (tpHwnd == IntPtr.Zero) return;
+
+        var tpWDip = tp.Width > 0 ? tp.Width : 320;
+        var tpHDip = tp.Height > 0 ? tp.Height : 360;
+        int tpWPx = (int)Math.Ceiling(tpWDip * _anchorDpiX / 96.0);
+        int tpHPx = (int)Math.Ceiling(tpHDip * _anchorDpiY / 96.0);
+
+        int borderPxX = (int)Math.Round(_borderWidth * _anchorDpiX / 96.0);
+        int borderPxY = (int)Math.Round(_borderWidth * _anchorDpiY / 96.0);
+        int mainLeftPx = _anchorPhysical.Left - borderPxX;
+        int mainTopPx = _anchorPhysical.Top - borderPxY;
+        int mainWidthPx = _anchorPhysical.Width + borderPxX * 2;
+        int mainHeightPx = _anchorPhysical.Height + borderPxY * 2;
+        int mainRightPx = mainLeftPx + mainWidthPx;
+        int mainBottomPx = mainTopPx + mainHeightPx;
+
+        var monitor = MonitorQuery.FromRect(
+            _anchorPhysical.Left, _anchorPhysical.Top,
+            _anchorPhysical.Right, _anchorPhysical.Bottom);
+        int gapPx = (int)Math.Round(8 * _anchorDpiX / 96.0);
+
+        int leftPx;
+        int topPx;
+        // 优先右侧：截图右边 + gap
+        if (mainRightPx + gapPx + tpWPx <= monitor.WorkRight)
+        {
+            leftPx = mainRightPx + gapPx;
+            topPx = mainTopPx;
+        }
+        // 其次左侧
+        else if (mainLeftPx - gapPx - tpWPx >= monitor.WorkLeft)
+        {
+            leftPx = mainLeftPx - gapPx - tpWPx;
+            topPx = mainTopPx;
+        }
+        // 都不够：放主窗下方左对齐
+        else
+        {
+            leftPx = mainLeftPx;
+            topPx = mainBottomPx + gapPx;
+        }
+
+        // 边界保护：避免被推出 anchor monitor 工作区
+        if (leftPx < monitor.WorkLeft) leftPx = monitor.WorkLeft;
+        if (leftPx + tpWPx > monitor.WorkRight) leftPx = Math.Max(monitor.WorkLeft, monitor.WorkRight - tpWPx);
+        if (topPx < monitor.WorkTop) topPx = monitor.WorkTop;
+        if (topPx + tpHPx > monitor.WorkBottom) topPx = Math.Max(monitor.WorkTop, monitor.WorkBottom - tpHPx);
+
+        NativeMethods.SetWindowPos(
+            tpHwnd,
+            NativeMethods.HWND_TOPMOST,
+            leftPx, topPx, Math.Max(1, tpWPx), Math.Max(1, tpHPx),
+            NativeMethods.SWP_NOACTIVATE);
+    }
+
+    /// <summary>用当前 _result + 选中状态 + 译文 overlay 刷新文本面板内容。
+    /// 内容选择：有选中 → 显示选中段落；无选中 → 显示整段识别文本。
+    /// 顶部元信息显示"段数 / 字数"，让用户对识别结果体量一目了然</summary>
+    private void UpdateTextPanelContent()
+    {
+        if (_textPanelWindow is null) return;
+        int sel = SelectedCount();
+        string body;
+        string meta;
+        if (sel > 0)
+        {
+            body = JoinSelectedText();
+            meta = $"已选 {sel}/{_result.Blocks.Count} 段 · {body.Length} 字";
+        }
+        else
+        {
+            body = EffectiveFullText();
+            if (string.IsNullOrEmpty(body)) body = JoinAllText();
+            meta = $"{_result.Blocks.Count} 段 · {body.Length} 字";
+        }
+        _textPanelWindow.SetContent(body);
+        _textPanelWindow.SetMeta(meta);
+    }
+
+    /// <summary>工具栏按钮触发：在显隐两态之间切换。
+    /// 隐藏状态包括"窗口未创建"和"已 Hide"，都通过 OpenTextPanel(initial=false) 重新显示</summary>
+    public void CommandToggleTextPanel()
+    {
+        if (_textPanelWindow is null || _textPanelWindow.Visibility != Visibility.Visible)
+        {
+            OpenTextPanel(initial: _textPanelWindow is null);
+        }
+        else
+        {
+            HideTextPanel();
         }
     }
 
@@ -635,6 +803,20 @@ internal partial class OcrResultWindow : Window
         }), DispatcherPriority.Background);
     }
 
+    /// <summary>工具栏"启用 AI"按钮（仅当 AI 未启用时显示）：
+    /// 直接跳到设置面板的 AI 页让用户填 API Key，比 Toast 引导更直接。
+    /// 没有 openSettings 回调时降级为 Toast 提示（理论上不会发生，AppHost 已注入）</summary>
+    public void CommandOpenAiSettings()
+    {
+        if (_openSettings is null)
+        {
+            ShowToast("请先在设置启用 AI 并配置 API Key");
+            return;
+        }
+        try { _openSettings("AI"); }
+        catch (Exception ex) { _log.Warn("open ai settings failed", ("err", ex.Message)); }
+    }
+
     public void CommandTranslateAll() => _ = TranslateAsync(Enumerable.Range(0, _result.Blocks.Count).ToList());
 
     public void CommandTranslateSelected()
@@ -865,19 +1047,26 @@ internal partial class OcrResultWindow : Window
     {
         int total = _result.Blocks.Count;
         int sel = SelectedCount();
+
+        // 工具栏状态胶囊：只在"有实际选中段落"或"完全未识别"时展示。
+        // 旧的"点击 / 拖框 / Ctrl+A 全选"那种引导文案对老用户是视觉噪音，
+        // 现在按钮 ToolTip 已经覆盖了同样的发现性引导，可以彻底去掉
         string status;
         bool copySelEnabled;
-        if (sel == 0)
+        if (sel > 0)
         {
-            status = total > 0
-                ? $"点击 / 拖框 / Ctrl+A 全选"
-                : "未识别到文本";
+            status = $"已选 {sel}/{total}";
+            copySelEnabled = true;
+        }
+        else if (total == 0)
+        {
+            status = "未识别到文本";
             copySelEnabled = false;
         }
         else
         {
-            status = $"已选 {sel}/{total} 段 · Ctrl+C 复制";
-            copySelEnabled = true;
+            status = "";
+            copySelEnabled = false;
         }
 
         // 推送到工具条
@@ -888,6 +1077,12 @@ internal partial class OcrResultWindow : Window
         _toolbarWindow?.SetTranslateAllEnabled(total > 0 && !_translating);
         bool hasTranslation = _translationOverlays.Any(o => o is not null);
         _toolbarWindow?.SetTranslateClearEnabled(hasTranslation && !_translating);
+
+        // 选区变化时同步刷新文本面板内容（仅当面板已经打开）
+        if (_textPanelWindow is not null && _textPanelWindow.Visibility == Visibility.Visible)
+        {
+            UpdateTextPanelContent();
+        }
 
         // 同步右键菜单可用态
         MiCopySelected.IsEnabled = sel > 0;

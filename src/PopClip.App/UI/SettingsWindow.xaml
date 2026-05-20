@@ -1326,7 +1326,7 @@
                                                   x:Name="AiThinkingModeBox" />
                                         <TextBlock Grid.Column="2"
                                                    Style="{StaticResource Settings.HintText}"
-                                                   Text="自动保留服务商默认；快速降低延迟；深度优先推理质量。"
+                                                   Text="服务商默认=客户端不传参数；快速为默认，关闭或降低思考；深度优先推理质量。"
                                                    VerticalAlignment="Center"
                                                    Margin="12,0,0,0" />
                                     </Grid>

@@ -43,7 +43,7 @@ internal sealed class SelectionSessionManager : IDisposable
     /// 避免拖动 AiBubbleWindow 等 NoActivate 窗口时被识别为"鼠标拖选 → 调度选区候选 → 弹浮窗"</summary>
     private bool _suppressOwnDragSequence;
 
-    /// <summary>外部注入的"OCR 截选"触发器；若为 null 则剪贴板启动器中不显示该按钮。
+    /// <summary>外部注入的"OCR 截选"触发器；若为 null 则快速启动器中不显示该按钮。
     /// 由 AppHost 在初始化时挂到 OcrCaptureCoordinator.Trigger</summary>
     public Action? OcrLauncher { get; set; }
 
@@ -205,7 +205,7 @@ internal sealed class SelectionSessionManager : IDisposable
         // 修饰键 + Click：用户明确表达"想操作剪贴板"，跳过文本采集
         if (candidate.Trigger == SelectionTrigger.MouseModifierClick)
         {
-            await ShowClipboardLauncherAsync(foreground, mouseRect).ConfigureAwait(false);
+            await ShowQuickLauncherAsync(foreground, mouseRect).ConfigureAwait(false);
             return;
         }
 
@@ -305,8 +305,9 @@ internal sealed class SelectionSessionManager : IDisposable
         return ToolbarItemGroup.Basic;
     }
 
-    /// <summary>修饰键 + Click 触发的简化工具条：暴露粘贴与剪贴板历史入口</summary>
-    private async Task ShowClipboardLauncherAsync(ForegroundWindowInfo foreground, SelectionRect mouseRect)
+    /// <summary>修饰键 + Click / 全局热键触发的快速启动器。
+    /// 不依赖当前选中文本，按运行时能力暴露粘贴、剪贴板历史、OCR、AI 对话等入口</summary>
+    private async Task ShowQuickLauncherAsync(ForegroundWindowInfo foreground, SelectionRect mouseRect)
     {
         var items = new List<ToolbarItem>();
         var hwnd = foreground.Hwnd;
@@ -334,6 +335,16 @@ internal sealed class SelectionSessionManager : IDisposable
             })));
         }
 
+        if (_actionHost.Ai.CanRun)
+        {
+            items.Add(new ToolbarItem("AI 对话", "AiChat", new DelegateCommand(() =>
+            {
+                _toolbar.DismissExternal("quick-ai-chat-invoked");
+                _replacer.SetCurrentElement(null);
+                _ = OpenQuickAiConversationAsync();
+            }), ToolbarItemGroup.Ai));
+        }
+
         if (_actionHost.ClipboardHistory is not null)
         {
             var anchor = new SelectionContext(
@@ -353,7 +364,7 @@ internal sealed class SelectionSessionManager : IDisposable
 
         if (OcrLauncher is not null)
         {
-            // OCR 入口仅在剪贴板启动器里出现（不进正常选区流程），让用户从一个统一的"修饰键+点击"汇集点访问
+            // OCR 入口仅在快速启动器里出现（不进正常选区流程），让用户从一个统一的"修饰键+点击/热键"汇集点访问
             items.Add(new ToolbarItem("OCR", "Ocr", new DelegateCommand(() =>
             {
                 _toolbar.DismissExternal("ocr-invoked");
@@ -374,6 +385,22 @@ internal sealed class SelectionSessionManager : IDisposable
             _toolbar.ApplyItems(items, _settings.ToolbarLayoutMode);
             _toolbar.ShowAt(mouseRect, foreground);
         });
+    }
+
+    private async Task OpenQuickAiConversationAsync()
+    {
+        try
+        {
+            var timeoutSeconds = Math.Clamp(_settings.AiTimeoutSeconds + 15, 20, 240);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+            await _actionHost.Ai.OpenConversationAsync(new AiConversationRequest("AI 对话", ""), cts.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("quick ai chat failed", ("err", ex.Message));
+            await WpfApplication.Current.Dispatcher.InvokeAsync(() =>
+                _toolbar.ShowInlineToast("AI 对话失败：" + ex.Message, isError: true, copyText: ex.ToString(), durationMs: 5000));
+        }
     }
 
     private bool HasClipboardText()
@@ -460,7 +487,7 @@ internal sealed class SelectionSessionManager : IDisposable
         {
             pt = new NativeMethods.POINT { X = 0, Y = 0 };
         }
-        _ = ShowClipboardLauncherAsync(foreground, SelectionRect.FromPoint(pt.X, pt.Y));
+        _ = ShowQuickLauncherAsync(foreground, SelectionRect.FromPoint(pt.X, pt.Y));
     }
 
     /// <summary>外部采集到文本后调用，跳过 UIA / 剪贴板兜底，直接复用浮窗 + 动作链路。
@@ -645,6 +672,7 @@ internal sealed class SelectionSessionManager : IDisposable
     /// 判定依据是 descriptor.OutputMode 字符串：
     /// - 内置智能动作：BuiltInOutputMode 的 Bubble / CopyAndBubble / Dialog → 安静
     /// - AI 动作：chat（独立对话窗）/ replace（原地）/ bubble（结果气泡） → 安静
+    /// - 内置 AI 对话 / AI 解释：descriptor 不携带 outputMode，但实际会打开对话窗 / 气泡 → 安静
     /// - 其余（Copy / clipboard / 缺省）→ 补 toast，告诉用户"动作已执行"
     ///
     /// 特例：内置 Translate 在 AI 启用且开启内联翻译时会走 AI 气泡，
@@ -656,6 +684,10 @@ internal sealed class SelectionSessionManager : IDisposable
         {
             return false;
         }
+        if (IsBuiltInVisibleAiAction(action))
+        {
+            return false;
+        }
         if (string.Equals(action.Id, BuiltInActionIds.Translate, StringComparison.OrdinalIgnoreCase)
             && _actionHost.Ai.CanRun
             && _settings.TranslateInlineWhenAiEnabled)
@@ -664,6 +696,10 @@ internal sealed class SelectionSessionManager : IDisposable
         }
         return true;
     }
+
+    private static bool IsBuiltInVisibleAiAction(IAction action)
+        => string.Equals(action.Id, BuiltInActionIds.AiChat, StringComparison.OrdinalIgnoreCase)
+           || string.Equals(action.Id, BuiltInActionIds.AiExplain, StringComparison.OrdinalIgnoreCase);
 
     private static bool IsSilentOutputMode(string? mode)
     {

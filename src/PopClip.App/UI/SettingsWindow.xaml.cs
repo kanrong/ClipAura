@@ -66,8 +66,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     public IReadOnlyList<AiProviderPresetInfo> AiProviderChoices => AiProviderCatalog.All;
     public IReadOnlyList<AiThinkingModeChoice> AiThinkingModeChoices { get; } = new[]
     {
-        new AiThinkingModeChoice(AiThinkingMode.Auto, "自动", "使用当前服务商默认策略"),
-        new AiThinkingModeChoice(AiThinkingMode.Fast, "快速", "DeepSeek 关闭 thinking；OpenAI 使用 low reasoning"),
+        new AiThinkingModeChoice(AiThinkingMode.Auto, "服务商默认", "客户端不传 thinking / reasoning 参数，由 AI 服务决定"),
+        new AiThinkingModeChoice(AiThinkingMode.Fast, "快速", "默认选择。DeepSeek 关闭 thinking；OpenAI 使用 low reasoning"),
         new AiThinkingModeChoice(AiThinkingMode.Deep, "深度", "DeepSeek 启用 thinking + max；OpenAI 使用 high reasoning"),
     };
     public IReadOnlyList<LogLevelChoice> LogLevelChoices { get; } = new[]
@@ -1456,7 +1456,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     private AiThinkingMode SelectedAiThinkingMode()
         => AiThinkingModeBox.SelectedValue is AiThinkingMode mode
             ? mode
-            : AiThinkingMode.Auto;
+            : AiThinkingMode.Fast;
 
     /// <summary>从外观页控件当前值派生预览的 Margin / Padding / 字号 / 阴影 / 透明度 等参数。
     /// 主题与字体走 DynamicResource 自动跟随，不需要在这里推送</summary>

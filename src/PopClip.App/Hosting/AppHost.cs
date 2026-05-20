@@ -123,7 +123,8 @@ internal sealed class AppHost : IDisposable
             _log, _settings, _replacer, clipboardWriter, _toolbar,
             clipboardAccess: clipboardAccess,
             historyStore: _historyStore,
-            usage: _usage);
+            usage: _usage,
+            saveSettings: () => _store?.SaveSettings(_settings));
         _clipHistoryLauncher = new ClipboardHistoryLauncher(_clipHistory, clipboardWriter, _replacer, clipboardPaste);
         var resultDialog = new SmartResultDialogPresenter();
         var bubblePresenter = new FloatingToolbarBubblePresenter(_log, _toolbar);
@@ -162,7 +163,7 @@ internal sealed class AppHost : IDisposable
             bubble: bubblePresenter,
             openSettings: tag => ShowSettingsWindow(tag),
             saveSettings: () => _store?.SaveSettings(_settings));
-        // 暴露给"剪贴板启动器"用作 OCR 按钮的点击回调
+        // 暴露给快速启动器用作 OCR 按钮的点击回调
         _session.OcrLauncher = () => _ocrCoordinator?.Trigger();
         _session.ClipboardImageOcrLauncher = anchor => _ocrCoordinator?.TriggerClipboardImage(anchor);
 

@@ -241,7 +241,8 @@ public sealed class AppSettings
     public string AiModel { get; set; } = "deepseek-v4-flash";
     public int AiTimeoutSeconds { get; set; } = 30;
     public string AiDefaultLanguage { get; set; } = "中文";
-    public AiThinkingMode AiThinkingMode { get; set; } = AiThinkingMode.Auto;
+    public AiThinkingMode AiThinkingMode { get; set; } = AiThinkingMode.Fast;
+    public AiThinkingMode? AiChatThinkingMode { get; set; }
 
     /// <summary>AI 单次最大输出 token 数。0=自动按思考强度选取（推荐）。
     /// DeepSeek V4 最大 384K；OpenAI o-series 也很宽松。思考模型 reasoning_tokens

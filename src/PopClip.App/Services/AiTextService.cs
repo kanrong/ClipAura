@@ -22,6 +22,8 @@ public sealed class AiTextService : IAiTextService
     private readonly ClipboardAccess? _clipboardAccess;
     private readonly IConversationStore? _historyStore;
     private readonly IUsageRecorder? _usage;
+    private readonly Action? _saveSettings;
+    private AiThinkingMode? _rememberedChatThinkingMode;
 
     public AiTextService(
         ILog log,
@@ -31,7 +33,8 @@ public sealed class AiTextService : IAiTextService
         INotificationSink notifier,
         ClipboardAccess? clipboardAccess = null,
         IConversationStore? historyStore = null,
-        IUsageRecorder? usage = null)
+        IUsageRecorder? usage = null,
+        Action? saveSettings = null)
     {
         _log = log;
         _settings = settings;
@@ -44,6 +47,7 @@ public sealed class AiTextService : IAiTextService
         _clipboardAccess = clipboardAccess;
         _historyStore = historyStore;
         _usage = usage;
+        _saveSettings = saveSettings;
         _secrets = new ProtectedSecretStore(log);
         _client = new OpenAiCompatibleClient(log);
     }
@@ -111,7 +115,10 @@ public sealed class AiTextService : IAiTextService
         }
 
         ct.ThrowIfCancellationRequested();
-        var options = CreateOptions(GetCurrentApiKey());
+        var initialThinkingMode = _rememberedChatThinkingMode
+                                  ?? _settings.AiChatThinkingMode
+                                  ?? _settings.AiThinkingMode;
+        var options = CreateOptions(GetCurrentApiKey(), initialThinkingMode);
         var canReplace = replaceCallback is not null;
         var replaceAsync = replaceCallback ?? (_ => Task.CompletedTask);
 
@@ -124,18 +131,21 @@ public sealed class AiTextService : IAiTextService
                 _clipboard,
                 replaceAsync,
                 canReplace,
-                async (conversation, callbacks, sendCt) =>
+                initialThinkingMode,
+                async (conversation, callbacks, thinkingMode, sendCt) =>
                 {
+                    RememberChatThinkingMode(thinkingMode, persist: false);
                     if (!CanRun)
                     {
                         throw new InvalidOperationException("AI 未启用或 API Key 未配置");
                     }
-                    var currentOptions = CreateOptions(GetCurrentApiKey());
+                    var currentOptions = CreateOptions(GetCurrentApiKey(), thinkingMode);
                     var messages = BuildConversationMessages(referenceText, _settings.AiDefaultLanguage, customSystemPrompt, conversation);
                     var result = await _client.StreamAsync(currentOptions, messages, callbacks, sendCt).ConfigureAwait(false);
                     RecordUsage(currentOptions, result);
                     return result;
                 },
+                thinkingMode => RememberChatThinkingMode(thinkingMode, persist: true),
                 onSessionFinalize: snapshot => PersistConversation(title, referenceText, options.Model, snapshot));
             created.Show();
             created.Activate();
@@ -433,14 +443,23 @@ public sealed class AiTextService : IAiTextService
         catch { return ""; }
     }
 
-    public AiClientOptions CreateOptions(string apiKey)
+    private void RememberChatThinkingMode(AiThinkingMode thinkingMode, bool persist)
+    {
+        _rememberedChatThinkingMode = thinkingMode;
+        if (!persist || _settings.AiChatThinkingMode == thinkingMode) return;
+        _settings.AiChatThinkingMode = thinkingMode;
+        try { _saveSettings?.Invoke(); }
+        catch (Exception ex) { _log.Debug("chat thinking mode persist failed", ("err", ex.Message)); }
+    }
+
+    public AiClientOptions CreateOptions(string apiKey, AiThinkingMode? thinkingMode = null)
         => new(
             _settings.AiBaseUrl,
             _settings.AiModel,
             apiKey,
             _settings.AiTimeoutSeconds,
             _settings.AiProviderPreset.ToString(),
-            _settings.AiThinkingMode.ToString(),
+            (thinkingMode ?? _settings.AiThinkingMode).ToString(),
             _settings.AiMaxOutputTokens);
 
     public string GetCurrentApiKey()

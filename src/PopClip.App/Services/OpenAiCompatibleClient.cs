@@ -355,7 +355,7 @@ public sealed class OpenAiCompatibleClient
             // 关闭/降低思考；轻量输出
             return 4096;
         }
-        // Auto：DeepSeek 默认 thinking enabled + high effort；OpenAI 走 provider 默认
+        // Auto：客户端不传 thinking / reasoning 参数，完全交给 provider 默认策略
         return 16384;
     }
 

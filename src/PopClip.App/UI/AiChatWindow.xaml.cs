@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using PopClip.App.Config;
 using PopClip.App.Services;
 using PopClip.Core.Actions;
 
@@ -11,9 +12,19 @@ namespace PopClip.App.UI;
 
 public partial class AiChatWindow : Wpf.Ui.Controls.FluentWindow
 {
+    public sealed record ThinkingModeItem(AiThinkingMode Value, string Label);
+
+    private static readonly IReadOnlyList<ThinkingModeItem> ThinkingModeItems = new[]
+    {
+        new ThinkingModeItem(AiThinkingMode.Auto, "服务商默认"),
+        new ThinkingModeItem(AiThinkingMode.Fast, "快速"),
+        new ThinkingModeItem(AiThinkingMode.Deep, "深度"),
+    };
+
     private readonly IClipboardWriter _clipboard;
     private readonly Func<string, Task> _replaceAsync;
-    private readonly Func<IReadOnlyList<(string Role, string Content)>, AiStreamCallbacks, CancellationToken, Task<AiCompletionResult>> _sendAsync;
+    private readonly Func<IReadOnlyList<(string Role, string Content)>, AiStreamCallbacks, AiThinkingMode, CancellationToken, Task<AiCompletionResult>> _sendAsync;
+    private readonly Action<AiThinkingMode>? _onThinkingModeChanged;
     private readonly Action<ConversationSnapshot>? _onSessionFinalize;
     private readonly bool _canReplace;
     private readonly List<(string Role, string Content)> _history = new();
@@ -32,6 +43,8 @@ public partial class AiChatWindow : Wpf.Ui.Controls.FluentWindow
     private int _totalCompletionTokens;
     private DateTime? _reasoningStartedAt;
     private string _modelLabel = "";
+    private AiThinkingMode _selectedThinkingMode;
+    private bool _initializingThinkingMode;
 
     public AiChatWindow(
         string actionTitle,
@@ -40,16 +53,27 @@ public partial class AiChatWindow : Wpf.Ui.Controls.FluentWindow
         IClipboardWriter clipboard,
         Func<string, Task> replaceAsync,
         bool canReplace,
-        Func<IReadOnlyList<(string Role, string Content)>, AiStreamCallbacks, CancellationToken, Task<AiCompletionResult>> sendAsync,
+        AiThinkingMode initialThinkingMode,
+        Func<IReadOnlyList<(string Role, string Content)>, AiStreamCallbacks, AiThinkingMode, CancellationToken, Task<AiCompletionResult>> sendAsync,
+        Action<AiThinkingMode>? onThinkingModeChanged = null,
         Action<ConversationSnapshot>? onSessionFinalize = null)
     {
         _clipboard = clipboard;
         _replaceAsync = replaceAsync;
         _canReplace = canReplace;
         _sendAsync = sendAsync;
+        _onThinkingModeChanged = onThinkingModeChanged;
         _onSessionFinalize = onSessionFinalize;
         _modelLabel = model;
+        _selectedThinkingMode = initialThinkingMode;
         InitializeComponent();
+
+        _initializingThinkingMode = true;
+        ThinkingModeBox.ItemsSource = ThinkingModeItems;
+        ThinkingModeBox.DisplayMemberPath = nameof(ThinkingModeItem.Label);
+        ThinkingModeBox.SelectedValuePath = nameof(ThinkingModeItem.Value);
+        ThinkingModeBox.SelectedValue = initialThinkingMode;
+        _initializingThinkingMode = false;
 
         var titleText = string.IsNullOrWhiteSpace(actionTitle) ? "ClipAura AI" : actionTitle;
         Title = titleText;
@@ -127,6 +151,7 @@ public partial class AiChatWindow : Wpf.Ui.Controls.FluentWindow
         SendButton.IsEnabled = !sending;
         StopButton.Visibility = sending ? Visibility.Visible : Visibility.Collapsed;
         QuestionBox.IsEnabled = !sending;
+        ThinkingModeBox.IsEnabled = !sending;
         VariantPanel.IsEnabled = !sending;
         if (!sending)
         {
@@ -225,7 +250,7 @@ public partial class AiChatWindow : Wpf.Ui.Controls.FluentWindow
             var callbacks = new AiStreamCallbacks(
                 delta => Dispatcher.InvokeAsync(() => AppendAssistantDelta(delta)).Task,
                 delta => Dispatcher.InvokeAsync(() => AppendReasoningDelta(delta)).Task);
-            var result = await _sendAsync(snapshot, callbacks, _sendCts.Token).ConfigureAwait(true);
+            var result = await _sendAsync(snapshot, callbacks, _selectedThinkingMode, _sendCts.Token).ConfigureAwait(true);
 
             _latestAssistantText = result.Text;
             _history.Add(("assistant", result.Text));
@@ -597,11 +622,41 @@ public partial class AiChatWindow : Wpf.Ui.Controls.FluentWindow
 
     private async void OnQuestionKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        if (e.Key is not (Key.Enter or Key.Return))
+        {
+            return;
+        }
+
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            e.Handled = true;
+            InsertLineBreakAtCaret();
+            return;
+        }
+
+        if (Keyboard.Modifiers == ModifierKeys.None)
         {
             e.Handled = true;
             await SubmitPromptAsync(QuestionBox.Text).ConfigureAwait(true);
         }
+    }
+
+    private void InsertLineBreakAtCaret()
+    {
+        var text = QuestionBox.Text ?? "";
+        var start = Math.Clamp(QuestionBox.SelectionStart, 0, text.Length);
+        var length = Math.Clamp(QuestionBox.SelectionLength, 0, text.Length - start);
+        QuestionBox.Text = text.Remove(start, length).Insert(start, Environment.NewLine);
+        QuestionBox.SelectionStart = start + Environment.NewLine.Length;
+        QuestionBox.SelectionLength = 0;
+    }
+
+    private void OnThinkingModeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_initializingThinkingMode) return;
+        if (ThinkingModeBox.SelectedValue is not AiThinkingMode mode) return;
+        _selectedThinkingMode = mode;
+        _onThinkingModeChanged?.Invoke(mode);
     }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();

@@ -74,12 +74,6 @@
   </Target>
 
   <ItemGroup>
-    <None Update="actions.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
-  <ItemGroup>
     <None Remove="Assets\AppIcon.ico" />
     <Resource Include="Assets\AppIcon.ico" />
   </ItemGroup>

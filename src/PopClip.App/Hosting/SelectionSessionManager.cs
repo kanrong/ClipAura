@@ -37,6 +37,12 @@ internal sealed class SelectionSessionManager : IDisposable
     private readonly Channel<SelectionCandidate> _candidateChannel;
     private CancellationTokenSource? _cts;
 
+    /// <summary>"鼠标 down 起点位于本进程顶层窗口内"的标志。
+    /// 仅在 InputPumpAsync 单线程消费，使用普通 bool 即可。
+    /// 命中时整段 down → move → up 都丢给 state machine 之前就跳过，
+    /// 避免拖动 AiBubbleWindow 等 NoActivate 窗口时被识别为"鼠标拖选 → 调度选区候选 → 弹浮窗"</summary>
+    private bool _suppressOwnDragSequence;
+
     /// <summary>外部注入的"OCR 截选"触发器；若为 null 则剪贴板启动器中不显示该按钮。
     /// 由 AppHost 在初始化时挂到 OcrCaptureCoordinator.Trigger</summary>
     public Action? OcrLauncher { get; set; }
@@ -134,6 +140,13 @@ internal sealed class SelectionSessionManager : IDisposable
                 }
                 if (IsOwnForegroundInput(ev))
                 {
+                    continue;
+                }
+                if (ShouldSuppressForOwnDrag(ev))
+                {
+                    // AiBubbleWindow 带 WS_EX_NOACTIVATE 不抢前台，IsOwnForegroundInput 无法识别；
+                    // 这里通过"down 起点的顶层窗口属于本进程"再做一次拦截，
+                    // 把拖动气泡 / 拖动自家其他 NoActivate 窗口的整段事件吞掉，避免触发选区识别
                     continue;
                 }
                 _machine.Process(ev);
@@ -399,6 +412,46 @@ internal sealed class SelectionSessionManager : IDisposable
         return pid == OwnProcessId;
     }
 
+    /// <summary>把"拖动起点位于本进程顶层窗口"的整段 down/move/up 序列从 state machine 路径上摘掉。
+    /// 通过 _suppressOwnDragSequence 跨事件保持状态：
+    /// - MouseDown 时按 down 点的顶层窗口归属判定是否抑制；
+    /// - 抑制期间所有 MouseMove 一并跳过，避免状态机把它当真实选区拖动；
+    /// - MouseUp 时关闭抑制窗口，下一次 down 再重新判定。
+    /// 与 IsOwnForegroundInput 互补：那条只能拦激活窗口，AiBubbleWindow 带 NoActivate 必须靠 down 命中点判定</summary>
+    private bool ShouldSuppressForOwnDrag(InputEvent ev)
+    {
+        switch (ev)
+        {
+            case MouseDownEvent md:
+                _suppressOwnDragSequence = IsPointInOwnTopLevelWindow(md.X, md.Y);
+                return _suppressOwnDragSequence;
+            case MouseMoveEvent:
+                return _suppressOwnDragSequence;
+            case MouseUpEvent:
+                if (_suppressOwnDragSequence)
+                {
+                    _suppressOwnDragSequence = false;
+                    return true;
+                }
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>判定屏幕物理像素坐标 (x,y) 是否落在本进程任意顶层窗口内。
+    /// WindowFromPoint 拿到的可能是子控件 hwnd，先 GetAncestor(GA_ROOT) 走到顶层再查 pid，
+    /// 与 LowLevelMouseHook 里 WindowDragSampler 的窗口归属判定保持同一套逻辑</summary>
+    private static bool IsPointInOwnTopLevelWindow(int x, int y)
+    {
+        var hwnd = NativeMethods.WindowFromPoint(new NativeMethods.POINT { X = x, Y = y });
+        if (hwnd == 0) return false;
+        var top = NativeMethods.GetAncestor(hwnd, NativeMethods.GA_ROOT);
+        if (top == 0) top = hwnd;
+        NativeMethods.GetWindowThreadProcessId(top, out var pid);
+        return pid == OwnProcessId;
+    }
+
     public void ShowLauncherAtCursor()
     {
         if (_pause.IsPaused) return;
@@ -544,7 +597,11 @@ internal sealed class SelectionSessionManager : IDisposable
                     // 一律不补 toast，避免遮挡结果或与气泡叠加；只有"仅复制"这种纯后台动作才需要补 ✓ 提示
                     if (ShouldShowCompletionToast(action, descriptor) && _toolbar.LastToastAtUtc <= toastBefore)
                     {
-                        var text = action.Id == BuiltInActionIds.Copy ? "已复制 ✓" : $"{title} ✓";
+                        // "剪贴板 + 气泡"模式：气泡已展示结果正文，再补 "{Title} ✓" 信息冗余，
+                        // 用户真正想被告知的是"内容已经进剪贴板"，统一用"已复制 ✓"贴齐 Copy 内置动作的语义
+                        var text = (action.Id == BuiltInActionIds.Copy || IsClipboardCarrierMode(descriptor?.OutputMode))
+                            ? "已复制 ✓"
+                            : $"{title} ✓";
                         _toolbar.ShowInlineToast(text);
                     }
                 });
@@ -612,12 +669,23 @@ internal sealed class SelectionSessionManager : IDisposable
     {
         if (string.IsNullOrWhiteSpace(mode)) return false;
         var trimmed = mode.Trim();
-        return trimmed.Equals("Bubble", StringComparison.OrdinalIgnoreCase)
-            || trimmed.Equals("CopyAndBubble", StringComparison.OrdinalIgnoreCase)
-            || trimmed.Equals("Dialog", StringComparison.OrdinalIgnoreCase)
+        return trimmed.Equals(BuiltInOutputModes.Bubble, StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals(BuiltInOutputModes.Dialog, StringComparison.OrdinalIgnoreCase)
             || trimmed.Equals("chat", StringComparison.OrdinalIgnoreCase)
             || trimmed.Equals("replace", StringComparison.OrdinalIgnoreCase)
             || trimmed.Equals("ai-bubble", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>判断 OutputMode 是否会"把结果写进剪贴板"。
+    /// 命中时补的 toast 文案改用"已复制 ✓"——气泡 / 对话窗已展示正文，重复带动作名意义不大，
+    /// 用户真正需要的提示是"东西在剪贴板里随时可以粘"。
+    ///
+    /// 目前只 ClipboardAndBubble 会走"显示主 UI + 仍补 toast"双重反馈；
+    /// Toast / Clipboard 这两条本身就由动作自己 Notify 文本，不会落到补 toast 分支</summary>
+    private static bool IsClipboardCarrierMode(string? mode)
+    {
+        if (string.IsNullOrWhiteSpace(mode)) return false;
+        return mode.Trim().Equals(BuiltInOutputModes.ClipboardAndBubble, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildLogHead(string text)

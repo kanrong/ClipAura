@@ -101,25 +101,6 @@ public sealed class ActionCatalog
         return null;
     }
 
-    /// <summary>未提供配置时使用的默认动作顺序。
-    /// 浮窗最多显示 5 个，所以这里只保留"用户最可能用到的开箱即用动作"；
-    /// 其它（翻译/大小写/计算/字数 等）用户可以从设置里手动加</summary>
-    public void LoadDefaults()
-    {
-        var cfg = new ActionsConfig
-        {
-            Actions = new List<ActionDescriptor>
-            {
-                new() { Id = "copy", Type = "builtin", BuiltIn = BuiltInActionIds.Copy, Title = "复制", IconLocked = true },
-                new() { Id = "paste", Type = "builtin", BuiltIn = BuiltInActionIds.Paste, Title = "粘贴", IconLocked = true },
-                new() { Id = "search", Type = "builtin", BuiltIn = BuiltInActionIds.Search, Title = "搜索", IconLocked = true },
-                new() { Id = "open-url", Type = "builtin", BuiltIn = BuiltInActionIds.OpenUrl, Title = "打开链接", IconLocked = true },
-                new() { Id = "ai-chat", Type = "builtin", BuiltIn = BuiltInActionIds.AiChat, Title = "AI 对话", IconLocked = true },
-            },
-        };
-        Load(cfg);
-    }
-
     public IReadOnlyList<ResolvedAction> GetVisible(SelectionContext context)
     {
         var list = new List<ResolvedAction>(_ordered.Count);

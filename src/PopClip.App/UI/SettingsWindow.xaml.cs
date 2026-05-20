@@ -103,19 +103,19 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     {
         new AiOutputModeChoice("chat", "进入对话窗口"),
         new AiOutputModeChoice("replace", "原地替换选区"),
-        new AiOutputModeChoice("clipboard", "写入剪贴板（仅提示）"),
-        new AiOutputModeChoice("toast", "结果浮窗提示（自动消失）"),
-        new AiOutputModeChoice("bubble", "结果气泡（可复制/替换）"),
+        new AiOutputModeChoice("clipboard", "复制到剪贴板"),
+        new AiOutputModeChoice("toast", "Toast"),
+        new AiOutputModeChoice("bubble", "气泡显示"),
     };
 
     /// <summary>智能动作的输出模式选项。用 AiOutputModeChoice 类型复用同款 (Value, Label) 元组，
     /// 避免再造一个等价类型；XAML 端通过 IsBuiltInOutputConfigurable 决定是否显示此下拉</summary>
     public IReadOnlyList<AiOutputModeChoice> BuiltInOutputModeChoices { get; } = new[]
     {
-        new AiOutputModeChoice(BuiltInOutputModes.Toast, "结果浮窗提示（自动消失）"),
-        new AiOutputModeChoice(BuiltInOutputModes.Bubble, "结果气泡"),
-        new AiOutputModeChoice(BuiltInOutputModes.ClipboardAndBubble, "剪贴板 + 气泡"),
-        new AiOutputModeChoice(BuiltInOutputModes.Dialog, "对话框（独立结果窗口）"),
+        new AiOutputModeChoice(BuiltInOutputModes.Toast, "Toast"),
+        new AiOutputModeChoice(BuiltInOutputModes.Bubble, "显示气泡"),
+        new AiOutputModeChoice(BuiltInOutputModes.ClipboardAndBubble, "显示气泡并复制"),
+        new AiOutputModeChoice(BuiltInOutputModes.Dialog, "显示对话框"),
     };
 
     /// <summary>外观页的浮窗预览示例按钮，模拟用户日常浮窗里可能出现的"复制/粘贴/搜索/翻译/AI"</summary>
@@ -327,7 +327,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
 
         BindAiSettings();
 
-        var actions = _store.LoadActions() ?? CreateDefaultActions();
+        var actions = _store.LoadActions() ?? DefaultActionsFactory.Create();
         foreach (var action in actions.Actions)
         {
             ActionItems.Add(ActionEditorItem.FromDescriptor(action));
@@ -476,23 +476,6 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         AiApiKeyBox.Password = "";
         _syncingAiProvider = false;
         RefreshAiProviderFields(overwritePresetValues: false);
-    }
-
-    private static ActionsConfig CreateDefaultActions()
-    {
-        return new ActionsConfig
-        {
-            Actions =
-            {
-                new() { Id = "copy", Type = "builtin", BuiltIn = BuiltInActionIds.Copy, Title = "复制", Icon = "Copy", Enabled = true },
-                new() { Id = "paste", Type = "builtin", BuiltIn = BuiltInActionIds.Paste, Title = "粘贴", Icon = "Paste", Enabled = true },
-                new() { Id = "open-url", Type = "builtin", BuiltIn = BuiltInActionIds.OpenUrl, Title = "打开链接", Icon = "Url", Enabled = true },
-                new() { Id = "search", Type = "builtin", BuiltIn = BuiltInActionIds.Search, Title = "搜索", Icon = "Search", Enabled = true },
-                new() { Id = "translate", Type = "builtin", BuiltIn = BuiltInActionIds.Translate, Title = "翻译", Icon = "Translate", Enabled = true },
-                new() { Id = "calc", Type = "builtin", BuiltIn = BuiltInActionIds.Calculate, Title = "计算", Icon = "Calc", Enabled = true },
-                new() { Id = "wc", Type = "builtin", BuiltIn = BuiltInActionIds.WordCount, Title = "字数", Icon = "Count", Enabled = true },
-            },
-        };
     }
 
     private void OnNavigationChanged(object sender, SelectionChangedEventArgs e)
@@ -919,7 +902,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     }
 
     /// <summary>根据内置动作 ID 给出与其语义匹配的图标 key。
-    /// 从 BuiltInActionSeeds 取，保持与"添加内置动作"对话框、磁盘 actions.json 三处的图标一致</summary>
+    /// 从 BuiltInActionSeeds 取，保持与"添加内置动作"对话框的图标一致</summary>
     private static string SuggestIcon(string builtIn)
     {
         var seed = BuiltInActionSeeds.All.FirstOrDefault(

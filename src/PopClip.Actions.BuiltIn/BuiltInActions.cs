@@ -32,8 +32,7 @@ public static class BuiltInActionIds
     /// <summary>从浮动工具栏唤起"剪贴板历史"面板。运行时由 IClipboardHistoryLauncher 提供具体实现</summary>
     public const string ClipboardHistory = "builtin.clipboard.history";
 
-    // 文本类型智能动作链：CanRun 自行嗅探内容类型；默认在 actions.json 中 enabled=false，
-    // 老用户浮窗不被突然撑大，新用户按需在设置启用
+    // 文本类型智能动作链：CanRun 自行嗅探内容类型；默认启用状态由 App 侧默认动作工厂和用户配置决定
     public const string JsonFormat = "builtin.text.json.format";
     public const string JsonToYaml = "builtin.text.json.toyaml";
     public const string Color = "builtin.text.color";

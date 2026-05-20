@@ -90,7 +90,7 @@ internal sealed class AppHost : IDisposable
         }
         else
         {
-            _catalog.LoadDefaults();
+            _catalog.Load(DefaultActionsFactory.Create());
         }
 
         var urlLauncher = new UrlLauncher(_log);
@@ -258,7 +258,7 @@ internal sealed class AppHost : IDisposable
         {
             var cfg = _store.LoadActions();
             if (cfg is not null) _catalog.Load(cfg);
-            else _catalog.LoadDefaults();
+            else _catalog.Load(DefaultActionsFactory.Create());
         }
         _hotkeys?.Apply(_settings);
         ApplyStartupSetting();

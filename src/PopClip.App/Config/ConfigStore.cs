@@ -5,7 +5,7 @@ using PopClip.Core.Logging;
 
 namespace PopClip.App.Config;
 
-/// <summary>从磁盘加载 settings.json / actions.json，并提供缺省回退</summary>
+/// <summary>从用户配置目录加载 settings.json / actions.json</summary>
 public sealed class ConfigStore
 {
     private static readonly JsonSerializerOptions Json = new()
@@ -56,9 +56,7 @@ public sealed class ConfigStore
 
     public ActionsConfig? LoadActions()
     {
-        var path = File.Exists(ConfigPaths.ActionsUserFile)
-            ? ConfigPaths.ActionsUserFile
-            : ConfigPaths.ActionsBundledFile;
+        var path = ConfigPaths.ActionsUserFile;
         if (!File.Exists(path)) return null;
         try
         {

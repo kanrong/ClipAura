@@ -214,12 +214,14 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             var radius = Math.Clamp(settings.ToolbarCornerRadius, 0, 18);
             var spacing = Math.Clamp(settings.ToolbarButtonSpacing, 0, 10);
             var fontSize = Math.Clamp(settings.ToolbarFontSize, 10, 18);
-            // 外壳圆角 = 用户设置 radius + 1（让圆角观感与设置数值匹配，且给描边留 1px 空间）
+            // 外壳圆角 = 用户设置 radius + 1（给描边留 1px 抗锯齿余量）。
+            // 深色下的圆角顺滑度主要由边框对比和背景透明度决定，不在这里额外放大半径。
             // 阴影底板 / ContentClipHost.Clip / 描边层都用同一个外圆角，避免任何"双层圆角错位"
-            Resources["ToolbarCornerRadius"] = new CornerRadius(radius + 1);
+            var outerRadius = ResolveOuterCornerRadius(radius);
+            Resources["ToolbarCornerRadius"] = new CornerRadius(outerRadius);
             // 按钮本体保持矩形：左右两端按钮的"圆角观感"完全交给 ContentClipHost 的 Clip 完成
             Resources["ToolbarButtonCornerRadius"] = new CornerRadius(0);
-            _outerCornerRadius = radius + 1;
+            _outerCornerRadius = outerRadius;
             // spacing 仅作用于按钮的左右 Margin；按钮 Padding 固定（仅决定按钮内容的内边距）。
             // 需要调整按钮高度时，改 ToolbarButtonPaddingY 即可。
             // 不再有 container padding：StackPanel 直接贴满 ContentClipHost，
@@ -262,6 +264,9 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     {
         UpdateContentClip();
     }
+
+    private static double ResolveOuterCornerRadius(double userRadius)
+        => Math.Clamp(userRadius + 1, 0, 19);
 
     // 阴影参数策略：保持接近 Windows 11 普通窗体的轻量层次；
     // 总预算 BlurRadius + ShadowDepth 不超过 ShadowPaddingDip(=12) 避免被透明窗口边界裁切

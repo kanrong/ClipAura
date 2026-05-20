@@ -13,14 +13,15 @@
     <SolidColorBrush x:Key="ToolbarLightToastBackground" Color="#EFF6FF" />
     <SolidColorBrush x:Key="ToolbarLightSeparator" Color="#D9DEE6" />
 
-    <SolidColorBrush x:Key="ToolbarDarkBackground" Color="#2B3037" Opacity="0.98" />
+    <SolidColorBrush x:Key="ToolbarDarkBackground" Color="#2B3037" Opacity="1" />
     <SolidColorBrush x:Key="ToolbarDarkShadow" Color="#000000" Opacity="0.18" />
-    <SolidColorBrush x:Key="ToolbarDarkBorder" Color="#4A515B" Opacity="1" />
+    <!-- 深色圆角边缘不能用高对比实线，否则 WPF 的圆角抗锯齿像素会显得发硬。 -->
+    <SolidColorBrush x:Key="ToolbarDarkBorder" Color="#3F4650" Opacity="0.82" />
     <SolidColorBrush x:Key="ToolbarDarkForeground" Color="#F2F4F7" />
     <SolidColorBrush x:Key="ToolbarDarkHover" Color="#363D46" />
     <SolidColorBrush x:Key="ToolbarDarkAccentSoft" Color="#2E4661" />
-    <SolidColorBrush x:Key="ToolbarDarkToastBackground" Color="#313842" />
-    <SolidColorBrush x:Key="ToolbarDarkSeparator" Color="#4A515B" />
+    <SolidColorBrush x:Key="ToolbarDarkToastBackground" Color="#313842" Opacity="1" />
+    <SolidColorBrush x:Key="ToolbarDarkSeparator" Color="#3F4650" Opacity="0.82" />
 
     <!-- ============================================================
          彩色预设主题（仅作用于浮窗）。
@@ -103,7 +104,7 @@
     <StaticResource x:Key="ToolbarAccentSoft" ResourceKey="ToolbarLightAccentSoft" />
     <StaticResource x:Key="ToolbarToastBackground" ResourceKey="ToolbarLightToastBackground" />
     <StaticResource x:Key="ToolbarSeparator" ResourceKey="ToolbarLightSeparator" />
-    <CornerRadius x:Key="ToolbarCornerRadius">4</CornerRadius>
+    <CornerRadius x:Key="ToolbarCornerRadius">8</CornerRadius>
     <!-- 按钮本身为矩形（0 圆角），左右两端按钮通过外层 ContentClipHost 的圆角 Clip
          统一裁切到外壳内圆角弧线内，避免矩形角伸出外壳圆角外 -->
     <CornerRadius x:Key="ToolbarButtonCornerRadius">0</CornerRadius>

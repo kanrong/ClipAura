@@ -129,7 +129,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     };
 
     // ===== 浮窗预览：从外观页控件值派生，PropertyChanged 推送给 XAML 数据绑定 =====
-    private CornerRadius _previewCornerRadius = new(9);
+    private CornerRadius _previewCornerRadius = new(8);
     private CornerRadius _previewButtonCornerRadius = new(0);
     private Thickness _previewButtonMargin = new(2, 0, 2, 0);
     private Thickness _previewButtonPadding = new(12, 9, 12, 9);
@@ -1477,7 +1477,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         var spacing = NumberBoxDouble(ButtonSpacingBox, _settings.ToolbarButtonSpacing, 0, 10);
         var fontSize = NumberBoxDouble(ToolbarFontSizeBox, _settings.ToolbarFontSize, 10, 18);
         // 与浮窗实例化时一致：外圆角 = 用户值 + 1，给描边留 1px 抗锯齿余量
-        PreviewCornerRadius = new CornerRadius(radius + 1);
+        PreviewCornerRadius = new CornerRadius(ResolvePreviewOuterCornerRadius(radius));
         PreviewButtonCornerRadius = new CornerRadius(0);
         PreviewButtonMargin = new Thickness(spacing, 0, spacing, 0);
         // 按钮内边距跟随密度档：紧凑 / 标准（默认）/ 宽松，让预览与真实浮窗呈相同观感
@@ -1525,6 +1525,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         if (DensityComfortable is not null && DensityComfortable.IsChecked == true) return (16, 13);
         return (12, 9);
     }
+
+    private static double ResolvePreviewOuterCornerRadius(double userRadius)
+        => Math.Clamp(userRadius + 1, 0, 19);
 
     /// <summary>把所有"点击/输入即生效"的控件挂上统一的 CommitAll 回调。
     /// 在 Loaded 后调用，避免与 Bind 阶段批量初始化撞车；

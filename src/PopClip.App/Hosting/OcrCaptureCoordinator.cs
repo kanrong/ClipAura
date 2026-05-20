@@ -41,6 +41,7 @@ internal sealed class OcrCaptureCoordinator
     /// 引用同一份主程序的 AppSettings 实例，设置面板写入后这里也能直接看到</summary>
     private readonly AppSettings _settings;
     private readonly AiTextService _aiText;
+    private readonly Action? _saveSettings;
 
     /// <summary>"打开设置面板并定位到某个分页"的跨层回调。
     /// 由 AppHost 注入，参数为页面 tag（如 "AI" / "Ocr"），方便结果窗里的
@@ -60,7 +61,8 @@ internal sealed class OcrCaptureCoordinator
         AppSettings settings,
         AiTextService aiText,
         FloatingToolbarBubblePresenter? bubble = null,
-        Action<string>? openSettings = null)
+        Action<string>? openSettings = null,
+        Action? saveSettings = null)
     {
         _log = log;
         _registry = registry;
@@ -72,6 +74,7 @@ internal sealed class OcrCaptureCoordinator
         _aiText = aiText;
         _bubble = bubble;
         _openSettings = openSettings;
+        _saveSettings = saveSettings;
     }
 
     public void Trigger()
@@ -337,6 +340,7 @@ internal sealed class OcrCaptureCoordinator
                 layoutFullText: layoutFullText,
                 quickFallback: quickFallback,
                 openSettings: _openSettings,
+                saveSettings: _saveSettings,
                 onCloseRequested: () =>
                 {
                     if (ReferenceEquals(_resultWindow, null)) return;

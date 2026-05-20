@@ -160,7 +160,8 @@ internal sealed class AppHost : IDisposable
         _ocrCoordinator = new OcrCaptureCoordinator(_log, _ocrRegistry, _session, clipboardWriter, clipboardAccess, _toolbar,
             _settings, aiTextService,
             bubble: bubblePresenter,
-            openSettings: tag => ShowSettingsWindow(tag));
+            openSettings: tag => ShowSettingsWindow(tag),
+            saveSettings: () => _store?.SaveSettings(_settings));
         // 暴露给"剪贴板启动器"用作 OCR 按钮的点击回调
         _session.OcrLauncher = () => _ocrCoordinator?.Trigger();
         _session.ClipboardImageOcrLauncher = anchor => _ocrCoordinator?.TriggerClipboardImage(anchor);

@@ -157,7 +157,7 @@ public sealed class AppSettings
     public int PopupDelayMs { get; set; } = 200;
     public int HoverDelayMs { get; set; } = 300;
     public SelectionModifierKey RequiredModifier { get; set; } = SelectionModifierKey.Alt;
-    public SelectionModifierKey QuickClickModifier { get; set; } = SelectionModifierKey.Ctrl;
+    public SelectionModifierKey QuickClickModifier { get; set; } = SelectionModifierKey.Alt;
 
     /// <summary>Ctrl+A 全选时是否弹出浮窗。
     /// 默认 true：全选是有明确意图的键盘操作，保留弹窗便于后续动作；
@@ -190,6 +190,10 @@ public sealed class AppSettings
     /// - true：有四周边框，方便看清窗口范围。
     ///   适合喜欢"窗口化"体验或多显异构 DPI 下窗口边界不清晰时。</summary>
     public bool OcrResultWindowBordered { get; set; } = true;
+
+    /// <summary>Interactive 模式结果窗是否默认展开右侧识别文本面板。
+    /// 工具条的显示/隐藏按钮会实时写回此值，下次 OCR 结果窗按上次状态恢复。</summary>
+    public bool OcrTextPanelVisible { get; set; } = true;
 
     // ================== 浮窗自动消失触发条件 ==================
     // 鼠标离开浮窗一段时间后自动关闭

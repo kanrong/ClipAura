@@ -48,6 +48,7 @@ internal partial class OcrResultWindow : Window
     /// （剪贴板 + 浮窗气泡 + toast），不修改 settings.OcrResultMode。
     /// 用户的 OCR 模式偏好通过设置面板永久切换，本按钮只影响当次输出</summary>
     private readonly Action<string>? _quickFallback;
+    private readonly Action? _saveSettings;
 
     /// <summary>"打开设置某一分页"的跨层回调（如 "AI" / "Ocr"）。
     /// 为空时跳转入口降级为 Toast 提示，避免空引用</summary>
@@ -123,6 +124,7 @@ internal partial class OcrResultWindow : Window
         string? layoutFullText = null,
         Action<string>? quickFallback = null,
         Action<string>? openSettings = null,
+        Action? saveSettings = null,
         Action? onCloseRequested = null)
     {
         _log = log;
@@ -133,6 +135,7 @@ internal partial class OcrResultWindow : Window
         _layoutFullText = string.IsNullOrWhiteSpace(layoutFullText) ? "" : layoutFullText.Trim();
         _quickFallback = quickFallback;
         _openSettings = openSettings;
+        _saveSettings = saveSettings;
         _onCloseRequested = onCloseRequested;
         _anchorPhysical = anchorPhysical;
         _anchorDpiX = anchorDpiX == 0 ? 96 : anchorDpiX;
@@ -221,9 +224,14 @@ internal partial class OcrResultWindow : Window
         _toolbarWindow.Show();
         PositionToolbarInitially();
 
-        // 文本面板默认开启：让用户立刻看到整段识别文本，弥补 Interactive 模式
-        // "需要逐段点击 / 框选才能凑齐全文"的可读性短板
-        OpenTextPanel(initial: true);
+        if (_settings.OcrTextPanelVisible)
+        {
+            OpenTextPanel(initial: true, persistPreference: false);
+        }
+        else
+        {
+            _toolbarWindow.SetTextPanelVisible(false);
+        }
 
         UpdateStatusBar();
         // 让主窗拿到键盘焦点，否则 Ctrl+A / ESC 都收不到。
@@ -349,7 +357,7 @@ internal partial class OcrResultWindow : Window
     /// 创建顺序与 PositionToolbarInitially 保持一致：先 Show 让面板测出 ActualWidth/Height，
     /// 再用 Win32 SetWindowPos 把面板按物理像素绝对定位到目标位置，规避 PerMonitor V2 下
     /// Window.Left/Top setter 用主屏 DPI 解读 DIP 的跨屏跳屏问题</summary>
-    public void OpenTextPanel(bool initial)
+    public void OpenTextPanel(bool initial, bool persistPreference = true)
     {
         if (_textPanelWindow is null)
         {
@@ -417,12 +425,22 @@ internal partial class OcrResultWindow : Window
         }
 
         _toolbarWindow?.SetTextPanelVisible(true);
+        PersistTextPanelPreference(visible: true, persistPreference);
     }
 
-    public void HideTextPanel()
+    public void HideTextPanel(bool persistPreference = true)
     {
         try { _textPanelWindow?.Hide(); } catch { }
         _toolbarWindow?.SetTextPanelVisible(false);
+        PersistTextPanelPreference(visible: false, persistPreference);
+    }
+
+    private void PersistTextPanelPreference(bool visible, bool persistPreference)
+    {
+        if (!persistPreference || _settings.OcrTextPanelVisible == visible) return;
+        _settings.OcrTextPanelVisible = visible;
+        try { _saveSettings?.Invoke(); }
+        catch (Exception ex) { _log.Warn("save ocr text panel preference failed", ("err", ex.Message)); }
     }
 
     /// <summary>把文本面板放到主窗右侧；右侧空间不够时落到左侧；左侧也不够时落到主窗下方。

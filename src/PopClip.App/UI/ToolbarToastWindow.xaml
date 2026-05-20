@@ -53,9 +53,9 @@
             <Border.Effect>
                 <DropShadowEffect Color="#000"
                                   Direction="270"
-                                  BlurRadius="8"
-                                  ShadowDepth="2"
-                                  Opacity="0.42"
+                                  BlurRadius="7"
+                                  ShadowDepth="1"
+                                  Opacity="0.22"
                                   RenderingBias="Performance" />
             </Border.Effect>
         </Border>

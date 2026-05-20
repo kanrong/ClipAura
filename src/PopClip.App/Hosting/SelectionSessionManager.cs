@@ -354,7 +354,7 @@ internal sealed class SelectionSessionManager : IDisposable
         if (OcrLauncher is not null)
         {
             // OCR 入口仅在剪贴板启动器里出现（不进正常选区流程），让用户从一个统一的"修饰键+点击"汇集点访问
-            items.Add(new ToolbarItem("OCR 截选", "Ocr", new DelegateCommand(() =>
+            items.Add(new ToolbarItem("OCR", "Ocr", new DelegateCommand(() =>
             {
                 _toolbar.DismissExternal("ocr-invoked");
                 try { OcrLauncher?.Invoke(); }

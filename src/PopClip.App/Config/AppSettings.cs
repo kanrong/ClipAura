@@ -123,7 +123,7 @@ public sealed class AppSettings
     public ToolbarSurfaceStyle ToolbarSurface { get; set; } = ToolbarSurfaceStyle.Shadow;
 
     public bool FollowAccentColor { get; set; } = true;
-    public double ToolbarCornerRadius { get; set; } = 5;
+    public double ToolbarCornerRadius { get; set; } = 7;
     public double ToolbarButtonSpacing { get; set; } = 0;
     public double ToolbarFontSize { get; set; } = 12;
     public int ToolbarMaxActionsPerRow { get; set; } = 6;

@@ -136,9 +136,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     private Thickness _previewBorderThickness = new(1);
     private double _previewFontSize = 13;
     private double _previewIconFontSize = 15;
-    private double _previewShadowDepth = 2;
+    private double _previewShadowDepth = 1;
     private double _previewShadowBlurRadius = 6;
-    private double _previewShadowOpacity = 0.32;
+    private double _previewShadowOpacity = 0.20;
     private double _previewOpacity = 1.0;
     private Visibility _previewIconVisibility = Visibility.Visible;
     private Visibility _previewTextVisibility = Visibility.Visible;
@@ -1493,14 +1493,14 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
                 ? ToolbarSurfaceStyle.Border
                 : ToolbarSurfaceStyle.ShadowAndBorder;
         // 阴影参数与 FloatingToolbar.ApplySurfaceStyle 严格对齐，
-        // 切换"按钮风格"时预览与浮窗呈现完全相同的"浮起"层次
+        // 切换"按钮风格"时预览与浮窗呈现完全相同的常规层次
         switch (surface)
         {
             case ToolbarSurfaceStyle.Shadow:
                 PreviewBorderThickness = new Thickness(0);
-                PreviewShadowBlurRadius = 10;
-                PreviewShadowDepth = 3;
-                PreviewShadowOpacity = 0.55;
+                PreviewShadowBlurRadius = 9;
+                PreviewShadowDepth = 2;
+                PreviewShadowOpacity = 0.24;
                 break;
             case ToolbarSurfaceStyle.Border:
                 PreviewBorderThickness = new Thickness(1);
@@ -1510,9 +1510,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
                 break;
             default:
                 PreviewBorderThickness = new Thickness(1);
-                PreviewShadowBlurRadius = 8;
-                PreviewShadowDepth = 2;
-                PreviewShadowOpacity = 0.42;
+                PreviewShadowBlurRadius = 7;
+                PreviewShadowDepth = 1;
+                PreviewShadowOpacity = 0.20;
                 break;
         }
     }

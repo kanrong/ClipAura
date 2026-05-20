@@ -263,7 +263,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         UpdateContentClip();
     }
 
-    // 阴影参数策略：加深 Opacity 让"浮起"立体感更明显；
+    // 阴影参数策略：保持接近 Windows 11 普通窗体的轻量层次；
     // 总预算 BlurRadius + ShadowDepth 不超过 ShadowPaddingDip(=12) 避免被透明窗口边界裁切
     private void ApplySurfaceStyle(ToolbarSurfaceStyle style)
     {
@@ -272,11 +272,11 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             switch (style)
             {
                 case ToolbarSurfaceStyle.Shadow:
-                    // 纯阴影：放宽 BlurRadius + 提高 Opacity，叠出明显"浮起"立体感
+                    // 纯阴影：保留柔和投影，但不做强阴影的高对比悬浮感
                     Resources["ToolbarBorderThickness"] = new Thickness(0);
-                    Resources["ToolbarShadowBlurRadius"] = 10d;
-                    Resources["ToolbarShadowDepth"] = 3d;
-                    Resources["ToolbarShadowOpacity"] = 0.55d;
+                    Resources["ToolbarShadowBlurRadius"] = 9d;
+                    Resources["ToolbarShadowDepth"] = 2d;
+                    Resources["ToolbarShadowOpacity"] = 0.24d;
                     break;
                 case ToolbarSurfaceStyle.Border:
                     // 纯细边框：去掉阴影完全避免裁切；边框颜色由 ToolbarBorder 主题切换
@@ -286,11 +286,11 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
                     Resources["ToolbarShadowOpacity"] = 0d;
                     break;
                 default:
-                    // ShadowAndBorder：阴影更深一档，细边框 + 较重阴影构成"漂浮卡片"感
+                    // ShadowAndBorder：细边框负责边界，阴影只给出普通窗口层次
                     Resources["ToolbarBorderThickness"] = new Thickness(1);
-                    Resources["ToolbarShadowBlurRadius"] = 8d;
-                    Resources["ToolbarShadowDepth"] = 2d;
-                    Resources["ToolbarShadowOpacity"] = 0.42d;
+                    Resources["ToolbarShadowBlurRadius"] = 7d;
+                    Resources["ToolbarShadowDepth"] = 1d;
+                    Resources["ToolbarShadowOpacity"] = 0.20d;
                     break;
             }
         });

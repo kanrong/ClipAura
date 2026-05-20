@@ -72,7 +72,7 @@
         </Style>
     </Window.Resources>
 
-    <!-- 外层 6px 留白给阴影；两行 Grid 让 toast 自然从工具栏下方弹出 -->
+    <!-- 外层 6px 留白给普通阴影；两行 Grid 让 toast 自然从工具栏下方弹出 -->
     <Grid Margin="6">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -89,7 +89,7 @@
                 CornerRadius="10"
                 Cursor="SizeAll">
             <Border.Effect>
-                <DropShadowEffect BlurRadius="12" ShadowDepth="2" Direction="270" Opacity="0.42" Color="Black" />
+                <DropShadowEffect BlurRadius="8" ShadowDepth="1" Direction="270" Opacity="0.22" Color="Black" />
             </Border.Effect>
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <!-- 状态胶囊：默认折叠；host 在"已选 N 段 / 翻译中..."等真状态来时显示。
@@ -196,7 +196,7 @@
                 CornerRadius="12"
                 Visibility="Collapsed">
             <Border.Effect>
-                <DropShadowEffect BlurRadius="8" ShadowDepth="2" Direction="270" Opacity="0.35" Color="Black" />
+                <DropShadowEffect BlurRadius="6" ShadowDepth="1" Direction="270" Opacity="0.20" Color="Black" />
             </Border.Effect>
             <TextBlock x:Name="LocalToastText"
                        Foreground="{DynamicResource ToolbarForeground}"

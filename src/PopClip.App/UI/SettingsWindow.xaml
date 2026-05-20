@@ -741,7 +741,7 @@
 
                                     <TextBlock Style="{StaticResource Settings.SectionTitle}" Text="浮窗外缘" Margin="0,18,0,10" />
                                     <WrapPanel>
-                                        <RadioButton x:Name="SurfaceShadow" GroupName="SurfaceStyle" Content="强阴影" Margin="0,0,16,0" />
+                                        <RadioButton x:Name="SurfaceShadow" GroupName="SurfaceStyle" Content="普通阴影" Margin="0,0,16,0" />
                                         <RadioButton x:Name="SurfaceBorder" GroupName="SurfaceStyle" Content="细边框" Margin="0,0,16,0" />
                                         <RadioButton x:Name="SurfaceShadowAndBorder" GroupName="SurfaceStyle" Content="阴影 + 细边框" />
                                     </WrapPanel>

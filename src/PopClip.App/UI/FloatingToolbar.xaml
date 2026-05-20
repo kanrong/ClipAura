@@ -33,14 +33,14 @@
     </Window.Resources>
 
     <!-- Margin 与 FloatingToolbar.xaml.cs ShadowPaddingDip 必须严格相等，否则
-         窗口定位会与阴影外缘错位；这里 12 留给 BlurRadius=10 + Depth=3 的纯阴影模式不被裁切 -->
+         窗口定位会与阴影外缘错位；这里 12 留给常规柔和阴影不被裁切 -->
     <Grid Margin="12"
           SnapsToDevicePixels="True">
         <!-- 阴影底板：fill 必须与主体 ToolbarBackground 同色，主 Border 完全覆盖其填充区，
              只露出 DropShadowEffect 投射出来的柔和阴影。
              这样既不会在主体边缘形成"深色硬边"，也保留主 Border 内文本的 ClearType 渲染。
              CornerRadius 与主 Border 严格一致，避免"内圆外方"双圆角；
-             Direction=270 让阴影自然向下沉，符合人眼对重力光源的预期 -->
+             Direction=270 让阴影自然向下沉，接近 Windows 11 常规窗体阴影的轻量层次 -->
         <Border Background="{DynamicResource ToolbarBackground}"
                 CornerRadius="{DynamicResource ToolbarCornerRadius}"
                 SnapsToDevicePixels="True">

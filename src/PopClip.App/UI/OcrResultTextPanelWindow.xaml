@@ -86,7 +86,7 @@
         </Style>
     </Window.Resources>
 
-    <!-- 外层 6px 留白给阴影 -->
+    <!-- 外层 6px 留白给普通阴影 -->
     <Grid Margin="6">
         <Border x:Name="PanelBorder"
                 Background="{DynamicResource ToolbarToastBackground}"
@@ -94,7 +94,7 @@
                 BorderThickness="1"
                 CornerRadius="10">
             <Border.Effect>
-                <DropShadowEffect BlurRadius="14" ShadowDepth="3" Direction="270" Opacity="0.42" Color="Black" />
+                <DropShadowEffect BlurRadius="8" ShadowDepth="1" Direction="270" Opacity="0.22" Color="Black" />
             </Border.Effect>
             <Grid>
                 <Grid.RowDefinitions>
@@ -217,7 +217,7 @@
                             CornerRadius="12"
                             Visibility="Collapsed">
                         <Border.Effect>
-                            <DropShadowEffect BlurRadius="8" ShadowDepth="2" Direction="270" Opacity="0.35" Color="Black" />
+                            <DropShadowEffect BlurRadius="6" ShadowDepth="1" Direction="270" Opacity="0.20" Color="Black" />
                         </Border.Effect>
                         <TextBlock x:Name="LocalToastText"
                                    Foreground="{DynamicResource ToolbarForeground}"

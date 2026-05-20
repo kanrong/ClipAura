@@ -13,6 +13,14 @@ public sealed class ClipboardAccess
     private readonly ClipboardThread _thread;
     private const int RetryCount = 3;
     private const int RetryDelayMs = 12;
+    private static readonly string[] EncodedImageFormats =
+    {
+        "PNG",
+        "image/png",
+        "JFIF",
+        "JPEG",
+        "image/jpeg",
+    };
 
     public ClipboardAccess(ClipboardThread thread) => _thread = thread;
 
@@ -75,7 +83,12 @@ public sealed class ClipboardAccess
     {
         for (var i = 0; i < RetryCount; i++)
         {
-            try { return WpfClipboard.ContainsImage(); }
+            try
+            {
+                if (WpfClipboard.ContainsImage()) return true;
+                var data = WpfClipboard.GetDataObject();
+                return HasRawImageFormat(data);
+            }
             catch (COMException) { Thread.Sleep(RetryDelayMs); }
             catch (ExternalException) { Thread.Sleep(RetryDelayMs); }
             catch (Exception) { return false; }
@@ -89,21 +102,126 @@ public sealed class ClipboardAccess
         {
             try
             {
+                var data = WpfClipboard.GetDataObject();
+                if (data is null) return null;
+
+                var encoded = TryGetEncodedImageAsPng(data);
+                if (encoded is not null) return encoded;
+
+                var dib = TryGetDibAsPng(data);
+                if (dib is not null) return dib;
+
                 if (!WpfClipboard.ContainsImage()) return null;
                 var image = WpfClipboard.GetImage();
-                if (image is null) return null;
-
-                var encoder = new PngBitmapEncoder();
-                encoder.Frames.Add(BitmapFrame.Create(image));
-                using var ms = new MemoryStream();
-                encoder.Save(ms);
-                return ms.ToArray();
+                return image is null ? null : EncodeBitmapSourceAsPng(image);
             }
             catch (COMException) { Thread.Sleep(RetryDelayMs); }
             catch (ExternalException) { Thread.Sleep(RetryDelayMs); }
             catch (Exception) { return null; }
         }
         return null;
+    }
+
+    private static bool HasRawImageFormat(IDataObject? data)
+    {
+        if (data is null) return false;
+        foreach (var format in EncodedImageFormats)
+        {
+            if (data.GetDataPresent(format, autoConvert: false)) return true;
+        }
+        return data.GetDataPresent(DataFormats.Dib, autoConvert: false)
+               || data.GetDataPresent(DataFormats.Bitmap, autoConvert: false);
+    }
+
+    private static byte[]? TryGetEncodedImageAsPng(IDataObject data)
+    {
+        foreach (var format in EncodedImageFormats)
+        {
+            if (!data.GetDataPresent(format, autoConvert: false)) continue;
+            var bytes = ExtractBytes(data.GetData(format, autoConvert: false));
+            if (bytes is null || bytes.Length == 0) continue;
+            if (format.Equals("PNG", StringComparison.OrdinalIgnoreCase)
+                || format.Equals("image/png", StringComparison.OrdinalIgnoreCase))
+            {
+                return bytes;
+            }
+            return DecodeAndEncodePng(bytes);
+        }
+        return null;
+    }
+
+    private static byte[]? TryGetDibAsPng(IDataObject data)
+    {
+        if (!data.GetDataPresent(DataFormats.Dib, autoConvert: false)) return null;
+        var dib = ExtractBytes(data.GetData(DataFormats.Dib, autoConvert: false));
+        if (dib is null || dib.Length < 40) return null;
+        var bmp = WrapDibAsBmp(dib);
+        return DecodeAndEncodePng(bmp);
+    }
+
+    private static byte[]? ExtractBytes(object? value)
+    {
+        switch (value)
+        {
+            case null:
+                return null;
+            case byte[] bytes:
+                return bytes;
+            case MemoryStream ms:
+                return ms.ToArray();
+            case Stream stream:
+                using (stream)
+                using (var copy = new MemoryStream())
+                {
+                    stream.CopyTo(copy);
+                    return copy.ToArray();
+                }
+            default:
+                return null;
+        }
+    }
+
+    private static byte[]? DecodeAndEncodePng(byte[] encoded)
+    {
+        try
+        {
+            using var ms = new MemoryStream(encoded);
+            var decoder = BitmapDecoder.Create(ms, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            if (decoder.Frames.Count == 0) return null;
+            return EncodeBitmapSourceAsPng(decoder.Frames[0]);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static byte[] WrapDibAsBmp(byte[] dib)
+    {
+        var headerSize = BitConverter.ToInt32(dib, 0);
+        var colorsUsed = dib.Length >= 36 ? BitConverter.ToInt32(dib, 32) : 0;
+        var bitCount = dib.Length >= 16 ? BitConverter.ToUInt16(dib, 14) : (ushort)32;
+        var colorTableBytes = colorsUsed > 0
+            ? colorsUsed * 4
+            : bitCount <= 8 ? (1 << bitCount) * 4 : 0;
+        var pixelOffset = 14 + headerSize + colorTableBytes;
+        var fileSize = 14 + dib.Length;
+        var bmp = new byte[fileSize];
+        bmp[0] = (byte)'B';
+        bmp[1] = (byte)'M';
+        BitConverter.GetBytes(fileSize).CopyTo(bmp, 2);
+        BitConverter.GetBytes(pixelOffset).CopyTo(bmp, 10);
+        Buffer.BlockCopy(dib, 0, bmp, 14, dib.Length);
+        return bmp;
+    }
+
+    private static byte[] EncodeBitmapSourceAsPng(BitmapSource image)
+    {
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(image));
+        using var ms = new MemoryStream();
+        encoder.Save(ms);
+        return ms.ToArray();
     }
 
     private static void SetTextOnSta(string text)

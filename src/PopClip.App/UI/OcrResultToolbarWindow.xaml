@@ -145,6 +145,16 @@
 
                 <Rectangle Style="{StaticResource OcrToolbarSepStyle}" />
 
+                <!-- 原文贴图切换：在结果图对应文本框位置显示 / 隐藏 OCR 原文 -->
+                <Button x:Name="ToggleInlineTextButton"
+                        Style="{StaticResource OcrToolIconButtonStyle}"
+                        Click="OnToggleInlineText"
+                        ToolTip="显示识别原文贴图 · 在结果图对应文本框位置显示 OCR 原文">
+                    <iconPacks:PackIconMaterialDesign x:Name="ToggleInlineTextIcon"
+                                                     Kind="DescriptionRound"
+                                                     Width="16" Height="16" />
+                </Button>
+
                 <!-- 文本面板切换：打开 / 关闭右侧识别文本面板 -->
                 <Button x:Name="ToggleTextPanelButton"
                         Style="{StaticResource OcrToolIconButtonStyle}"

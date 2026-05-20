@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using PopClip.App.Ocr;
 using PopClip.Core.Logging;
 using RapidOcrNet;
@@ -107,17 +108,17 @@ public sealed class RapidOcrProvider : IOcrProvider
         });
     }
 
-    public async Task<OcrResult> RecognizeAsync(byte[] pngBytes, CancellationToken ct)
+    public async Task<OcrResult> RecognizeAsync(OcrImage image, CancellationToken ct)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
-        if (pngBytes is null || pngBytes.Length == 0) return OcrResult.Empty;
+        if (image is null || image.Pixels.Length == 0) return OcrResult.Empty;
         ct.ThrowIfCancellationRequested();
 
         SKBitmap? sk;
-        try { sk = SKBitmap.Decode(pngBytes); }
+        try { sk = CreateSkBitmap(image); }
         catch (Exception ex)
         {
-            _log.Warn("ocr png decode failed", ("id", Id), ("err", ex.Message));
+            _log.Warn("ocr image import failed", ("id", Id), ("err", ex.Message));
             return OcrResult.Empty;
         }
         if (sk is null || sk.IsEmpty || sk.Width < 4 || sk.Height < 4)
@@ -165,6 +166,22 @@ public sealed class RapidOcrProvider : IOcrProvider
                 try { _gate.Release(); } catch (ObjectDisposedException) { }
             }
         }
+    }
+
+    private static SKBitmap CreateSkBitmap(OcrImage image)
+    {
+        if (image.PixelFormat != OcrImagePixelFormat.Bgra32)
+            throw new NotSupportedException($"不支持的 OCR 图像格式：{image.PixelFormat}");
+
+        var info = new SKImageInfo(image.Width, image.Height, SKColorType.Bgra8888, SKAlphaType.Opaque);
+        var sk = new SKBitmap(info);
+        var rowBytes = Math.Min(info.RowBytes, image.Stride);
+        for (var y = 0; y < image.Height; y++)
+        {
+            var dest = IntPtr.Add(sk.GetPixels(), y * info.RowBytes);
+            Marshal.Copy(image.Pixels, y * image.Stride, dest, rowBytes);
+        }
+        return sk;
     }
 
     private OcrResult RunInternal(RapidOcr engine, SKBitmap src)

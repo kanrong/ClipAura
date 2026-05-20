@@ -21,16 +21,21 @@
             BorderThickness="0"
             Background="Transparent">
         <Grid Focusable="True">
-            <!-- 底层：原始截图位图。
-                 轻微变暗 (0.82 不透明度) 让 hover/selected 高亮更醒目，不至于看不清原图 -->
+            <!-- 底层：原始 OCR 图像。窗口保持不透明，避免剪贴板图片像贴在当前桌面上一样产生误读 -->
             <Image x:Name="ScreenshotImage"
-                   Stretch="Fill"
-                   Opacity="0.82" />
+                   Stretch="Fill" />
 
             <!-- 高亮覆盖层：每个 OcrTextBlock 会动态生成一个 Polygon 加入这个 Canvas。
                  位置由 CodeBehind 根据 image-pixel → DIP 缩放算好；Canvas 自身 layout 占满 Grid -->
             <Canvas x:Name="OverlayCanvas"
                     Background="Transparent"
+                    ClipToBounds="True" />
+
+            <!-- 原文贴图层：用户在工具栏打开后，把 OCR 原文显示到对应 block 位置。
+                 独立于高亮层和译文层，避免影响 polygon 命中；译文层位于其上方，可覆盖对应原文 -->
+            <Canvas x:Name="RecognizedTextCanvas"
+                    Background="Transparent"
+                    IsHitTestVisible="False"
                     ClipToBounds="True" />
 
             <!-- 译文覆盖层：inline 翻译时给每个 block 在原 polygon 位置上贴 TextBlock。

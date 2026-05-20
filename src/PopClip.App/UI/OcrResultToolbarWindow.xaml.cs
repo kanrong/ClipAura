@@ -100,6 +100,17 @@ internal partial class OcrResultToolbarWindow : Window
             : "显示识别文本侧边面板 · 整段文字可全选 / 复制";
     }
 
+    /// <summary>同步原文贴图按钮的视觉态：打开时使用 TextFields 图标，关闭时使用文档图标。</summary>
+    public void SetInlineTextVisible(bool visible)
+    {
+        ToggleInlineTextIcon.Kind = visible
+            ? PackIconMaterialDesignKind.TextFieldsRound
+            : PackIconMaterialDesignKind.DescriptionRound;
+        ToggleInlineTextButton.ToolTip = visible
+            ? "隐藏识别原文贴图"
+            : "显示识别原文贴图 · 在结果图对应文本框位置显示 OCR 原文";
+    }
+
     /// <summary>工具栏自己的轻量 toast：用于复制 / 翻译切换等动作的反馈，
     /// 让消息出现在按钮正下方而不是飘到主结果窗中央。1.8 秒后自动隐藏。
     /// 与主窗的 ShowToast 解耦，避免反馈位置离用户操作点过远</summary>
@@ -129,5 +140,6 @@ internal partial class OcrResultToolbarWindow : Window
     private void OnSwitchToQuick(object sender, RoutedEventArgs e) => _host.CommandSwitchToQuick();
     private void OnCloseClicked(object sender, RoutedEventArgs e) => _host.CommandClose();
     private void OnToggleTextPanel(object sender, RoutedEventArgs e) => _host.CommandToggleTextPanel();
+    private void OnToggleInlineText(object sender, RoutedEventArgs e) => _host.CommandToggleInlineText(ShowLocalToast);
     private void OnOpenAiSettings(object sender, RoutedEventArgs e) => _host.CommandOpenAiSettings();
 }

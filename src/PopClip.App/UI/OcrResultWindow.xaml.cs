@@ -1,4 +1,3 @@
-using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -81,6 +80,10 @@ internal partial class OcrResultWindow : Window
     /// 让二次切换译文显示能直接走缓存，免去重新调用 AI</summary>
     private readonly Border?[] _translationOverlays;
 
+    /// <summary>每个 block 对应的 OCR 原文贴图。用于工具栏"显示识别原文"开关，
+    /// 与翻译 overlay 分层，避免翻译切换影响原文贴图偏好。</summary>
+    private readonly Border?[] _recognizedTextOverlays;
+
     /// <summary>每个 block 的译文文本缓存。null = 从未翻译过；非空字符串 = 已翻译过且文本可复用。
     /// 切换"显示译文 → 原文 → 译文"时，第二次切回不需要重新请求 AI；仅当用户主动调 CommandTranslateClear
     /// 清空缓存，或选中段落集合扩张到新的未缓存段时，才会触发新的 AI 请求</summary>
@@ -91,6 +94,9 @@ internal partial class OcrResultWindow : Window
     /// true：译文模式，相关 block 的 overlay 已绘制并可见。
     /// CommandToggleTranslation 翻转此状态机，工具栏按钮图标 / ToolTip 也据此切换</summary>
     private bool _showingTranslation;
+
+    /// <summary>当前是否把 OCR 原文直接贴到结果图对应 block 位置。</summary>
+    private bool _showingInlineText;
 
     /// <summary>当前 selected 状态：bitmap-like 集合，下标对应 _result.Blocks。
     /// 改成 HashSet&lt;int&gt; 也 OK，但 block 一般不超过 100 个，bool[] 更直接。</summary>
@@ -114,7 +120,7 @@ internal partial class OcrResultWindow : Window
     public OcrResultWindow(
         ILog log,
         OcrResult result,
-        byte[] screenshotPng,
+        OcrImage screenshot,
         WinRectangle anchorPhysical,
         uint anchorDpiX,
         uint anchorDpiY,
@@ -142,7 +148,9 @@ internal partial class OcrResultWindow : Window
         _anchorDpiY = anchorDpiY == 0 ? 96 : anchorDpiY;
         _selected = new bool[result.Blocks.Count];
         _translationOverlays = new Border?[result.Blocks.Count];
+        _recognizedTextOverlays = new Border?[result.Blocks.Count];
         _translatedText = new string?[result.Blocks.Count];
+        _showingInlineText = _settings.OcrInlineTextVisible;
 
         InitializeComponent();
 
@@ -165,8 +173,7 @@ internal partial class OcrResultWindow : Window
         Width = Math.Max(120, anchorPhysical.Width / dipScaleX + _borderWidth * 2);
         Height = Math.Max(80, anchorPhysical.Height / dipScaleY + _borderWidth * 2);
 
-        // 加载截图作背景：用 BitmapImage 而不是 BitmapDecoder，让 WPF 自己处理像素格式
-        ScreenshotImage.Source = LoadBitmap(screenshotPng);
+        ScreenshotImage.Source = LoadBitmap(screenshot);
 
         _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1600) };
         _toastTimer.Tick += (_, _) =>
@@ -190,16 +197,37 @@ internal partial class OcrResultWindow : Window
         OverlayCanvas.MouseLeave += OnOverlayMouseLeave;
     }
 
-    private static BitmapSource LoadBitmap(byte[] png)
+    private static BitmapSource LoadBitmap(OcrImage image)
     {
-        using var ms = new MemoryStream(png);
-        var bmp = new BitmapImage();
-        bmp.BeginInit();
-        bmp.CacheOption = BitmapCacheOption.OnLoad;  // 立即加载，安全释放 MemoryStream
-        bmp.StreamSource = ms;
-        bmp.EndInit();
+        if (image.PixelFormat != OcrImagePixelFormat.Bgra32)
+            throw new NotSupportedException($"不支持的 OCR 图像格式：{image.PixelFormat}");
+        var pixels = CopyAsOpaqueBgra32(image);
+        var bmp = BitmapSource.Create(
+            image.Width,
+            image.Height,
+            96,
+            96,
+            PixelFormats.Bgra32,
+            null,
+            pixels,
+            image.Stride);
         bmp.Freeze();
         return bmp;
+    }
+
+    private static byte[] CopyAsOpaqueBgra32(OcrImage image)
+    {
+        var pixels = new byte[checked(image.Stride * image.Height)];
+        Buffer.BlockCopy(image.Pixels, 0, pixels, 0, pixels.Length);
+        for (var y = 0; y < image.Height; y++)
+        {
+            var row = y * image.Stride;
+            for (var x = 0; x < image.Width; x++)
+            {
+                pixels[row + x * 4 + 3] = 255;
+            }
+        }
+        return pixels;
     }
 
     private void OnWindowLoaded(object sender, RoutedEventArgs e)
@@ -212,6 +240,10 @@ internal partial class OcrResultWindow : Window
         UpdateLayout();
 
         BuildPolygons();
+        if (_showingInlineText)
+        {
+            RenderRecognizedTextOverlays();
+        }
 
         // 工具条窗口在主窗 Loaded 之后再 Show：此时主窗 Left/Top/ActualWidth/ActualHeight 都是稳定值，
         // 可以根据主窗位置算出工具条初始位置。
@@ -560,7 +592,27 @@ internal partial class OcrResultWindow : Window
         }
     }
 
-    /// <summary>Image / OverlayCanvas / TranslationCanvas 这些渲染层在 WindowBorderFrame 内部，
+    /// <summary>工具栏按钮触发：显示 / 隐藏结果图上的 OCR 原文贴图，并写回用户偏好。</summary>
+    public void CommandToggleInlineText(Action<string>? toastSink = null)
+    {
+        _showingInlineText = !_showingInlineText;
+        if (_showingInlineText)
+        {
+            RenderRecognizedTextOverlays();
+            toastSink?.Invoke("已显示识别原文贴图");
+        }
+        else
+        {
+            HideRecognizedTextOverlays();
+            toastSink?.Invoke("已隐藏识别原文贴图");
+        }
+
+        _settings.OcrInlineTextVisible = _showingInlineText;
+        _saveSettings?.Invoke();
+        UpdateStatusBar();
+    }
+
+    /// <summary>Image / OverlayCanvas / RecognizedTextCanvas / TranslationCanvas 这些渲染层在 WindowBorderFrame 内部，
     /// 它们的可用尺寸 = Window 总尺寸 - 边框（两侧各占 _borderWidth）。
     /// polygon / 译文覆盖等所有空间映射统一用这个 inner size，否则 bordered 模式下会偏移、错位</summary>
     private (double Width, double Height) GetInnerSize()
@@ -1069,6 +1121,77 @@ internal partial class OcrResultWindow : Window
         }
     }
 
+    private void RenderRecognizedTextOverlays()
+    {
+        HideRecognizedTextOverlays();
+        for (var i = 0; i < _result.Blocks.Count; i++)
+        {
+            RenderRecognizedTextOverlay(i);
+        }
+    }
+
+    private void HideRecognizedTextOverlays()
+    {
+        for (var i = 0; i < _recognizedTextOverlays.Length; i++)
+        {
+            if (_recognizedTextOverlays[i] is { } b)
+            {
+                RecognizedTextCanvas.Children.Remove(b);
+                _recognizedTextOverlays[i] = null;
+            }
+        }
+    }
+
+    /// <summary>把 OCR 原文贴到对应 block 的 AABB 区域，方便用户直接核对识别文本与图像位置。</summary>
+    private void RenderRecognizedTextOverlay(int blockIndex)
+    {
+        if (blockIndex < 0 || blockIndex >= _result.Blocks.Count) return;
+        if (_result.SourceWidth <= 0 || _result.SourceHeight <= 0) return;
+
+        var text = _result.Blocks[blockIndex].Text.Trim();
+        if (string.IsNullOrEmpty(text)) return;
+
+        var (innerW, innerH) = GetInnerSize();
+        double sx = innerW / _result.SourceWidth;
+        double sy = innerH / _result.SourceHeight;
+        var (l, t, r, b) = _result.Blocks[blockIndex].Box.AABB();
+        double left = l * sx;
+        double top = t * sy;
+        double width = Math.Max(20, (r - l) * sx);
+        double height = Math.Max(12, (b - t) * sy);
+        double fontSize = Math.Max(8, Math.Min(34, height * 0.60));
+
+        var tb = new TextBlock
+        {
+            Text = text,
+            FontSize = fontSize,
+            FontFamily = (FontFamily?)TryFindResource("ToolbarFontFamily") ?? new FontFamily("Segoe UI"),
+            Foreground = (Brush?)TryFindResource("ToolbarForeground") ?? Brushes.White,
+            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(4, 0, 4, 0),
+        };
+
+        var border = new Border
+        {
+            Width = width,
+            Height = height,
+            Background = (Brush?)TryFindResource("ToolbarToastBackground") ?? Brushes.Black,
+            BorderBrush = (Brush?)TryFindResource("ToolbarAccentSoft") ?? Brushes.SteelBlue,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(2),
+            Opacity = 0.94,
+            Child = tb,
+            ToolTip = text,
+        };
+        Canvas.SetLeft(border, left);
+        Canvas.SetTop(border, top);
+        RecognizedTextCanvas.Children.Add(border);
+        _recognizedTextOverlays[blockIndex] = border;
+    }
+
     /// <summary>给指定 block 的 polygon 位置贴一个译文 Border：
     /// 用 polygon 的 AABB 作为定位基准（足够覆盖原文），背景用主题色不透明遮住原文，
     /// 文本字号按 AABB 高度 * 0.62 自适应让单行刚好填满。
@@ -1252,6 +1375,7 @@ internal partial class OcrResultWindow : Window
         _toolbarWindow?.SetCopyAllEnabled(total > 0);
         _toolbarWindow?.SetTranslateToggleEnabled(total > 0 && !_translating);
         _toolbarWindow?.SetTranslateToggleShowingTranslation(_showingTranslation);
+        _toolbarWindow?.SetInlineTextVisible(_showingInlineText);
 
         // 选区变化时同步刷新文本面板内容（仅当面板已经打开）
         if (_textPanelWindow is not null && _textPanelWindow.Visibility == Visibility.Visible)

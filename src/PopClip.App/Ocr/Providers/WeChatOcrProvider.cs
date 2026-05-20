@@ -143,19 +143,16 @@ internal sealed class WeChatOcrProvider : IOcrProvider
     /// 让用户承担第一次 OCR 的 ~1.5 秒冷启动反而更可控。</summary>
     public void PrewarmInBackground() { /* no-op by design */ }
 
-    public async Task<OcrResult> RecognizeAsync(byte[] pngBytes, CancellationToken ct)
+    public async Task<OcrResult> RecognizeAsync(OcrImage image, CancellationToken ct)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
-        if (pngBytes is null || pngBytes.Length == 0) return OcrResult.Empty;
+        if (image is null || image.Pixels.Length == 0) return OcrResult.Empty;
         if (!IsAvailable)
             throw new InvalidOperationException($"WeChat OCR 不可用：{UnavailableReason}");
         ct.ThrowIfCancellationRequested();
 
         var paths = _cachedPaths!; // IsAvailable=true 保证非 null
-
-        // 从 PNG 头部读出尺寸（不解码像素），用于在 JSON 缺失 width/height 字段时给 OcrResult 填一个回退值。
-        // PNG IHDR 在文件偏移 [16..23]，big-endian uint32 width / height
-        var (pngW, pngH) = TryReadPngSize(pngBytes);
+        var pngBytes = image.GetPngBytes();
 
         var tempPng = Path.Combine(Path.GetTempPath(), $"clipaura_wcocr_{Guid.NewGuid():N}.png");
         try
@@ -168,7 +165,7 @@ internal sealed class WeChatOcrProvider : IOcrProvider
             {
                 // 同步阻塞 native 调用挂到线程池，让出 UI 线程；超时由调用方 ct 控制。
                 // 注意：调用方取消后 native 仍在跑（wcocr 不支持中断），所以 _gate 直到 native 返回才会被释放
-                var runTask = Task.Run(() => InvokeNative(paths, tempPng, pngW, pngH), CancellationToken.None);
+                var runTask = Task.Run(() => InvokeNative(paths, tempPng, image.Width, image.Height), CancellationToken.None);
 
                 var winner = await Task.WhenAny(runTask, Task.Delay(Timeout.Infinite, ct)).ConfigureAwait(false);
                 if (winner != runTask)
@@ -396,20 +393,6 @@ internal sealed class WeChatOcrProvider : IOcrProvider
         if (v.ValueKind == JsonValueKind.Number) return (float)v.GetDouble();
         if (v.ValueKind == JsonValueKind.String && float.TryParse(v.GetString(), out var s)) return s;
         return null;
-    }
-
-    /// <summary>从 PNG 文件头读出 width/height，不解码像素。
-    /// PNG 签名 8 字节 + IHDR 长度 4 字节 + "IHDR" 4 字节 + width 4 字节 BE + height 4 字节 BE。
-    /// 即 offset 16..19 = width, 20..23 = height。
-    /// 不抛异常：失败返回 (0,0)，让上层用 polygon 兜底的整图框。</summary>
-    private static (int W, int H) TryReadPngSize(byte[] png)
-    {
-        if (png is null || png.Length < 24) return (0, 0);
-        // 没必要校验签名：长度够 24 字节就直接读 IHDR
-        int w = (png[16] << 24) | (png[17] << 16) | (png[18] << 8) | png[19];
-        int h = (png[20] << 24) | (png[21] << 16) | (png[22] << 8) | png[23];
-        if (w <= 0 || h <= 0 || w > 65536 || h > 65536) return (0, 0);
-        return (w, h);
     }
 
     public void Dispose()

@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using PopClip.App.Config;
 using PopClip.App.Ocr;
@@ -8,6 +9,7 @@ using PopClip.App.Services;
 using PopClip.App.UI;
 using PopClip.Core.Logging;
 using PopClip.Core.Model;
+using PopClip.Hooks.Interop;
 using PopClip.Hooks.Window;
 using PopClip.Ocr.Layout;
 using PopClip.Uia.Clipboard;
@@ -21,7 +23,7 @@ namespace PopClip.App.Hosting;
 /// 同一时刻只允许有一个截图会话：用户在窗口已经打开时再次按热键不会叠开第二个窗口。
 ///
 /// OCR 后端通过 <see cref="OcrProviderRegistry"/> 动态选择：用户在设置里选哪个就用哪个，
-/// "自动"模式按 Priority 倒序选第一个 IsAvailable 的。每次 Trigger / RecognizeBitmapAsync
+/// "自动"模式按 Priority 倒序选第一个 IsAvailable 的。每次 Trigger / RecognizeImageAsync
 /// 都重新 PickActive，所以用户在运行期间切换 provider / 修复缺失文件后无需重启即可生效。</summary>
 internal sealed class OcrCaptureCoordinator
 {
@@ -126,14 +128,14 @@ internal sealed class OcrCaptureCoordinator
             // 80 ms ≈ 5 帧，足够覆盖普通显示刷新率甚至 30Hz 远程会话
             await Task.Delay(80).ConfigureAwait(false);
 
-            using var bitmap = new Bitmap(physical.Width, physical.Height, PixelFormat.Format24bppRgb);
+            using var bitmap = new Bitmap(physical.Width, physical.Height, PixelFormat.Format32bppArgb);
             using (var g = Graphics.FromImage(bitmap))
             {
                 g.CopyFromScreen(physical.Left, physical.Top, 0, 0, bitmap.Size);
             }
 
             var anchorRect = new SelectionRect(physical.Left, physical.Top, physical.Right, physical.Bottom);
-            await RecognizeBitmapAsync(bitmap, anchorRect, $"{physical.Width}x{physical.Height}").ConfigureAwait(false);
+            await RecognizeImageAsync(CreateOcrImage(bitmap), anchorRect, $"{physical.Width}x{physical.Height}").ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -163,7 +165,9 @@ internal sealed class OcrCaptureCoordinator
             using var ms = new MemoryStream(pngBytes);
             using var decoded = new Bitmap(ms);
             using var bitmap = new Bitmap(decoded);
-            await RecognizeBitmapAsync(bitmap, anchorRect, "clipboard-image").ConfigureAwait(false);
+            var image = CreateOcrImage(bitmap, pngFactory: () => pngBytes);
+            var displayRect = CreateClipboardImageDisplayRect(image, anchorRect);
+            await RecognizeImageAsync(image, displayRect, "clipboard-image").ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -179,7 +183,7 @@ internal sealed class OcrCaptureCoordinator
         }
     }
 
-    private async Task RecognizeBitmapAsync(Bitmap bitmap, SelectionRect anchorRect, string source)
+    private async Task RecognizeImageAsync(OcrImage image, SelectionRect anchorRect, string source)
     {
         var provider = _registry.PickActive();
         if (provider is null)
@@ -195,20 +199,12 @@ internal sealed class OcrCaptureCoordinator
             ShowAnchoredToast($"文字识别中… ", anchorRect, isError: false, durationMs: 1500);
         }
 
-        // Bitmap → PNG bytes：跨 provider 统一输入。PNG 编码 ~10-30 ms，相对 OCR 本身的 300 ms 可忽略
-        byte[] pngBytes;
-        using (var ms = new MemoryStream())
-        {
-            bitmap.Save(ms, ImageFormat.Png);
-            pngBytes = ms.ToArray();
-        }
-
         // 超时给 30 秒：冷启动 + 大图识别 + WeChat 子进程通信极端情况下也够用
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         OcrResult result;
         try
         {
-            result = await provider.RecognizeAsync(pngBytes, cts.Token).ConfigureAwait(false);
+            result = await provider.RecognizeAsync(image, cts.Token).ConfigureAwait(false);
         }
         catch (InvalidOperationException ex)
         {
@@ -239,7 +235,7 @@ internal sealed class OcrCaptureCoordinator
             // iOS 风格：弹结果窗在截图位置上叠加高亮，用户点选 / 框选 / 复制。
             // 剪贴板与浮窗气泡都不在这条路径触发，所有反馈走结果窗内部；
             // 但允许结果窗按用户意愿"临时切到 Quick 输出"，传 quickFallback 回调让它能调用同一套 Quick 渲染
-            ShowInteractiveResult(result, pngBytes, anchorRect, fullText,
+            ShowInteractiveResult(result, image, anchorRect, fullText,
                 quickFallback: text => RenderQuickResult(text, anchorRect, provider.DisplayName));
             return;
         }
@@ -252,7 +248,7 @@ internal sealed class OcrCaptureCoordinator
     ///
     /// 抽出为独立方法是为了让 Interactive 结果窗的"Quick 输出"按钮能复用同一套展示，
     /// 而不需要重新走一遍 RecognizeAsync。两种触发：
-    /// 1) settings.OcrResultMode == Quick 时 RecognizeBitmapAsync 直接调；
+    /// 1) settings.OcrResultMode == Quick 时 RecognizeImageAsync 直接调；
     /// 2) settings.OcrResultMode == Interactive 时，用户在结果窗点"Quick 输出" → quickFallback 回调。
     ///    结果窗会接收已按 OCR 版面分析过的全文，Quick 输出不再重复整理。
     ///
@@ -313,7 +309,7 @@ internal sealed class OcrCaptureCoordinator
     /// 而不是浮窗当前 PresentationSource 的 DPI —— 副屏框选 + 浮窗在主屏时两者不同，
     /// 后者会让结果窗按主屏 DIP 解读跑回主屏。OcrResultWindow 内部用 Win32 SetWindowPos
     /// 物理像素绝对定位，跟 FloatingToolbar / ToolbarToastWindow 走同一条多屏正确路径</summary>
-    private void ShowInteractiveResult(OcrResult result, byte[] pngBytes, SelectionRect anchorPhysical, string layoutFullText, Action<string> quickFallback)
+    private void ShowInteractiveResult(OcrResult result, OcrImage image, SelectionRect anchorPhysical, string layoutFullText, Action<string> quickFallback)
     {
         WpfApplication.Current.Dispatcher.Invoke(() =>
         {
@@ -333,7 +329,7 @@ internal sealed class OcrCaptureCoordinator
                 _resultWindow = null;
             }
 
-            var win = new OcrResultWindow(_log, result, pngBytes, anchorRectangle,
+            var win = new OcrResultWindow(_log, result, image, anchorRectangle,
                 monitor.DpiX, monitor.DpiY,
                 _clipboard,
                 _settings, _aiText,
@@ -351,6 +347,102 @@ internal sealed class OcrCaptureCoordinator
             win.Show();
             win.Activate();
         });
+    }
+
+    private static OcrImage CreateOcrImage(Bitmap bitmap, Func<byte[]>? pngFactory = null)
+    {
+        var rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
+        using var normalized = bitmap.PixelFormat == PixelFormat.Format32bppArgb
+            ? null
+            : bitmap.Clone(rect, PixelFormat.Format32bppArgb);
+        var source = normalized ?? bitmap;
+        var data = source.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        try
+        {
+            var stride = Math.Abs(data.Stride);
+            var pixels = new byte[stride * source.Height];
+            if (data.Stride > 0)
+            {
+                Marshal.Copy(data.Scan0, pixels, 0, pixels.Length);
+            }
+            else
+            {
+                for (var y = 0; y < source.Height; y++)
+                {
+                    var row = IntPtr.Add(data.Scan0, data.Stride * y);
+                    Marshal.Copy(row, pixels, y * stride, stride);
+                }
+            }
+            return new OcrImage(
+                source.Width,
+                source.Height,
+                OcrImagePixelFormat.Bgra32,
+                pixels,
+                stride,
+                pngFactory ?? (() => EncodePngFromBgra32(source.Width, source.Height, pixels, stride)));
+        }
+        finally
+        {
+            source.UnlockBits(data);
+        }
+    }
+
+    private static byte[] EncodePngFromBgra32(int width, int height, byte[] pixels, int stride)
+    {
+        using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        var rect = new Rectangle(0, 0, width, height);
+        var data = bitmap.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+        try
+        {
+            var destStride = Math.Abs(data.Stride);
+            var rowBytes = width * 4;
+            for (var y = 0; y < height; y++)
+            {
+                var dest = data.Stride > 0
+                    ? IntPtr.Add(data.Scan0, y * data.Stride)
+                    : IntPtr.Add(data.Scan0, (height - 1 - y) * destStride);
+                Marshal.Copy(pixels, y * stride, dest, rowBytes);
+            }
+        }
+        finally
+        {
+            bitmap.UnlockBits(data);
+        }
+
+        using var ms = new MemoryStream();
+        bitmap.Save(ms, ImageFormat.Png);
+        return ms.ToArray();
+    }
+
+    private static SelectionRect CreateClipboardImageDisplayRect(OcrImage image, SelectionRect fallbackAnchor)
+    {
+        MonitorMetrics monitor;
+        if (NativeMethods.GetCursorPos(out var pt))
+        {
+            monitor = MonitorQuery.FromPoint(pt.X, pt.Y);
+        }
+        else
+        {
+            monitor = MonitorQuery.FromRect(
+                fallbackAnchor.Left, fallbackAnchor.Top,
+                fallbackAnchor.Right, fallbackAnchor.Bottom);
+        }
+
+        var workWidth = Math.Max(1, monitor.WorkWidth);
+        var workHeight = Math.Max(1, monitor.WorkHeight);
+        var marginX = Math.Max(24, (int)Math.Round(workWidth * 0.08));
+        var marginY = Math.Max(24, (int)Math.Round(workHeight * 0.08));
+        var maxWidth = Math.Min(workWidth, Math.Max(120, workWidth - marginX * 2));
+        var maxHeight = Math.Min(workHeight, Math.Max(80, workHeight - marginY * 2));
+        var scale = Math.Min(1.0, Math.Min(maxWidth / (double)image.Width, maxHeight / (double)image.Height));
+        var width = Math.Max(1, (int)Math.Round(image.Width * scale));
+        var height = Math.Max(1, (int)Math.Round(image.Height * scale));
+
+        var left = monitor.WorkLeft + (workWidth - width) / 2;
+        var top = monitor.WorkTop + (workHeight - height) / 2;
+        left = Math.Clamp(left, monitor.WorkLeft, monitor.WorkRight - width);
+        top = Math.Clamp(top, monitor.WorkTop, monitor.WorkBottom - height);
+        return new SelectionRect(left, top, left + width, top + height);
     }
 
     /// <summary>给 Quick 模式气泡返回一个"翻译当前正文"的回调。

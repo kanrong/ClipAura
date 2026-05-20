@@ -195,6 +195,10 @@ public sealed class AppSettings
     /// 工具条的显示/隐藏按钮会实时写回此值，下次 OCR 结果窗按上次状态恢复。</summary>
     public bool OcrTextPanelVisible { get; set; } = true;
 
+    /// <summary>Interactive 模式结果窗是否在原图对应位置直接显示 OCR 原文。
+    /// 工具条切换后写回配置，下次 OCR 结果窗按上次状态恢复。</summary>
+    public bool OcrInlineTextVisible { get; set; } = false;
+
     // ================== 浮窗自动消失触发条件 ==================
     // 鼠标离开浮窗一段时间后自动关闭
     public bool DismissOnMouseLeave { get; set; } = true;

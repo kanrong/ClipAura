@@ -7,7 +7,7 @@ namespace PopClip.App.Ocr;
 ///   存在来决定 IsAvailable。用户复制文件即可启用，无需重启甚至无需重装；
 /// - 启动时所有 provider 都被实例化、自检 IsAvailable，但绝不在构造里加载 native（保持启动期 < 100 ms）；
 /// - 真正的 native 加载发生在 PrewarmInBackground 或第一次 RecognizeAsync 触发的 EnsureEngine 中；
-/// - 输入用 PNG bytes 而非 System.Drawing.Bitmap：让接口跨 GUI / CLI 通用，调用方负责一次 Bitmap.Save。
+/// - 输入用 OcrImage 携带 raw pixels；需要文件输入的 provider 再按需取 PNG，避免内存型 OCR 反复编解码。
 ///
 /// 物理分发：本接口编译进 PopClip.App.Ocr.Abstractions.dll，主程序与所有 OCR plugin 都引用同一份，
 /// 这样 plugin 加载后主程序能跨 AssemblyLoadContext 直接 cast 成 IOcrProvider。</summary>
@@ -46,8 +46,7 @@ public interface IOcrProvider : IDisposable
     /// <summary>执行 OCR 识别，返回结构化结果（含每段文字 + 在原图中的位置）。
     ///
     /// 入参：
-    /// - pngBytes：PNG 编码的图片数据；调用方负责把 Bitmap / SKBitmap / 文件流转 PNG bytes。
-    ///   选 PNG 而非 raw 像素的原因：通用、自带尺寸信息、对各 provider（含写临时文件的 WeChat）都最方便。
+    /// - image：OCR 输入图。内存型 provider 直接读取 Pixels；文件型 provider 可调用 GetPngBytes()。
     /// - ct：调用方可在超时 / 用户取消时取消等待；provider 内部如果 native 不可中断，
     ///   应该让 native 继续跑完但不再持有任何 UI / disposable 资源（参考 RapidOcrProvider 的 ContinueWith 模式）。
     ///
@@ -56,5 +55,5 @@ public interface IOcrProvider : IDisposable
     ///   想"只要文字"的调用方读 FullText 即可，等价于旧 API；
     /// - 没识别到内容：返回 OcrResult.Empty（Blocks=空，FullText=""），不抛异常；
     /// - 严重失败（IsAvailable=false / native 异常）抛 InvalidOperationException，不返回 fallback。</summary>
-    Task<OcrResult> RecognizeAsync(byte[] pngBytes, CancellationToken ct);
+    Task<OcrResult> RecognizeAsync(OcrImage image, CancellationToken ct);
 }

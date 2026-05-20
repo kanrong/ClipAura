@@ -17,7 +17,7 @@ namespace PopClip.App.UI;
 /// 设为前台，否则会出现"菜单点旁边不消失"的经典 Win32 行为（参见 MS KB135788）</summary>
 internal sealed class TrayController : INotificationSink, IDisposable
 {
-    private const long SettingsOpenCooldownMs = 300;
+    private const long TrayClickCooldownMs = 300;
 
     private readonly ILog _log;
     private readonly PauseState _pause;
@@ -25,13 +25,14 @@ internal sealed class TrayController : INotificationSink, IDisposable
     private ContextMenu? _menu;
     private MenuItem? _pauseItem;
     private ContextMenuHostWindow? _menuHost;
-    private long _lastSettingsRequestTick;
+    private long _lastTrayClickTick;
 
     public event Action<bool>? OnPauseChanged;
     /// <summary>请求显示设置窗口。参数为初始页 tag，传 null 表示打开默认页</summary>
     public event Action<string?>? OnSettingsRequested;
     public event Action? OnExitRequested;
     public event Action? OnClipboardHistoryRequested;
+    public event Action? OnLeftClickRequested;
 
     public TrayController(ILog log, PauseState pause)
     {
@@ -96,12 +97,15 @@ internal sealed class TrayController : INotificationSink, IDisposable
     private void OnTrayLeftClicked()
     {
         var now = Environment.TickCount64;
-        if (now - _lastSettingsRequestTick < SettingsOpenCooldownMs) return;
-        _lastSettingsRequestTick = now;
-        OnSettingsRequested?.Invoke(null);
+        if (now - _lastTrayClickTick < TrayClickCooldownMs) return;
+        _lastTrayClickTick = now;
+        OnLeftClickRequested?.Invoke();
     }
 
     private void OnTrayRightClicked(int screenX, int screenY)
+        => ShowMenuAtCursor();
+
+    public void ShowMenuAtCursor()
     {
         if (_menu is null || _menuHost is null) return;
         System.Windows.Application.Current?.Dispatcher.Invoke(() =>

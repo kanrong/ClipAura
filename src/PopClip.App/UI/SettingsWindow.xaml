@@ -356,6 +356,20 @@
                                     <ui:ToggleSwitch x:Name="LaunchAtStartup"
                                                      Content="开机自启"
                                                      Margin="0,2,0,10" />
+                                    <StackPanel Margin="0,10,0,0">
+                                        <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="点击托盘图标" />
+                                        <ComboBox x:Name="TrayClickActionBox"
+                                                  Width="220"
+                                                  HorizontalAlignment="Left">
+                                            <ComboBoxItem Content="显示菜单" Tag="Menu" />
+                                            <ComboBoxItem Content="OCR 识别" Tag="Ocr" />
+                                            <ComboBoxItem Content="剪贴板历史" Tag="ClipboardHistory" />
+                                            <ComboBoxItem Content="显示快捷工具栏" Tag="Launcher" />
+                                            <ComboBoxItem Content="打开设置" Tag="Settings" />
+                                            <ComboBoxItem Content="暂停 / 恢复" Tag="TogglePause" />
+                                            <ComboBoxItem Content="无操作" Tag="None" />
+                                        </ComboBox>
+                                    </StackPanel>
                                     <Grid Margin="0,10,0,0">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />

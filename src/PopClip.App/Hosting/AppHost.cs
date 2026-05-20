@@ -100,6 +100,7 @@ internal sealed class AppHost : IDisposable
         _tray = new TrayController(_log, _pause);
         _tray.OnSettingsRequested += tag => ShowSettingsWindow(tag);
         _tray.OnClipboardHistoryRequested += OpenClipboardHistory;
+        _tray.OnLeftClickRequested += HandleTrayLeftClick;
         _tray.OnExitRequested += () => WpfApplication.Current.Shutdown();
         _tray.Show();
 
@@ -305,6 +306,37 @@ internal sealed class AppHost : IDisposable
             _tray?.SetPausedLabel(paused);
             if (paused) _toolbar?.DismissExternal("pause-hotkey");
             else _toolbar?.ShowInlineToast("已恢复 ✓");
+        });
+    }
+
+    private void HandleTrayLeftClick()
+    {
+        WpfApplication.Current?.Dispatcher.Invoke(() =>
+        {
+            switch (_settings?.TrayClickAction ?? TrayClickAction.Menu)
+            {
+                case TrayClickAction.Ocr:
+                    _ocrCoordinator?.Trigger();
+                    break;
+                case TrayClickAction.ClipboardHistory:
+                    OpenClipboardHistory();
+                    break;
+                case TrayClickAction.Launcher:
+                    _session?.ShowLauncherAtCursor();
+                    break;
+                case TrayClickAction.Settings:
+                    ShowSettingsWindow(null);
+                    break;
+                case TrayClickAction.TogglePause:
+                    TogglePauseFromHotKey();
+                    break;
+                case TrayClickAction.None:
+                    break;
+                case TrayClickAction.Menu:
+                default:
+                    _tray?.ShowMenuAtCursor();
+                    break;
+            }
         });
     }
 

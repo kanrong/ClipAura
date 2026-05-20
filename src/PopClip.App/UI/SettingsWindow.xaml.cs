@@ -253,6 +253,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         WhitelistRadio.IsChecked = !_settings.BlacklistMode;
         FullScreenSuppress.IsChecked = _settings.SuppressOnFullScreen;
         LaunchAtStartup.IsChecked = _settings.LaunchAtStartup;
+        SelectComboByTag(TrayClickActionBox, _settings.TrayClickAction.ToString());
         MinTextLengthBox.Value = _settings.MinTextLength;
         MaxTextLengthBox.Value = _settings.MaxTextLength;
 
@@ -612,7 +613,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     {
         var entries = new[]
         {
-            ("General", "通用 全屏 开机 自启 触发 延迟 悬停 修饰键 快捷键"),
+            ("General", "通用 全屏 开机 自启 托盘 点击 菜单 OCR 剪贴板 暂停 触发 延迟 悬停 修饰键 快捷键"),
             ("Appearance", "外观 主题 深色 浅色 自动 强调色 阴影 边框 圆角 间距 字号"),
             ("Actions", "动作 添加 内置 URL AI Prompt 模板 图标 排序"),
             ("Processes", "进程 过滤 黑名单 白名单 最近活动窗口"),
@@ -1188,6 +1189,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         _settings.BlacklistMode = BlacklistRadio.IsChecked == true;
         _settings.SuppressOnFullScreen = FullScreenSuppress.IsChecked == true;
         _settings.LaunchAtStartup = LaunchAtStartup.IsChecked == true;
+        _settings.TrayClickAction = Enum.TryParse<TrayClickAction>(SelectedTag(TrayClickActionBox), out var trayClickAction)
+            ? trayClickAction
+            : TrayClickAction.Menu;
         _settings.MinTextLength = NumberBoxInt(MinTextLengthBox, _settings.MinTextLength, 1, 100_000);
         _settings.MaxTextLength = NumberBoxInt(MaxTextLengthBox, _settings.MaxTextLength, _settings.MinTextLength, 300_000);
         _settings.ProcessFilter = ProcessFilters
@@ -1541,7 +1545,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
             DensityCompact, DensityStandard, DensityComfortable);
 
         // ComboBox SelectionChanged
-        AttachCombo(RequiredModifierBox, QuickClickModifierBox, AiThinkingModeBox, LogLevelBox);
+        AttachCombo(TrayClickActionBox, RequiredModifierBox, QuickClickModifierBox, AiThinkingModeBox, LogLevelBox);
         // PopupModeBox 已挂 OnPopupModeChanged，再补一个 commit 即可（多 handler 共存不冲突）
         PopupModeBox.SelectionChanged += OnInstantCommit;
 

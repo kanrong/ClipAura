@@ -76,6 +76,17 @@ public enum AiThinkingMode
     Deep,
 }
 
+public enum TrayClickAction
+{
+    Menu,
+    Ocr,
+    ClipboardHistory,
+    Launcher,
+    Settings,
+    TogglePause,
+    None,
+}
+
 /// <summary>整个应用的用户配置</summary>
 public sealed class AppSettings
 {
@@ -100,6 +111,7 @@ public sealed class AppSettings
     public bool LaunchAtStartup { get; set; } = true;
     public bool FirstRunCompleted { get; set; }
     public LogLevel LogLevel { get; set; } = LogLevel.Warn;
+    public TrayClickAction TrayClickAction { get; set; } = TrayClickAction.Menu;
 
     /// <summary>浮窗按钮显示方式，默认图标+文字</summary>
     public ToolbarDisplayMode ToolbarDisplay { get; set; } = ToolbarDisplayMode.IconOnly;

@@ -37,6 +37,7 @@ internal partial class OcrResultWindow : Window
 {
     private readonly ILog _log;
     private readonly OcrResult _result;
+    private readonly OcrImage _screenshot;
     private readonly ClipboardWriter _clipboard;
     private readonly AppSettings _settings;
     private readonly AiTextService? _aiText;
@@ -135,6 +136,7 @@ internal partial class OcrResultWindow : Window
     {
         _log = log;
         _result = result;
+        _screenshot = screenshot;
         _clipboard = clipboard;
         _settings = settings;
         _aiText = aiText;
@@ -938,6 +940,21 @@ internal partial class OcrResultWindow : Window
         }
         CopyTextSilently(text);
         sink($"已复制全部 / {text.Length} 字");
+    }
+
+    public void CommandCopyScreenshot(Action<string>? toastSink = null)
+    {
+        var sink = toastSink ?? ShowToast;
+        try
+        {
+            _clipboard.SetImagePngBytes(_screenshot.GetPngBytes());
+            sink("截图已复制");
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("ocr screenshot copy failed", ("err", ex.Message));
+            sink("复制截图失败：" + ex.Message);
+        }
     }
 
     public void CommandClose() => CloseSelf("command");

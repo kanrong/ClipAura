@@ -30,4 +30,13 @@ internal sealed class ClipboardWriter : IClipboardWriter
         }
         catch (Exception ex) { _log.Warn("clipboard writer failed", ("err", ex.Message)); }
     }
+
+    public void SetImagePngBytes(byte[] pngBytes)
+    {
+        try
+        {
+            _clipboard.SetImagePngBytes(pngBytes);
+        }
+        catch (Exception ex) { _log.Warn("clipboard image writer failed", ("err", ex.Message)); }
+    }
 }

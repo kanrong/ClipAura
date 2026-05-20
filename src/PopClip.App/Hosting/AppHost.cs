@@ -165,12 +165,14 @@ internal sealed class AppHost : IDisposable
             saveSettings: () => _store?.SaveSettings(_settings));
         // 暴露给快速启动器用作 OCR 按钮的点击回调
         _session.OcrLauncher = () => _ocrCoordinator?.Trigger();
+        _session.ScreenshotLauncher = () => _ocrCoordinator?.TriggerScreenshot();
         _session.ClipboardImageOcrLauncher = anchor => _ocrCoordinator?.TriggerClipboardImage(anchor);
 
         _hotkeys = new HotKeyManager(_log);
         _hotkeys.PauseRequested += TogglePauseFromHotKey;
         _hotkeys.ToolbarRequested += () => _session?.ShowLauncherAtCursor();
         _hotkeys.OcrRequested += () => _ocrCoordinator?.Trigger();
+        _hotkeys.ScreenshotRequested += () => _ocrCoordinator?.TriggerScreenshot();
         _hotkeys.Apply(_settings);
 
         // toolbar 构造完成后才能注册依赖它的事件

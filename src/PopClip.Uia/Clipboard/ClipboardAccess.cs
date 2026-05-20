@@ -38,6 +38,8 @@ public sealed class ClipboardAccess
 
     public void SetText(string text) => _thread.Invoke(() => SetTextOnSta(text));
 
+    public void SetImagePngBytes(byte[] pngBytes) => _thread.Invoke(() => SetImagePngBytesOnSta(pngBytes));
+
     public void Clear() => _thread.Invoke(() =>
     {
         for (var i = 0; i < RetryCount; i++)
@@ -235,6 +237,33 @@ public sealed class ClipboardAccess
             }
             catch (COMException) { Thread.Sleep(RetryDelayMs); }
             catch (ExternalException) { Thread.Sleep(RetryDelayMs); }
+        }
+    }
+
+    private static void SetImagePngBytesOnSta(byte[] pngBytes)
+    {
+        if (pngBytes is null || pngBytes.Length == 0) return;
+
+        for (var i = 0; i < RetryCount; i++)
+        {
+            try
+            {
+                using var decode = new MemoryStream(pngBytes);
+                var decoder = BitmapDecoder.Create(decode, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                if (decoder.Frames.Count == 0) return;
+                var frame = decoder.Frames[0];
+                frame.Freeze();
+
+                var data = new DataObject();
+                data.SetData("PNG", new MemoryStream(pngBytes), autoConvert: false);
+                data.SetData("image/png", new MemoryStream(pngBytes), autoConvert: false);
+                data.SetData(DataFormats.Bitmap, frame, autoConvert: true);
+                WpfClipboard.SetDataObject(data, copy: true);
+                return;
+            }
+            catch (COMException) { Thread.Sleep(RetryDelayMs); }
+            catch (ExternalException) { Thread.Sleep(RetryDelayMs); }
+            catch (Exception) { return; }
         }
     }
 }

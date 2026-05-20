@@ -116,6 +116,11 @@
                         ToolTip="复制已选段落 (Ctrl+C) · 仅当工具栏左侧显示已选数量时可用">
                     <iconPacks:PackIconMaterialDesign Kind="LibraryAddCheckRound" Width="16" Height="16" />
                 </Button>
+                <Button Style="{StaticResource OcrToolIconButtonStyle}"
+                        Click="OnCopyScreenshot"
+                        ToolTip="复制原截图图片到剪贴板">
+                    <iconPacks:PackIconMaterialDesign Kind="ImageRound" Width="16" Height="16" />
+                </Button>
 
                 <Rectangle Style="{StaticResource OcrToolbarSepStyle}" />
 

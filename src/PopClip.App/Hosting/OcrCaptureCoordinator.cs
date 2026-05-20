@@ -52,6 +52,19 @@ internal sealed class OcrCaptureCoordinator
 
     private OcrSelectionWindow? _currentWindow;
     private OcrResultWindow? _resultWindow;
+    private ScreenshotPreviewWindow? _screenshotWindow;
+
+    private enum CapturePurpose
+    {
+        Ocr,
+        Screenshot,
+    }
+
+    private sealed record CapturedImage(
+        OcrImage Image,
+        SelectionRect AnchorRect,
+        string Source,
+        byte[] PngBytes);
 
     public OcrCaptureCoordinator(
         ILog log,
@@ -90,6 +103,24 @@ internal sealed class OcrCaptureCoordinator
         // 在蒙层弹出的同时后台加载可以把感知延迟压到接近 0
         provider.PrewarmInBackground();
 
+        ShowSelectionWindow(CapturePurpose.Ocr);
+    }
+
+    public void TriggerScreenshot()
+    {
+        ShowSelectionWindow(CapturePurpose.Screenshot);
+    }
+
+    public void TriggerClipboardImage(SelectionRect anchorRect)
+    {
+        var provider = PickActiveOrNotify();
+        if (provider is null) return;
+        provider.PrewarmInBackground();
+        _ = Task.Run(() => RunClipboardImageAsync(anchorRect));
+    }
+
+    private void ShowSelectionWindow(CapturePurpose purpose)
+    {
         WpfApplication.Current.Dispatcher.Invoke(() =>
         {
             if (_currentWindow is not null)
@@ -104,21 +135,15 @@ internal sealed class OcrCaptureCoordinator
             {
                 if (ReferenceEquals(_currentWindow, window)) _currentWindow = null;
             };
-            window.Cancelled += () => _log.Info("ocr capture cancelled");
-            window.RegionSelected += physical => _ = RunCaptureAsync(physical);
+            window.Cancelled += () => _log.Info(purpose == CapturePurpose.Ocr
+                ? "ocr capture cancelled"
+                : "screenshot capture cancelled");
+            window.RegionSelected += physical => _ = RunCaptureAsync(physical, purpose);
             window.Show();
         });
     }
 
-    public void TriggerClipboardImage(SelectionRect anchorRect)
-    {
-        var provider = PickActiveOrNotify();
-        if (provider is null) return;
-        provider.PrewarmInBackground();
-        _ = Task.Run(() => RunClipboardImageAsync(anchorRect));
-    }
-
-    private async Task RunCaptureAsync(Rectangle physical)
+    private async Task RunCaptureAsync(Rectangle physical, CapturePurpose purpose)
     {
         if (physical.Width <= 0 || physical.Height <= 0) return;
         try
@@ -127,14 +152,15 @@ internal sealed class OcrCaptureCoordinator
             // 比固定 sleep 80ms 更快；如果 DwmFlush 在异常环境失败，退回短延迟兜底。
             await WaitForSelectionOverlayToDisappearAsync().ConfigureAwait(false);
 
-            using var bitmap = new Bitmap(physical.Width, physical.Height, PixelFormat.Format32bppArgb);
-            using (var g = Graphics.FromImage(bitmap))
+            var captured = CaptureRegion(physical);
+            if (purpose == CapturePurpose.Ocr)
             {
-                g.CopyFromScreen(physical.Left, physical.Top, 0, 0, bitmap.Size);
+                await RecognizeImageAsync(captured.Image, captured.AnchorRect, captured.Source).ConfigureAwait(false);
             }
-
-            var anchorRect = new SelectionRect(physical.Left, physical.Top, physical.Right, physical.Bottom);
-            await RecognizeImageAsync(CreateOcrImage(bitmap), anchorRect, $"{physical.Width}x{physical.Height}").ConfigureAwait(false);
+            else
+            {
+                await HandleScreenshotCaptureAsync(captured).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -148,6 +174,76 @@ internal sealed class OcrCaptureCoordinator
             WpfApplication.Current.Dispatcher.Invoke(() =>
                 MessageBox.Show("OCR 失败：" + ex.Message, "OCR 错误", MessageBoxButton.OK, MessageBoxImage.Error));
         }
+    }
+
+    private CapturedImage CaptureRegion(Rectangle physical)
+    {
+        using var bitmap = new Bitmap(physical.Width, physical.Height, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(bitmap))
+        {
+            g.CopyFromScreen(physical.Left, physical.Top, 0, 0, bitmap.Size);
+        }
+
+        var image = CreateOcrImage(bitmap);
+        var pngBytes = image.GetPngBytes();
+        var anchorRect = new SelectionRect(physical.Left, physical.Top, physical.Right, physical.Bottom);
+        return new CapturedImage(image, anchorRect, $"{physical.Width}x{physical.Height}", pngBytes);
+    }
+
+    private async Task HandleScreenshotCaptureAsync(CapturedImage captured)
+    {
+        var copiedDirectly = _settings.ScreenshotAfterCaptureMode == ScreenshotAfterCaptureMode.Clipboard;
+        if (copiedDirectly)
+        {
+            _clipboard.SetImagePngBytes(captured.PngBytes);
+            ShowAnchoredToast("截图已复制", captured.AnchorRect, isError: false, durationMs: 1800);
+        }
+        else
+        {
+            ShowScreenshotPreview(captured);
+        }
+
+        if (_settings.ScreenshotAutoOcr)
+        {
+            await RecognizeImageAsync(captured.Image, captured.AnchorRect, captured.Source).ConfigureAwait(false);
+        }
+    }
+
+    private void ShowScreenshotPreview(CapturedImage captured)
+    {
+        WpfApplication.Current.Dispatcher.Invoke(() =>
+        {
+            if (_screenshotWindow is not null)
+            {
+                try { _screenshotWindow.Close(); } catch { }
+                _screenshotWindow = null;
+            }
+
+            var monitor = MonitorQuery.FromRect(
+                captured.AnchorRect.Left, captured.AnchorRect.Top,
+                captured.AnchorRect.Right, captured.AnchorRect.Bottom);
+            var anchorRectangle = new Rectangle(
+                captured.AnchorRect.Left,
+                captured.AnchorRect.Top,
+                captured.AnchorRect.Width,
+                captured.AnchorRect.Height);
+
+            var win = new ScreenshotPreviewWindow(
+                _log,
+                captured.PngBytes,
+                anchorRectangle,
+                monitor.DpiX,
+                monitor.DpiY,
+                _clipboard,
+                onOcrRequested: () =>
+                {
+                    _ = RecognizeImageAsync(captured.Image, captured.AnchorRect, captured.Source);
+                });
+            _screenshotWindow = win;
+            win.Closed += (_, _) => { if (ReferenceEquals(_screenshotWindow, win)) _screenshotWindow = null; };
+            win.Show();
+            win.Activate();
+        });
     }
 
     private static async Task WaitForSelectionOverlayToDisappearAsync()

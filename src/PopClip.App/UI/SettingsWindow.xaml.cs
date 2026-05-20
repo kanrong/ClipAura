@@ -322,6 +322,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         PauseHotKeyBox.Text = _settings.PauseHotKey;
         ToolbarHotKeyBox.Text = _settings.ToolbarHotKey;
         OcrHotKeyBox.Text = _settings.OcrHotKey;
+        ScreenshotHotKeyBox.Text = _settings.ScreenshotHotKey;
 
         BindOcrProviders();
         BindOcrResultMode();
@@ -432,6 +433,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
             OcrModeInteractiveRadio.IsChecked = _settings.OcrResultMode == OcrResultMode.Interactive;
             OcrModeQuickRadio.IsChecked = _settings.OcrResultMode == OcrResultMode.Quick;
             OcrResultBorderedToggle.IsChecked = _settings.OcrResultWindowBordered;
+            ScreenshotModeToolbarRadio.IsChecked = _settings.ScreenshotAfterCaptureMode == ScreenshotAfterCaptureMode.Toolbar;
+            ScreenshotModeClipboardRadio.IsChecked = _settings.ScreenshotAfterCaptureMode == ScreenshotAfterCaptureMode.Clipboard;
+            ScreenshotAutoOcrBox.IsChecked = _settings.ScreenshotAutoOcr;
         }
         finally { _suspendCommit = prev; }
     }
@@ -1270,6 +1274,11 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         _settings.PauseHotKey = PauseHotKeyBox.Text.Trim();
         _settings.ToolbarHotKey = ToolbarHotKeyBox.Text.Trim();
         _settings.OcrHotKey = OcrHotKeyBox.Text.Trim();
+        _settings.ScreenshotHotKey = ScreenshotHotKeyBox.Text.Trim();
+        _settings.ScreenshotAfterCaptureMode = ScreenshotModeClipboardRadio.IsChecked == true
+            ? ScreenshotAfterCaptureMode.Clipboard
+            : ScreenshotAfterCaptureMode.Toolbar;
+        _settings.ScreenshotAutoOcr = ScreenshotAutoOcrBox.IsChecked == true;
         SaveAiSettings();
         RefreshToolbarPreview();
     }
@@ -1541,11 +1550,12 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
             DismissOnMouseLeaveBox, DismissOnForegroundChangedBox, DismissOnClickOutsideBox,
             DismissOnEscapeKeyBox, DismissOnNewSelectionBox, DismissOnActionInvokedBox,
             DismissOnTimeoutBox, FollowAccentColor, AiEnabledBox,
-            TranslateInlineBox, ExplainEnabledBox);
+            TranslateInlineBox, ExplainEnabledBox, ScreenshotAutoOcrBox);
         AttachRadio(BlacklistRadio, WhitelistRadio,
             DisplayIconAndText, DisplayIconOnly, DisplayTextOnly,
             SurfaceShadow, SurfaceBorder, SurfaceShadowAndBorder,
-            DensityCompact, DensityStandard, DensityComfortable);
+            DensityCompact, DensityStandard, DensityComfortable,
+            ScreenshotModeToolbarRadio, ScreenshotModeClipboardRadio);
 
         // ComboBox SelectionChanged
         AttachCombo(TrayClickActionBox, RequiredModifierBox, QuickClickModifierBox, AiThinkingModeBox, LogLevelBox);
@@ -1560,7 +1570,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
 
         // TextBox / PasswordBox：用 LostFocus 而不是 TextChanged，避免每个键盘字符都触发写盘
         AttachTextLostFocus(SearchEngineName, SearchUrlTemplate,
-            PauseHotKeyBox, ToolbarHotKeyBox, OcrHotKeyBox,
+            PauseHotKeyBox, ToolbarHotKeyBox, OcrHotKeyBox, ScreenshotHotKeyBox,
             AiBaseUrlBox, AiModelBox, AiDefaultLanguageBox);
         AiApiKeyBox.LostFocus += OnInstantCommit;
 

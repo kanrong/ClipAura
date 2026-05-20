@@ -47,6 +47,9 @@ internal sealed class SelectionSessionManager : IDisposable
     /// 由 AppHost 在初始化时挂到 OcrCaptureCoordinator.Trigger</summary>
     public Action? OcrLauncher { get; set; }
 
+    /// <summary>外部注入的"截图"触发器；若为 null 则快速启动器中不显示该按钮。</summary>
+    public Action? ScreenshotLauncher { get; set; }
+
     /// <summary>外部注入的"剪贴板图片 OCR"触发器；只在剪贴板当前包含图片时显示。</summary>
     public Action<SelectionRect>? ClipboardImageOcrLauncher { get; set; }
 
@@ -370,6 +373,16 @@ internal sealed class SelectionSessionManager : IDisposable
                 _toolbar.DismissExternal("ocr-invoked");
                 try { OcrLauncher?.Invoke(); }
                 catch (Exception ex) { _log.Warn("ocr launcher failed", ("err", ex.Message)); }
+            })));
+        }
+
+        if (ScreenshotLauncher is not null)
+        {
+            items.Add(new ToolbarItem("截图", "Screenshot", new DelegateCommand(() =>
+            {
+                _toolbar.DismissExternal("screenshot-invoked");
+                try { ScreenshotLauncher?.Invoke(); }
+                catch (Exception ex) { _log.Warn("screenshot launcher failed", ("err", ex.Message)); }
             })));
         }
 

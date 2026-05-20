@@ -136,6 +136,7 @@ internal partial class OcrResultToolbarWindow : Window
 
     private void OnCopySelected(object sender, RoutedEventArgs e) => _host.CommandCopySelected(ShowLocalToast);
     private void OnCopyAll(object sender, RoutedEventArgs e) => _host.CommandCopyAll(ShowLocalToast);
+    private void OnCopyScreenshot(object sender, RoutedEventArgs e) => _host.CommandCopyScreenshot(ShowLocalToast);
     private void OnToggleTranslation(object sender, RoutedEventArgs e) => _host.CommandToggleTranslation(ShowLocalToast);
     private void OnSwitchToQuick(object sender, RoutedEventArgs e) => _host.CommandSwitchToQuick();
     private void OnCloseClicked(object sender, RoutedEventArgs e) => _host.CommandClose();

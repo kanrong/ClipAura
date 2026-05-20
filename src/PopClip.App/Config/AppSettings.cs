@@ -87,6 +87,12 @@ public enum TrayClickAction
     None,
 }
 
+public enum ScreenshotAfterCaptureMode
+{
+    Toolbar,
+    Clipboard,
+}
+
 /// <summary>整个应用的用户配置</summary>
 public sealed class AppSettings
 {
@@ -171,6 +177,9 @@ public sealed class AppSettings
     /// 截图区域被当前活跃的 OCR provider 识别后走与正常选区相同的浮窗 + 动作链路</summary>
     public string OcrHotKey { get; set; } = "Ctrl+Alt+O";
 
+    /// <summary>区域截图热键。按下后复用 OCR 截选蒙层，但默认只做截图，不自动识别文字。</summary>
+    public string ScreenshotHotKey { get; set; } = "Ctrl+Alt+S";
+
     /// <summary>OCR provider 用户偏好。
     /// 空串 / null = 自动模式，按 Priority 倒序选第一个可用的 provider（默认推荐）。
     /// 显式 id 见 PopClip.App.Ocr.OcrProviderIds：rapid-onnx / wechat。
@@ -198,6 +207,9 @@ public sealed class AppSettings
     /// <summary>Interactive 模式结果窗是否在原图对应位置直接显示 OCR 原文。
     /// 工具条切换后写回配置，下次 OCR 结果窗按上次状态恢复。</summary>
     public bool OcrInlineTextVisible { get; set; } = false;
+
+    public ScreenshotAfterCaptureMode ScreenshotAfterCaptureMode { get; set; } = ScreenshotAfterCaptureMode.Toolbar;
+    public bool ScreenshotAutoOcr { get; set; } = false;
 
     // ================== 浮窗自动消失触发条件 ==================
     // 鼠标离开浮窗一段时间后自动关闭

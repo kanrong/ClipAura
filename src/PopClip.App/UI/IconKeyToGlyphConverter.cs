@@ -54,6 +54,7 @@ internal sealed class IconKeyToGlyphConverter : IValueConverter
         ["TsvToMd"] = "\uF572",      // CellPhoneTable (TSV → MD 表)
         ["Ocr"] = "\uE7C5",          // Crop
         ["OcrImage"] = "\uEB9F",     // Photo2（剪贴板图片 OCR）
+        ["Screenshot"] = "\uE722",   // Camera
         ["Dictionary"] = "\uE82D",   // Dictionary / book
         ["Vocabulary"] = "\uE8D2",   // Reading list
     };
@@ -152,6 +153,7 @@ internal sealed class IconKeyToMaterialDesignKindConverter : IValueConverter
         ["TsvToMd"] = PackIconMaterialDesignKind.TableViewRound,
         ["Ocr"] = PackIconMaterialDesignKind.DocumentScannerRound,
         ["OcrImage"] = PackIconMaterialDesignKind.ImageSearchRound,
+        ["Screenshot"] = PackIconMaterialDesignKind.ScreenshotMonitorRound,
         ["Dictionary"] = PackIconMaterialDesignKind.MenuBookRound,
         ["Vocabulary"] = PackIconMaterialDesignKind.SpellcheckRound,
         // ============ 通用图形/语义图标（用户在自定义动作里可选） ============

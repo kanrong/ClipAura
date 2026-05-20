@@ -1338,9 +1338,9 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     private void EnsureDefaultAiActions()
     {
         AddDefaultAiChatAction();
-        AddDefaultPromptAction("tpl.fix-grammar");
-        AddDefaultPromptAction("tpl.polish");
-        AddDefaultPromptAction("tpl.summarize");
+        // AddDefaultPromptAction("tpl.fix-grammar");
+        // AddDefaultPromptAction("tpl.polish");
+        // AddDefaultPromptAction("tpl.summarize");
     }
 
     private void AddDefaultAiChatAction()

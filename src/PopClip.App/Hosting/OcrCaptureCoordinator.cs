@@ -123,10 +123,9 @@ internal sealed class OcrCaptureCoordinator
         if (physical.Width <= 0 || physical.Height <= 0) return;
         try
         {
-            // 关键缓冲：选区窗 Hide/Close 后 DWM 需要 1~2 帧合成才会从屏幕移除蒙层（@60Hz 约 32 ms/帧），
-            // 此时立刻 CopyFromScreen 会截到半透明黑色蒙层覆盖的内容，导致 OCR 输出乱码。
-            // 80 ms ≈ 5 帧，足够覆盖普通显示刷新率甚至 30Hz 远程会话
-            await Task.Delay(80).ConfigureAwait(false);
+            // 等 DWM 消化选区窗 Hide/Close 对桌面合成的影响，再截屏。
+            // 比固定 sleep 80ms 更快；如果 DwmFlush 在异常环境失败，退回短延迟兜底。
+            await WaitForSelectionOverlayToDisappearAsync().ConfigureAwait(false);
 
             using var bitmap = new Bitmap(physical.Width, physical.Height, PixelFormat.Format32bppArgb);
             using (var g = Graphics.FromImage(bitmap))
@@ -149,6 +148,14 @@ internal sealed class OcrCaptureCoordinator
             WpfApplication.Current.Dispatcher.Invoke(() =>
                 MessageBox.Show("OCR 失败：" + ex.Message, "OCR 错误", MessageBoxButton.OK, MessageBoxImage.Error));
         }
+    }
+
+    private static async Task WaitForSelectionOverlayToDisappearAsync()
+    {
+        var hr = NativeMethods.DwmFlush();
+        if (hr == 0) return;
+
+        await Task.Delay(32).ConfigureAwait(false);
     }
 
     private async Task RunClipboardImageAsync(SelectionRect anchorRect)

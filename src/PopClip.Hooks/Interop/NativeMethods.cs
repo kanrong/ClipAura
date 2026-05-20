@@ -304,6 +304,9 @@ public static class NativeMethods
     [DllImport("dwmapi.dll", PreserveSig = true)]
     public static extern int DwmGetColorizationColor(out uint pcrColorization, out bool pfOpaqueBlend);
 
+    [DllImport("dwmapi.dll", PreserveSig = true)]
+    public static extern int DwmFlush();
+
     // === Process ===
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern nint OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);

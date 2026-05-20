@@ -18,25 +18,24 @@
         <Rectangle x:Name="MaskLeft"   Fill="#99000000" IsHitTestVisible="False" />
         <Rectangle x:Name="MaskRight"  Fill="#99000000" IsHitTestVisible="False" />
 
-        <!-- 双层描边：外层白 + 内层黑，叠加后形成"白-黑-白"三段对比，
-             在任意背景（深色/浅色/彩图）上都能稳定区分选区边界。
+        <!-- 1px 蓝色主线，在暗色蒙层、浅色页面和彩色背景上都能稳定区分选区边界。
              选区内部完全透明，确保用户看到的是屏幕原始内容，不被色调干扰 -->
         <Rectangle x:Name="SelectionRectOuter"
-                   Stroke="#FFFFFFFF"
-                   StrokeThickness="2"
+                   Stroke="Transparent"
+                   StrokeThickness="0"
                    Fill="Transparent"
                    IsHitTestVisible="False" />
         <Rectangle x:Name="SelectionRect"
-                   Stroke="#FF000000"
-                   StrokeThickness="1"
+                   Stroke="#FF2EA8FF"
+                   StrokeThickness="2"
                    Fill="Transparent"
                    IsHitTestVisible="False" />
 
-        <!-- 实时提示：尺寸 + 操作引导。深色底配亮文本 + 外侧白描边，
+        <!-- 实时提示：尺寸 + 操作引导。深色底配亮文本 + 蓝色描边，
              保证在浅色背景上也能清楚识别 -->
         <Border x:Name="HintBorder"
                 Background="#E6101820"
-                BorderBrush="#FFFFFFFF"
+                BorderBrush="#FF2EA8FF"
                 BorderThickness="1"
                 CornerRadius="4"
                 Padding="8,4"

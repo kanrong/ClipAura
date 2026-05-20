@@ -66,7 +66,14 @@ public sealed class OpenAiCompatibleClient
             ["max_completion_tokens"] = maxTokensComplete,
         };
         ApplyThinkingOptions(payload, options);
-        req.Content = new StringContent(JsonSerializer.Serialize(payload, Json), Encoding.UTF8, "application/json");
+        var bodyJson = JsonSerializer.Serialize(payload, Json);
+        req.Content = new StringContent(bodyJson, Encoding.UTF8, "application/json");
+
+        _log.Debug("ai request",
+            ("method", "POST"),
+            ("url", req.RequestUri),
+            ("headers", FormatRequestHeaders(req)),
+            ("body", bodyJson));
 
         var sw = Stopwatch.StartNew();
         try
@@ -74,6 +81,13 @@ public sealed class OpenAiCompatibleClient
             using var res = await http.SendAsync(req, ct).ConfigureAwait(false);
             var body = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             sw.Stop();
+
+            _log.Debug("ai response",
+                ("status", (int)res.StatusCode),
+                ("elapsedMs", (long)sw.Elapsed.TotalMilliseconds),
+                ("headers", FormatResponseHeaders(res)),
+                ("body", body));
+
             if (!res.IsSuccessStatusCode)
             {
                 throw new AiClientException(ToFriendlyError(res.StatusCode, body));
@@ -159,11 +173,22 @@ public sealed class OpenAiCompatibleClient
             ["stream_options"] = new Dictionary<string, object?> { ["include_usage"] = true },
         };
         ApplyThinkingOptions(payload, options);
-        req.Content = new StringContent(JsonSerializer.Serialize(payload, Json), Encoding.UTF8, "application/json");
+        var bodyJson = JsonSerializer.Serialize(payload, Json);
+        req.Content = new StringContent(bodyJson, Encoding.UTF8, "application/json");
+
+        _log.Debug("ai request",
+            ("method", "POST"),
+            ("url", req.RequestUri),
+            ("headers", FormatRequestHeaders(req)),
+            ("body", bodyJson),
+            ("stream", true));
 
         var sw = Stopwatch.StartNew();
         var full = new StringBuilder();
         var reasoning = new StringBuilder();
+        // rawResponseBody 在 finally 阶段统一打 DEBUG：完整保留原始 SSE 帧序列（含 data: 前缀与心跳空行），
+        // 方便事后对照模型实际推流时序、分析"思考突然断流"之类问题
+        var rawResponseBody = new StringBuilder();
         var model = options.Model;
         var promptTokens = 0;
         var completionTokens = 0;
@@ -198,9 +223,15 @@ public sealed class OpenAiCompatibleClient
             using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, combined.Token).ConfigureAwait(false);
             // 收到 headers 视为服务"有响应"，重置 idle 起算点
             lastDataAtUtc = DateTime.UtcNow;
+
+            _log.Debug("ai response headers",
+                ("status", (int)res.StatusCode),
+                ("headers", FormatResponseHeaders(res)));
+
             if (!res.IsSuccessStatusCode)
             {
                 var body = await res.Content.ReadAsStringAsync(combined.Token).ConfigureAwait(false);
+                _log.Debug("ai response body", ("body", body));
                 throw new AiClientException(ToFriendlyError(res.StatusCode, body));
             }
 
@@ -214,6 +245,7 @@ public sealed class OpenAiCompatibleClient
                 // 读到任何一行（包括 SSE 心跳/空行）都视为服务在持续响应，重置 idle 计时
                 lastDataAtUtc = DateTime.UtcNow;
                 if (line is null) break;
+                rawResponseBody.AppendLine(line);
                 if (!line.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) continue;
 
                 var data = line[5..].Trim();
@@ -279,6 +311,12 @@ public sealed class OpenAiCompatibleClient
         }
         finally
         {
+            if (rawResponseBody.Length > 0)
+            {
+                _log.Debug("ai response body",
+                    ("elapsedMs", (long)sw.Elapsed.TotalMilliseconds),
+                    ("body", rawResponseBody.ToString()));
+            }
             try { watchdogCts.Cancel(); } catch (ObjectDisposedException) { }
             try { await watchdog.ConfigureAwait(false); } catch { /* watchdog 自己已经处理 OCE */ }
         }
@@ -334,6 +372,64 @@ public sealed class OpenAiCompatibleClient
         if (string.IsNullOrWhiteSpace(options.BaseUrl)) throw new AiClientException("Base URL 不能为空");
         if (string.IsNullOrWhiteSpace(options.Model)) throw new AiClientException("模型名不能为空");
         if (string.IsNullOrWhiteSpace(options.ApiKey)) throw new AiClientException("API Key 不能为空");
+    }
+
+    /// <summary>把请求 header 拍平成 "k: v; k: v" 单行字符串，Authorization 中的密钥用 MaskApiKey 打码。
+    /// 打码而非全删：保留 scheme + 前后 4 字符，方便排查"配的是哪把 key"，又避免明文 key 落到 DEBUG 日志</summary>
+    private static string FormatRequestHeaders(HttpRequestMessage req)
+    {
+        var sb = new StringBuilder();
+        foreach (var h in req.Headers)
+        {
+            var value = h.Key.Equals("Authorization", StringComparison.OrdinalIgnoreCase)
+                ? string.Join(",", h.Value.Select(MaskAuthorization))
+                : string.Join(",", h.Value);
+            if (sb.Length > 0) sb.Append("; ");
+            sb.Append(h.Key).Append(": ").Append(value);
+        }
+        if (req.Content?.Headers is { } contentHeaders)
+        {
+            foreach (var h in contentHeaders)
+            {
+                if (sb.Length > 0) sb.Append("; ");
+                sb.Append(h.Key).Append(": ").Append(string.Join(",", h.Value));
+            }
+        }
+        return sb.ToString();
+    }
+
+    private static string FormatResponseHeaders(HttpResponseMessage res)
+    {
+        var sb = new StringBuilder();
+        foreach (var h in res.Headers)
+        {
+            if (sb.Length > 0) sb.Append("; ");
+            sb.Append(h.Key).Append(": ").Append(string.Join(",", h.Value));
+        }
+        if (res.Content?.Headers is { } contentHeaders)
+        {
+            foreach (var h in contentHeaders)
+            {
+                if (sb.Length > 0) sb.Append("; ");
+                sb.Append(h.Key).Append(": ").Append(string.Join(",", h.Value));
+            }
+        }
+        return sb.ToString();
+    }
+
+    private static string MaskAuthorization(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        var sp = value.IndexOf(' ');
+        if (sp < 0) return MaskApiKey(value);
+        return value[..sp] + " " + MaskApiKey(value[(sp + 1)..]);
+    }
+
+    private static string MaskApiKey(string apiKey)
+    {
+        if (string.IsNullOrEmpty(apiKey)) return "";
+        if (apiKey.Length <= 8) return new string('*', apiKey.Length);
+        return apiKey[..4] + new string('*', apiKey.Length - 8) + apiKey[^4..];
     }
 
     private readonly record struct StreamFrame(

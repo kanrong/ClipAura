@@ -189,7 +189,7 @@ internal sealed class OcrCaptureCoordinator
         // 先给个轻量 toast 让用户感知到正在工作；已就绪时跳过 toast 避免噪音
         if (!provider.IsEngineReady)
         {
-            ShowAnchoredToast($"OCR 识别中… ({provider.DisplayName})", anchorRect, isError: false, durationMs: 1500);
+            ShowAnchoredToast($"文字识别中… ", anchorRect, isError: false, durationMs: 1500);
         }
 
         // Bitmap → PNG bytes：跨 provider 统一输入。PNG 编码 ~10-30 ms，相对 OCR 本身的 300 ms 可忽略

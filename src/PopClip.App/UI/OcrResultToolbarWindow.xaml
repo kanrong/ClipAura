@@ -87,8 +87,7 @@
                 BorderBrush="{DynamicResource ToolbarBorder}"
                 BorderThickness="1"
                 CornerRadius="10"
-                Cursor="SizeAll"
-                ToolTip="按住空白区域可拖动到屏幕任意位置">
+                Cursor="SizeAll">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="12" ShadowDepth="2" Direction="270" Opacity="0.42" Color="Black" />
             </Border.Effect>

@@ -1136,7 +1136,7 @@
                         <StackPanel x:Name="OcrPage" Visibility="Collapsed">
                             <TextBlock Style="{StaticResource Settings.PageTitle}" Text="OCR" />
                             <TextBlock Style="{StaticResource Settings.PageDescription}"
-                                       Text="区域截图文字识别。后端可选 RapidOCR / WeChat OCR，结果可直接复制或弹出 iOS 风格高亮窗精修。" />
+                                       Text="区域截图文字识别。多个后端可选，结果可直接复制或弹出交互式结果窗。" />
 
                             <!-- 截选热键独立成卡片：与下方 Provider / 展示模式串成一条流程 -->
                             <Border Style="{StaticResource Settings.Card}">
@@ -1198,7 +1198,7 @@
                                     <TextBlock Style="{StaticResource Settings.HintText}"
                                                TextWrapping="Wrap"
                                                Margin="0,0,0,12"
-                                               Text="识别完成后如何处理结果。Interactive 会在原图位置弹出 iOS 风格的高亮选择窗，适合长文本 / 多段精修；Quick 直接复制全文 + 浮窗气泡，最少打扰。" />
+                                               Text="Interactive 会在原图位置弹出 iOS 风格的高亮选择窗，适合长文本 / 多段精修；Quick 直接复制全文 + 浮窗气泡，最少打扰。" />
                                     <RadioButton x:Name="OcrModeInteractiveRadio"
                                                  GroupName="OcrResultMode"
                                                  Content="Interactive · iOS 风格高亮选择窗"
@@ -1216,7 +1216,7 @@
                                     <TextBlock Style="{StaticResource Settings.HintText}"
                                                TextWrapping="Wrap"
                                                Margin="0,4,0,0"
-                                               Text="关闭即透明无边（iOS 风格，默认）；开启后在截图四周加一道主题色边框，方便看清窗口范围。无标题栏、无缩放角。" />
+                                               Text="关闭即透明无边；开启后在截图四周加一道主题色边框，方便看清窗口范围。" />
                                 </StackPanel>
                             </Border>
                         </StackPanel>

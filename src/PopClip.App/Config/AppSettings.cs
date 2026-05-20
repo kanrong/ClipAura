@@ -174,11 +174,10 @@ public sealed class AppSettings
     public OcrResultMode OcrResultMode { get; set; } = OcrResultMode.Interactive;
 
     /// <summary>Interactive 模式结果窗是否显示标题栏 / 边框。
-    /// - false（默认）：透明无边框窗口，最贴近 iOS 体验，截图与背景视觉融合；
-    /// - true：SingleBorderWindow，有标题栏可拖动 / 缩放 / 最小化最大化，
-    ///   适合喜欢"窗口化"体验或多显异构 DPI 下窗口边界不清晰时。
-    /// 切换需要重新触发一次 OCR 才会生效（已显示的窗口不会动态切换 WindowStyle）。</summary>
-    public bool OcrResultWindowBordered { get; set; } = false;
+    /// - false：透明无边框窗口，最贴近 iOS 体验，截图与背景视觉融合（默认）；
+    /// - true：有四周边框，方便看清窗口范围。
+    ///   适合喜欢"窗口化"体验或多显异构 DPI 下窗口边界不清晰时。</summary>
+    public bool OcrResultWindowBordered { get; set; } = true;
 
     // ================== 浮窗自动消失触发条件 ==================
     // 鼠标离开浮窗一段时间后自动关闭

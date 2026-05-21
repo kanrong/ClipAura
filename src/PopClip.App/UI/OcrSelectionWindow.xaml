@@ -31,19 +31,19 @@
                    Fill="Transparent"
                    IsHitTestVisible="False" />
 
-        <!-- 实时提示：尺寸 + 操作引导。深色底配亮文本 + 蓝色描边，
-             保证在浅色背景上也能清楚识别 -->
+        <!-- 实时尺寸胶囊：默认折叠，用户开始拖框且选区面积非 0 时才显示。
+             去掉了"拖动鼠标选择 OCR 区域"这种引导文案，让蒙层视觉更克制 -->
         <Border x:Name="HintBorder"
                 Background="#E6101820"
                 BorderBrush="#FF2EA8FF"
                 BorderThickness="1"
                 CornerRadius="4"
                 Padding="8,4"
-                IsHitTestVisible="False">
+                IsHitTestVisible="False"
+                Visibility="Collapsed">
             <TextBlock x:Name="HintText"
                        Foreground="#F8FAFC"
-                       FontSize="12"
-                       Text="拖动鼠标选择 OCR 区域 · ESC 取消" />
+                       FontSize="12" />
         </Border>
     </Canvas>
 </Window>

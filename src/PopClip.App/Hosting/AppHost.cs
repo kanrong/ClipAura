@@ -328,6 +328,11 @@ internal sealed class AppHost : IDisposable
                 case TrayClickAction.Ocr:
                     _ocrCoordinator?.Trigger();
                     break;
+                case TrayClickAction.Screenshot:
+                    _ocrCoordinator?.TriggerScreenshot();
+                    break;
+                // 剪贴板历史已从设置 UI 移除，但保留运行时分发以兼容老版本 settings.json
+                // 中持久化的 ClipboardHistory 值；下次用户保存设置时 UI 会自动迁移到默认 Menu
                 case TrayClickAction.ClipboardHistory:
                     OpenClipboardHistory();
                     break;

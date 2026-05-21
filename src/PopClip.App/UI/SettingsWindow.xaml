@@ -363,7 +363,7 @@
                                                   HorizontalAlignment="Left">
                                             <ComboBoxItem Content="显示菜单" Tag="Menu" />
                                             <ComboBoxItem Content="OCR 识别" Tag="Ocr" />
-                                            <ComboBoxItem Content="剪贴板历史" Tag="ClipboardHistory" />
+                                            <ComboBoxItem Content="区域截图" Tag="Screenshot" />
                                             <ComboBoxItem Content="显示快捷工具栏" Tag="Launcher" />
                                             <ComboBoxItem Content="打开设置" Tag="Settings" />
                                             <ComboBoxItem Content="暂停 / 恢复" Tag="TogglePause" />

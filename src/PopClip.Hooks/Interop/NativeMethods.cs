@@ -407,6 +407,19 @@ public static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GetCursorPos(out POINT lpPoint);
 
+    // === System metrics ===
+    // SM_XVIRTUALSCREEN / SM_YVIRTUALSCREEN / SM_CXVIRTUALSCREEN / SM_CYVIRTUALSCREEN：
+    // PerMonitor V2 awareness 下 GetSystemMetrics 返回物理像素，作为多屏 virtual screen
+    // 的权威边界。WPF SystemParameters.VirtualScreen* 走主屏 DPI 转 DIP，跨屏异构 DPI 时
+    // 会因为单屏 DPI 比例不同而出现 ±N 像素误差，需要用 Win32 物理像素绕开这条折算。
+    public const int SM_XVIRTUALSCREEN = 76;
+    public const int SM_YVIRTUALSCREEN = 77;
+    public const int SM_CXVIRTUALSCREEN = 78;
+    public const int SM_CYVIRTUALSCREEN = 79;
+
+    [DllImport("user32.dll")]
+    public static extern int GetSystemMetrics(int nIndex);
+
     // === Monitor & per-monitor DPI ===
     public const uint MONITOR_DEFAULTTONULL = 0x00000000;
     public const uint MONITOR_DEFAULTTOPRIMARY = 0x00000001;

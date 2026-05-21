@@ -209,6 +209,23 @@ internal sealed class OcrCaptureCoordinator
         }
     }
 
+    /// <summary>把已识别后的 OcrImage 转换回一个截图 PNG 字节 + Anchor，再走标准 ScreenshotPreview 路径。
+    /// 用于 OCR 结果窗的"切回截图"按钮：用户在结果窗看完识别再想做"复制原图 / 保存 PNG"等截图侧操作时，
+    /// 不需要重新拉框 + 重新截屏，直接复用已有像素。OcrImage.GetPngBytes 是带 lazy cache 的 PNG 编码，
+    /// 第二次调用走缓存几乎零成本</summary>
+    private void ShowScreenshotPreviewFromOcr(OcrImage image, SelectionRect anchorRect, string source)
+    {
+        byte[] pngBytes;
+        try { pngBytes = image.GetPngBytes(); }
+        catch (Exception ex)
+        {
+            _log.Warn("encode png for switch-to-screenshot failed", ("err", ex.Message));
+            return;
+        }
+        var captured = new CapturedImage(image, anchorRect, source, pngBytes);
+        ShowScreenshotPreview(captured);
+    }
+
     private void ShowScreenshotPreview(CapturedImage captured)
     {
         WpfApplication.Current.Dispatcher.Invoke(() =>
@@ -444,7 +461,10 @@ internal sealed class OcrCaptureCoordinator
                 {
                     if (ReferenceEquals(_resultWindow, null)) return;
                     _resultWindow = null;
-                });
+                },
+                // "切到截图预览"回调：复用已识别的 OcrImage（含像素 + PNG 缓存），
+                // 跳过重新拉框 / 重新 CopyFromScreen，让两个窗口形成双向无缝切换
+                switchToScreenshot: () => ShowScreenshotPreviewFromOcr(image, anchorPhysical, "from-ocr-result"));
             _resultWindow = win;
             win.Closed += (_, _) => { if (ReferenceEquals(_resultWindow, win)) _resultWindow = null; };
             win.Show();

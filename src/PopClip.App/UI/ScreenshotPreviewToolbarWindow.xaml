@@ -1,0 +1,149 @@
+<Window x:Class="PopClip.App.UI.ScreenshotPreviewToolbarWindow"
+        x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        Topmost="True"
+        SizeToContent="WidthAndHeight"
+        ResizeMode="NoResize"
+        Focusable="False"
+        ShowActivated="False"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        Title="截图工具条"
+        FontFamily="{DynamicResource ToolbarFontFamily}">
+
+    <Window.Resources>
+        <!-- 视觉规格严格沿用 OcrResultToolbarWindow 的 OcrToolIconButtonStyle，
+             两个工具条作为同一套设计语言出现，避免主图切换时风格抖动 -->
+        <Style x:Key="ScreenshotToolButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarForeground}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="7,5" />
+            <Setter Property="Margin" Value="1,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="MinWidth" Value="30" />
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="BorderRoot"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="5"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="BorderRoot" Property="Background" Value="{DynamicResource ToolbarHover}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="BorderRoot" Property="Background" Value="{DynamicResource ToolbarAccentSoft}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.35" />
+                                <Setter Property="Cursor" Value="Arrow" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ScreenshotToolbarSepStyle" TargetType="Rectangle">
+            <Setter Property="Width" Value="1" />
+            <Setter Property="Margin" Value="4,5" />
+            <Setter Property="Fill" Value="{DynamicResource ToolbarSeparator}" />
+            <Setter Property="Opacity" Value="0.5" />
+        </Style>
+    </Window.Resources>
+
+    <!-- 外层 6px Margin 给阴影留绘制空间；两行 Grid 让 LocalToast 自然从工具条下方弹出 -->
+    <Grid Margin="6">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- ToolbarBorder 自身承担拖动响应：按钮 MouseLeftButtonDown 会先吃事件，
+             空白处任意位置按下都触发 DragMove，跨屏可任意拖动 -->
+        <Border x:Name="ToolbarBorder"
+                Grid.Row="0"
+                Padding="6,4"
+                Background="{DynamicResource ToolbarToastBackground}"
+                BorderBrush="{DynamicResource ToolbarBorder}"
+                BorderThickness="1"
+                CornerRadius="10"
+                Cursor="SizeAll">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="8" ShadowDepth="1" Direction="270" Opacity="0.22" Color="Black" />
+            </Border.Effect>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <!-- 截图尺寸胶囊：与 OCR 工具栏 StatusPill 同款；DimensionText 由 host 在构造时填入 -->
+                <Border Padding="9,3"
+                        Margin="0,0,4,0"
+                        Background="{DynamicResource ToolbarAccentSoft}"
+                        CornerRadius="10"
+                        Opacity="0.95">
+                    <TextBlock x:Name="DimensionText"
+                               Foreground="{DynamicResource ToolbarForeground}"
+                               FontSize="11.5"
+                               VerticalAlignment="Center" />
+                </Border>
+
+                <Button Style="{StaticResource ScreenshotToolButtonStyle}"
+                        Click="OnCopyClicked"
+                        ToolTip="复制图片到剪贴板 (Ctrl+C)">
+                    <iconPacks:PackIconMaterialDesign Kind="ContentCopyRound" Width="16" Height="16" />
+                </Button>
+                <Button Style="{StaticResource ScreenshotToolButtonStyle}"
+                        Click="OnSaveClicked"
+                        ToolTip="保存图片为 PNG (Ctrl+S)">
+                    <iconPacks:PackIconMaterialDesign Kind="SaveAltRound" Width="16" Height="16" />
+                </Button>
+
+                <Rectangle Style="{StaticResource ScreenshotToolbarSepStyle}" />
+
+                <!-- 切到 OCR：与 OCR 工具栏"切到截图"按钮形成对偶入口 -->
+                <Button Style="{StaticResource ScreenshotToolButtonStyle}"
+                        Click="OnOcrClicked"
+                        ToolTip="切换到 OCR 识别（识别当前截图，O）">
+                    <iconPacks:PackIconMaterialDesign Kind="DocumentScannerRound" Width="16" Height="16" />
+                </Button>
+
+                <Rectangle Style="{StaticResource ScreenshotToolbarSepStyle}" />
+
+                <Button Style="{StaticResource ScreenshotToolButtonStyle}"
+                        Click="OnCloseClicked"
+                        ToolTip="关闭 (Esc)">
+                    <iconPacks:PackIconMaterialDesign Kind="CloseRound" Width="16" Height="16" />
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <!-- 轻量 LocalToast：复制 / 保存反馈贴近用户操作点，比飘到主窗中央更直接。
+             默认 Collapsed 时 Row 高度归零，不会影响工具条整体定位 -->
+        <Border x:Name="LocalToastBorder"
+                Grid.Row="1"
+                HorizontalAlignment="Center"
+                Margin="0,4,0,0"
+                Padding="10,4"
+                Background="{DynamicResource ToolbarToastBackground}"
+                BorderBrush="{DynamicResource ToolbarBorder}"
+                BorderThickness="1"
+                CornerRadius="12"
+                Visibility="Collapsed">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="6" ShadowDepth="1" Direction="270" Opacity="0.20" Color="Black" />
+            </Border.Effect>
+            <TextBlock x:Name="LocalToastText"
+                       Foreground="{DynamicResource ToolbarForeground}"
+                       FontSize="11.5" />
+        </Border>
+    </Grid>
+</Window>

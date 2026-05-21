@@ -48,6 +48,11 @@ internal partial class OcrResultWindow : Window
     /// （剪贴板 + 浮窗气泡 + toast），不修改 settings.OcrResultMode。
     /// 用户的 OCR 模式偏好通过设置面板永久切换，本按钮只影响当次输出</summary>
     private readonly Action<string>? _quickFallback;
+
+    /// <summary>用户点工具栏"切到截图预览"时调用：交给 Coordinator 用同一张截图打开 ScreenshotPreviewWindow。
+    /// null 表示宿主没有提供此能力（兜底场景），UI 上的切换按钮会被置灰。
+    /// 切换前 OCR 结果窗会自行关闭，由 Coordinator 负责打开新的预览窗</summary>
+    private readonly Action? _switchToScreenshot;
     private readonly Action? _saveSettings;
 
     /// <summary>"打开设置某一分页"的跨层回调（如 "AI" / "Ocr"）。
@@ -58,6 +63,17 @@ internal partial class OcrResultWindow : Window
     /// 影响：1) WindowBorderFrame.BorderThickness；2) Window 总尺寸要扩出 2 * borderWidth
     /// 让里面的 Image / Grid 区域仍与原截图等大，保证 Stretch="Fill" 时 1:1 像素映射、文字不糊</summary>
     private readonly double _borderWidth;
+
+    /// <summary>外圈阴影预留（DIP）。bordered=true 时与 ScreenshotPreviewWindow 同款 DropShadow，
+    /// 用 Margin 给阴影留绘制空间，否则 AllowsTransparency 透明窗口会把阴影裁掉。
+    /// false 时为 0，窗口紧贴截图边缘无任何外发光。
+    /// 几何计算：Window 总 DIP = anchor DIP + 2 * (_borderWidth + _shadowMargin)，
+    /// _outerInsetWidth 用作整体 inset，所有 polygon 位置 / 物理像素定位都用它</summary>
+    private readonly double _shadowMargin;
+
+    /// <summary>从窗口左上到截图左上的总 DIP inset（= _borderWidth + _shadowMargin）。
+    /// 替代旧的"只用 _borderWidth"几何，让加阴影后所有定位计算保持单点真理</summary>
+    private readonly double _outerInsetWidth;
 
     /// <summary>OCR 截图框的物理像素矩形（即 anchor monitor 上的真实像素坐标）。
     /// 用 Win32 SetWindowPos 直接按物理像素定位窗口，规避 WPF Window.Left/Top 在 PerMonitor V2 下
@@ -132,7 +148,8 @@ internal partial class OcrResultWindow : Window
         Action<string>? quickFallback = null,
         Action<string>? openSettings = null,
         Action? saveSettings = null,
-        Action? onCloseRequested = null)
+        Action? onCloseRequested = null,
+        Action? switchToScreenshot = null)
     {
         _log = log;
         _result = result;
@@ -145,6 +162,7 @@ internal partial class OcrResultWindow : Window
         _openSettings = openSettings;
         _saveSettings = saveSettings;
         _onCloseRequested = onCloseRequested;
+        _switchToScreenshot = switchToScreenshot;
         _anchorPhysical = anchorPhysical;
         _anchorDpiX = anchorDpiX == 0 ? 96 : anchorDpiX;
         _anchorDpiY = anchorDpiY == 0 ? 96 : anchorDpiY;
@@ -156,12 +174,28 @@ internal partial class OcrResultWindow : Window
 
         InitializeComponent();
 
-        // 边框模式：四周加 2px 主题色边框；无边模式保持 0。
-        // 关键：Window 总尺寸要扩出 borderWidth * 2，让里面的 Grid/Image 区域仍等于原截图大小，
+        // 边框模式：四周加 2px 主题色边框 + 4 DIP 阴影 padding；无边模式保持 0。
+        // 关键：Window 总尺寸要扩出 _outerInsetWidth * 2，让里面的 Grid/Image 区域仍等于原截图大小，
         // 否则 Stretch="Fill" 把截图缩放到比截图稍小的 Image 区域，文字像素错位 → 模糊。
-        // 同时窗口位置往左上偏 borderWidth，让 Image 区域的中心仍贴回原截图位置
+        // 同时窗口位置往左上偏 _outerInsetWidth，让 Image 区域的中心仍贴回原截图位置。
+        // 阴影 margin 之前用 10 DIP 是想给 BlurRadius=10 的阴影留足够余量，但实际让窗口边距
+        // 截图视觉边距 10 DIP，用户拖动窗口时根本贴不到屏幕边。改为 4 DIP + 更轻的阴影
+        // (BlurRadius=4 / Depth=1)，视觉上几乎贴齐窗口边，与 ScreenshotPreviewWindow 一致
         _borderWidth = _settings.OcrResultWindowBordered ? 2.0 : 0.0;
+        _shadowMargin = _settings.OcrResultWindowBordered ? 4.0 : 0.0;
+        _outerInsetWidth = _borderWidth + _shadowMargin;
         WindowBorderFrame.BorderThickness = new Thickness(_borderWidth);
+        // 用 Margin 把 WindowBorderFrame 推离窗口边界，给 DropShadowEffect 留绘制余量
+        // （AllowsTransparency=True 的透明窗口会把超出 Margin 的阴影像素裁掉）
+        WindowBorderFrame.Margin = new Thickness(_shadowMargin);
+        if (_settings.OcrResultWindowBordered)
+        {
+            // 立体感与截图预览严格一致：BlurRadius=4 / ShadowDepth=1 / Opacity=0.20，
+            // 保留轻量层次但不抢主图视线，也不让窗口边距截图边过远
+            WindowShadowEffect.BlurRadius = 4;
+            WindowShadowEffect.ShadowDepth = 1;
+            WindowShadowEffect.Opacity = 0.20;
+        }
 
         // 初始把窗口放到屏幕外（主屏负坐标），先让 WPF 完成 layout 测量；
         // Loaded 阶段再用 Win32 SetWindowPos 把窗口精确定位到 anchor 物理像素位置。
@@ -172,8 +206,8 @@ internal partial class OcrResultWindow : Window
         WindowStartupLocation = WindowStartupLocation.Manual;
         Left = -32000;
         Top = -32000;
-        Width = Math.Max(120, anchorPhysical.Width / dipScaleX + _borderWidth * 2);
-        Height = Math.Max(80, anchorPhysical.Height / dipScaleY + _borderWidth * 2);
+        Width = Math.Max(120, anchorPhysical.Width / dipScaleX + _outerInsetWidth * 2);
+        Height = Math.Max(80, anchorPhysical.Height / dipScaleY + _outerInsetWidth * 2);
 
         ScreenshotImage.Source = LoadBitmap(screenshot);
 
@@ -254,6 +288,8 @@ internal partial class OcrResultWindow : Window
         _toolbarWindow = new OcrResultToolbarWindow(this, aiAvailable);
         _toolbarWindow.Left = -32000;
         _toolbarWindow.Top = -32000;
+        // 宿主未注入"切到截图"回调时把按钮置灰，避免点击无反应造成困惑
+        _toolbarWindow.SetSwitchToScreenshotEnabled(_switchToScreenshot is not null);
         // 工具条 SizeToContent=WidthAndHeight，必须先 Show 一次让它测出 ActualWidth/Height
         _toolbarWindow.Show();
         PositionToolbarInitially();
@@ -288,12 +324,12 @@ internal partial class OcrResultWindow : Window
         var hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd == 0) return;
 
-        int borderPxX = (int)Math.Round(_borderWidth * _anchorDpiX / 96.0);
-        int borderPxY = (int)Math.Round(_borderWidth * _anchorDpiY / 96.0);
-        int x = _anchorPhysical.Left - borderPxX;
-        int y = _anchorPhysical.Top - borderPxY;
-        int w = _anchorPhysical.Width + borderPxX * 2;
-        int h = _anchorPhysical.Height + borderPxY * 2;
+        int insetPxX = (int)Math.Round(_outerInsetWidth * _anchorDpiX / 96.0);
+        int insetPxY = (int)Math.Round(_outerInsetWidth * _anchorDpiY / 96.0);
+        int x = _anchorPhysical.Left - insetPxX;
+        int y = _anchorPhysical.Top - insetPxY;
+        int w = _anchorPhysical.Width + insetPxX * 2;
+        int h = _anchorPhysical.Height + insetPxY * 2;
 
         NativeMethods.SetWindowPos(
             hwnd,
@@ -333,34 +369,34 @@ internal partial class OcrResultWindow : Window
         int tbWPx = (int)Math.Ceiling(tbWDip * _anchorDpiX / 96.0);
         int tbHPx = (int)Math.Ceiling(tbHDip * _anchorDpiY / 96.0);
 
-        // 主窗物理像素几何（含边框扩展，与 PlaceWindowAtAnchorPhysical 同算法）
-        int borderPxX = (int)Math.Round(_borderWidth * _anchorDpiX / 96.0);
-        int borderPxY = (int)Math.Round(_borderWidth * _anchorDpiY / 96.0);
-        int mainLeftPx = _anchorPhysical.Left - borderPxX;
-        int mainTopPx = _anchorPhysical.Top - borderPxY;
-        int mainWidthPx = _anchorPhysical.Width + borderPxX * 2;
-        int mainHeightPx = _anchorPhysical.Height + borderPxY * 2;
-        int mainBottomPx = mainTopPx + mainHeightPx;
-
-        // 水平居中；垂直下方 8 DIP / 主窗内部底部 12 DIP，都按 anchor monitor DPI 缩放到物理像素
-        int gapBelowPx = (int)Math.Round(8 * _anchorDpiY / 96.0);
+        // 基于 anchorPhysical 而非"主窗外圈尺寸"算工具条位置：让工具条视觉上离截图实际边沿
+        // 仅一个 8 DIP 间距，与 ScreenshotPreviewWindow.PositionToolbarInitially 完全一致。
+        // 旧写法用 mainBottomPx（含 _outerInsetWidth 阴影外圈）作为锚，工具条会被推远 ~12 DIP，
+        // 用户反馈"OCR 比截图工具栏更远"就是这条阴影 inset 在视觉上加了距离
+        int gapOutsidePx = (int)Math.Round(8 * _anchorDpiY / 96.0);
         int gapInsidePx = (int)Math.Round(12 * _anchorDpiY / 96.0);
-        int leftPx = mainLeftPx + (mainWidthPx - tbWPx) / 2;
-        int topBelowPx = mainBottomPx + gapBelowPx;
-        int topInsidePx = mainBottomPx - tbHPx - gapInsidePx;
+        // 水平居中于 anchor 截图区域（左右阴影 inset 等量，居中点等价于截图中心）
+        int leftPx = _anchorPhysical.Left + (_anchorPhysical.Width - tbWPx) / 2;
+        int topBelowPx = _anchorPhysical.Bottom + gapOutsidePx;
+        int topAbovePx = _anchorPhysical.Top - gapOutsidePx - tbHPx;
+        int topInsidePx = _anchorPhysical.Bottom - tbHPx - gapInsidePx;
 
-        // anchor monitor 工作区底部物理像素：直接拿 anchor 所在屏的 rcWork，与位置计算同口径（物理像素）
+        // anchor monitor 工作区，用于判断"工具条放在哪里能完整可见"
         var monitor = MonitorQuery.FromRect(
             _anchorPhysical.Left, _anchorPhysical.Top,
             _anchorPhysical.Right, _anchorPhysical.Bottom);
-        int workBottomPx = monitor.WorkBottom;
 
-        int topPx = (topBelowPx + tbHPx) <= workBottomPx ? topBelowPx : topInsidePx;
+        // 三档自动选位：下方 → 上方 → 内底部，与 ScreenshotPreviewWindow 同策略
+        int topPx;
+        if (topBelowPx + tbHPx <= monitor.WorkBottom) topPx = topBelowPx;
+        else if (topAbovePx >= monitor.WorkTop) topPx = topAbovePx;
+        else topPx = topInsidePx;
 
         // 边界保护：避免工具条横向被推出 anchor monitor 工作区外（主窗贴屏左/右时会发生）
         if (leftPx < monitor.WorkLeft) leftPx = monitor.WorkLeft;
         if (leftPx + tbWPx > monitor.WorkRight) leftPx = monitor.WorkRight - tbWPx;
         if (topPx < monitor.WorkTop) topPx = monitor.WorkTop;
+        if (topPx + tbHPx > monitor.WorkBottom) topPx = Math.Max(monitor.WorkTop, monitor.WorkBottom - tbHPx);
 
         NativeMethods.SetWindowPos(
             tbHwnd,
@@ -493,12 +529,12 @@ internal partial class OcrResultWindow : Window
         int tpWPx = (int)Math.Ceiling(tpWDip * _anchorDpiX / 96.0);
         int tpHPx = (int)Math.Ceiling(tpHDip * _anchorDpiY / 96.0);
 
-        int borderPxX = (int)Math.Round(_borderWidth * _anchorDpiX / 96.0);
-        int borderPxY = (int)Math.Round(_borderWidth * _anchorDpiY / 96.0);
-        int mainLeftPx = _anchorPhysical.Left - borderPxX;
-        int mainTopPx = _anchorPhysical.Top - borderPxY;
-        int mainWidthPx = _anchorPhysical.Width + borderPxX * 2;
-        int mainHeightPx = _anchorPhysical.Height + borderPxY * 2;
+        int insetPxX = (int)Math.Round(_outerInsetWidth * _anchorDpiX / 96.0);
+        int insetPxY = (int)Math.Round(_outerInsetWidth * _anchorDpiY / 96.0);
+        int mainLeftPx = _anchorPhysical.Left - insetPxX;
+        int mainTopPx = _anchorPhysical.Top - insetPxY;
+        int mainWidthPx = _anchorPhysical.Width + insetPxX * 2;
+        int mainHeightPx = _anchorPhysical.Height + insetPxY * 2;
         int mainRightPx = mainLeftPx + mainWidthPx;
         int mainBottomPx = mainTopPx + mainHeightPx;
 
@@ -615,12 +651,12 @@ internal partial class OcrResultWindow : Window
     }
 
     /// <summary>Image / OverlayCanvas / RecognizedTextCanvas / TranslationCanvas 这些渲染层在 WindowBorderFrame 内部，
-    /// 它们的可用尺寸 = Window 总尺寸 - 边框（两侧各占 _borderWidth）。
+    /// 它们的可用尺寸 = Window 总尺寸 - 边框 - 阴影 margin（两侧各占 _outerInsetWidth）。
     /// polygon / 译文覆盖等所有空间映射统一用这个 inner size，否则 bordered 模式下会偏移、错位</summary>
     private (double Width, double Height) GetInnerSize()
     {
-        double w = Math.Max(0, ActualWidth - _borderWidth * 2);
-        double h = Math.Max(0, ActualHeight - _borderWidth * 2);
+        double w = Math.Max(0, ActualWidth - _outerInsetWidth * 2);
+        double h = Math.Max(0, ActualHeight - _outerInsetWidth * 2);
         return (w, h);
     }
 
@@ -736,8 +772,9 @@ internal partial class OcrResultWindow : Window
             ClearSelection();
             _selected[idx] = true;
             RefreshAllStates();
+            // 复制时不再弹中央 toast：选中态 polygon 高亮 + 工具栏状态胶囊
+            // 已足够表达"复制成功"，再叠加 toast 反而遮挡内容，分散注意力
             CopyTextSilently(_result.Blocks[idx].Text);
-            ShowToast($"已复制：{Preview(_result.Blocks[idx].Text)}");
         }
         else
         {
@@ -794,15 +831,12 @@ internal partial class OcrResultWindow : Window
     {
         if (_marqueeStart is null) return;
         OverlayCanvas.ReleaseMouseCapture();
-        var wasDragging = _isDragging;
         _marqueeStart = null;
         _isDragging = false;
         MarqueeRect.Visibility = Visibility.Collapsed;
+        // 框选完成不弹中央 toast：选中 polygon 自身已变深，
+        // 工具栏状态胶囊也会同步显示"已选 X/Y"，无需再叠 toast 干扰阅读
         UpdateStatusBar();
-        if (wasDragging && SelectedCount() > 0)
-        {
-            ShowToast($"已选 {SelectedCount()} 段（Ctrl+C 复制）");
-        }
     }
 
     private void OnOverlayMouseLeave(object sender, MouseEventArgs e)
@@ -983,6 +1017,27 @@ internal partial class OcrResultWindow : Window
             CloseSelf("quick-output");
             try { fallback(text); }
             catch (Exception ex) { _log.Warn("quick fallback failed", ("err", ex.Message)); }
+        }), DispatcherPriority.Background);
+    }
+
+    /// <summary>工具栏"切到截图预览"按钮入口。
+    /// 关闭结果窗后由 Coordinator 用同一张截图打开 ScreenshotPreviewWindow，
+    /// 让用户能继续做"复制图片 / 保存为 PNG / 再次 OCR"等截图侧操作。
+    ///
+    /// 没有 switchToScreenshot 回调时（理论上不会发生，AppHost 已注入），
+    /// 工具栏构造时已通过 SetSwitchToScreenshotEnabled(false) 把按钮置灰</summary>
+    public void CommandSwitchToScreenshot()
+    {
+        if (_switchToScreenshot is null) return;
+        _log.Info("ocr result switch-to-screenshot triggered");
+        // 顺序与 CommandSwitchToQuick 保持一致：先关结果窗再触发新窗口，
+        // 避免新预览窗因为 topmost 抢焦点时撞上旧窗的关闭流程
+        var fallback = _switchToScreenshot;
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            CloseSelf("switch-to-screenshot");
+            try { fallback(); }
+            catch (Exception ex) { _log.Warn("switch-to-screenshot failed", ("err", ex.Message)); }
         }), DispatcherPriority.Background);
     }
 
@@ -1421,18 +1476,6 @@ internal partial class OcrResultWindow : Window
         ToastBorder.Visibility = Visibility.Visible;
         _toastTimer.Stop();
         _toastTimer.Start();
-    }
-
-    private static string Preview(string text)
-    {
-        var compact = string.Join(' ', text.Split(new[] { '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries));
-        return compact.Length <= 28 ? compact : compact[..28] + "…";
-    }
-
-    private static int CountLines(string text)
-    {
-        if (string.IsNullOrEmpty(text)) return 0;
-        return text.Count(c => c == '\n') + 1;
     }
 
     private void CopyTextSilently(string text)

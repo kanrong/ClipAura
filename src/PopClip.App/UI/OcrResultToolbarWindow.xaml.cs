@@ -139,8 +139,13 @@ internal partial class OcrResultToolbarWindow : Window
     private void OnCopyScreenshot(object sender, RoutedEventArgs e) => _host.CommandCopyScreenshot(ShowLocalToast);
     private void OnToggleTranslation(object sender, RoutedEventArgs e) => _host.CommandToggleTranslation(ShowLocalToast);
     private void OnSwitchToQuick(object sender, RoutedEventArgs e) => _host.CommandSwitchToQuick();
+    private void OnSwitchToScreenshot(object sender, RoutedEventArgs e) => _host.CommandSwitchToScreenshot();
     private void OnCloseClicked(object sender, RoutedEventArgs e) => _host.CommandClose();
     private void OnToggleTextPanel(object sender, RoutedEventArgs e) => _host.CommandToggleTextPanel();
     private void OnToggleInlineText(object sender, RoutedEventArgs e) => _host.CommandToggleInlineText(ShowLocalToast);
     private void OnOpenAiSettings(object sender, RoutedEventArgs e) => _host.CommandOpenAiSettings();
+
+    /// <summary>host 调用：当 OcrCaptureCoordinator 没注入 onScreenshotRequested 回调时（兜底场景），
+    /// 把切换按钮直接置灰，避免按钮点击后什么都不发生</summary>
+    public void SetSwitchToScreenshotEnabled(bool enabled) => SwitchToScreenshotButton.IsEnabled = enabled;
 }

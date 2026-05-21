@@ -179,6 +179,15 @@
                     <iconPacks:PackIconMaterialDesign Kind="BoltRound" Width="16" Height="16" />
                 </Button>
 
+                <!-- 切到截图：与截图工具栏的"切到 OCR"按钮形成对偶入口，
+                     点击关闭 OCR 结果窗、用同一张截图打开截图预览窗（保留复制/保存/再次 OCR 能力） -->
+                <Button x:Name="SwitchToScreenshotButton"
+                        Style="{StaticResource OcrToolIconButtonStyle}"
+                        Click="OnSwitchToScreenshot"
+                        ToolTip="切换到截图预览（在原截图上做复制 / 保存 / 再识别）">
+                    <iconPacks:PackIconMaterialDesign Kind="PhotoCameraRound" Width="16" Height="16" />
+                </Button>
+
                 <Rectangle Style="{StaticResource OcrToolbarSepStyle}" />
 
                 <!-- 关闭按钮：用 Material Close 图标 -->

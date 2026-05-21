@@ -80,11 +80,16 @@ public enum TrayClickAction
 {
     Menu,
     Ocr,
+    /// <summary>剪贴板历史。已从设置 UI 移除，但枚举保留以兼容旧 settings.json：
+    /// 用户旧值仍能在 AppHost.HandleTrayLeftClick 中正确派发，直到下次保存设置时被迁移</summary>
     ClipboardHistory,
     Launcher,
     Settings,
     TogglePause,
     None,
+    /// <summary>区域截图。新增于设置页"点击托盘图标"选项，与 OCR 互为对偶入口。
+    /// 排在末尾保证旧设置反序列化时不会被错位解读（枚举值按位置序号持久化）</summary>
+    Screenshot,
 }
 
 public enum ScreenshotAfterCaptureMode

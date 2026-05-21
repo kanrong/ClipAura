@@ -14,12 +14,23 @@
         Title="OCR 结果"
         FontFamily="{DynamicResource ToolbarFontFamily}">
 
-    <!-- 外层边框：bordered 模式由 CodeBehind 把 BorderThickness 设为 2，无边模式保持 0。
-         窗口始终透明无标题栏（用户不要标题栏与缩放角），这里只是给截图四周加视觉边界 -->
+    <!-- 外层边框：bordered 模式由 CodeBehind 把 BorderThickness 设为 2 并启用 DropShadow。
+         窗口始终透明无标题栏（用户不要标题栏与缩放角），Margin 由 CodeBehind 同步
+         给阴影留绘制空间，与 ScreenshotPreviewWindow 的 Frame 走同一套视觉语言。
+         阴影强度比截图预览适当降低（BlurRadius=10/Opacity=0.25），保留立体感但不抢主图视线 -->
     <Border x:Name="WindowBorderFrame"
             BorderBrush="{DynamicResource ToolbarAccentSoft}"
             BorderThickness="0"
             Background="Transparent">
+        <Border.Effect>
+            <DropShadowEffect x:Name="WindowShadowEffect"
+                              Color="Black"
+                              Direction="270"
+                              BlurRadius="0"
+                              ShadowDepth="0"
+                              Opacity="0"
+                              RenderingBias="Performance" />
+        </Border.Effect>
         <Grid Focusable="True">
             <!-- 底层：原始 OCR 图像。窗口保持不透明，避免剪贴板图片像贴在当前桌面上一样产生误读 -->
             <Image x:Name="ScreenshotImage"

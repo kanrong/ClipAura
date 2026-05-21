@@ -1,11 +1,9 @@
 using System.IO;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Threading;
 using Microsoft.Win32;
 using PopClip.App.Services;
 using PopClip.Core.Logging;
@@ -15,25 +13,21 @@ using WinRectangle = System.Drawing.Rectangle;
 
 namespace PopClip.App.UI;
 
-/// <summary>截图完成后的预览窗：在原截图位置上叠加一张 1:1 的图像 + 工具栏。
+/// <summary>截图完成后的预览窗：在原截图位置上叠加一张 1:1 的图像 + 独立工具条子窗口。
 ///
 /// 关键设计：
 /// - BitmapSource 用 anchor monitor 的 DPI 而非默认 96 创建，使其 DIP 尺寸 × 当前屏 DPI 缩放
 ///   严格等于截图物理像素，Stretch="None" 时 WPF 不做任何缩放/插值 → 文字与原截图完全一致。
-/// - 主图 Border + 工具栏 + 外层阴影 margin 全部由 WPF SizeToContent 测出 DIP；
+/// - 工具条独立成 ScreenshotPreviewToolbarWindow 子窗口（透明 Topmost，可拖到屏幕任意位置）。
+///   这样窄高截图（如侧栏 / 长条 OCR 区域）的主窗宽度严格 = 截图宽度，
+///   不会被工具条宽度反推撑宽变形。
+/// - 主图 Border + 外层阴影 margin 全部由 WPF 按内容 desired size 测量；
 ///   Win32 SetWindowPos 把窗口按 anchor monitor 物理像素绝对定位 + 拉伸到对应物理尺寸，
 ///   规避 PerMonitor V2 跨屏时 Window.Left/Top 用错 DPI 解读的老问题。
-/// - 工具栏默认位于图片下方；若下方空间不足则翻到上方；若上下两侧都塞不下（如满屏截图），
-///   退化为贴在图片内部底部显示，保证始终能看见。</summary>
+/// - 工具条按"主图下方 → 上方 → 内底部"三档自动选位，与 OcrResultWindow 同策略；
+///   用户拖动后位置自由，独立 Window 可跨屏任意拖。</summary>
 internal partial class ScreenshotPreviewWindow : Window
 {
-    private enum ToolbarPlacement
-    {
-        BottomOutside,
-        TopOutside,
-        BottomOverlay,
-    }
-
     private readonly ILog _log;
     private readonly byte[] _pngBytes;
     private readonly WinRectangle _anchorPhysical;
@@ -41,13 +35,9 @@ internal partial class ScreenshotPreviewWindow : Window
     private readonly uint _anchorDpiY;
     private readonly ClipboardWriter _clipboard;
     private readonly Action _onOcrRequested;
-    private readonly DispatcherTimer _toastTimer;
-    private ToolbarPlacement _toolbarPlacement = ToolbarPlacement.BottomOutside;
-    private TranslateTransform? _toolbarOverlayTransform;
-    private Point? _toolbarDragStart;
-    private Point _toolbarDragOrigin;
-    private double _toolbarOverlayOffsetX;
-    private double _toolbarOverlayOffsetY;
+    private readonly string _dimensionText;
+
+    private ScreenshotPreviewToolbarWindow? _toolbarWindow;
 
     public ScreenshotPreviewWindow(
         ILog log,
@@ -65,6 +55,7 @@ internal partial class ScreenshotPreviewWindow : Window
         _anchorDpiY = anchorDpiY == 0 ? 96 : anchorDpiY;
         _clipboard = clipboard;
         _onOcrRequested = onOcrRequested;
+        _dimensionText = $"{_anchorPhysical.Width} × {_anchorPhysical.Height}";
 
         InitializeComponent();
 
@@ -76,23 +67,11 @@ internal partial class ScreenshotPreviewWindow : Window
         SizeToContent = SizeToContent.WidthAndHeight;
 
         PreviewImage.Source = LoadBitmap(_pngBytes, _anchorDpiX, _anchorDpiY);
-        DimensionText.Text = $"{_anchorPhysical.Width} × {_anchorPhysical.Height}";
-
-        _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1600) };
-        _toastTimer.Tick += (_, _) =>
-        {
-            _toastTimer.Stop();
-            ToastBorder.Visibility = Visibility.Collapsed;
-        };
 
         Loaded += OnLoaded;
-        Closed += (_, _) => _toastTimer.Stop();
+        Closed += OnClosed;
         KeyDown += OnKeyDown;
         Frame.MouseLeftButtonDown += OnFrameMouseLeftButtonDown;
-        ToolbarPanel.MouseLeftButtonDown += OnToolbarMouseLeftButtonDown;
-        ToolbarPanel.MouseMove += OnToolbarMouseMove;
-        ToolbarPanel.MouseLeftButtonUp += OnToolbarMouseLeftButtonUp;
-        ToolbarPanel.LostMouseCapture += OnToolbarLostMouseCapture;
     }
 
     /// <summary>把 PNG 字节解码为带 anchor DPI 标记的 BitmapSource。
@@ -136,95 +115,38 @@ internal partial class ScreenshotPreviewWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // 第一次测量后先决定工具栏在主图上方还是下方，再用最终布局算窗口物理像素位置。
-        // 必须 UpdateLayout 后才能拿到准确的 ActualWidth/Height
+        // 第一次测量后才能拿到准确的 ActualWidth/Height，再用 Win32 物理像素定位窗口
         UpdateLayout();
-        ChooseToolbarPlacement();
-        UpdateLayout();
-        // 关闭 SizeToContent，避免后续 SetWindowPos 改 hwnd 尺寸时 WPF 又把 size 调回 desired size，
-        // 与 Win32 物理像素摆位反复争用
+        // 关闭 SizeToContent，避免后续 SetWindowPos 改 hwnd 尺寸时 WPF 又把 size 调回 desired size
         SizeToContent = SizeToContent.Manual;
         PlaceWindowAtAnchorPhysical();
+
+        // 子工具条窗口在主窗 Loaded 之后再 Show：此时主窗几何已稳定，可以算出工具条位置。
+        // Show 前先把工具条挪到屏外（-32000），避免 Show 期间在 OS 默认位置短暂闪现
+        _toolbarWindow = new ScreenshotPreviewToolbarWindow(this, _dimensionText);
+        _toolbarWindow.Left = -32000;
+        _toolbarWindow.Top = -32000;
+        // SizeToContent=WidthAndHeight，必须先 Show 一次让它测出 ActualWidth/Height
+        _toolbarWindow.Show();
+        PositionToolbarInitially();
+
         Activate();
         Focus();
     }
 
-    /// <summary>按 anchor 截图在 anchor monitor 工作区中的位置，决定工具栏挂在主图外侧还是图内。
-    /// 优先放图片下方；若下方空间不足且上方足够，则翻到上方；若上下都不够，则贴到图片内部底部，
-    /// 让满屏截图时也保留可点击入口。</summary>
-    private void ChooseToolbarPlacement()
+    private void OnClosed(object? sender, EventArgs e)
     {
-        var monitor = MonitorQuery.FromRect(
-            _anchorPhysical.Left, _anchorPhysical.Top,
-            _anchorPhysical.Right, _anchorPhysical.Bottom);
-
-        double dpiScaleY = _anchorDpiY / 96.0;
-        // 工具栏一侧需要占据的物理像素：主图边框（2 DIP）+ 距主图的间距（8 DIP）+ 自身高度 + 阴影外边距（14 DIP）
-        double toolbarDipH = ToolbarPanel.ActualHeight > 0 ? ToolbarPanel.ActualHeight : 38;
-        int toolbarTotalPx = (int)Math.Ceiling((2 + 8 + toolbarDipH + 14) * dpiScaleY);
-
-        int spaceBelowPx = monitor.WorkBottom - _anchorPhysical.Bottom;
-        int spaceAbovePx = _anchorPhysical.Top - monitor.WorkTop;
-
-        ToolbarPlacement placement = spaceBelowPx >= toolbarTotalPx
-            ? ToolbarPlacement.BottomOutside
-            : spaceAbovePx >= toolbarTotalPx
-                ? ToolbarPlacement.TopOutside
-                : ToolbarPlacement.BottomOverlay;
-        AttachToolbarTo(placement);
-    }
-
-    /// <summary>把 ToolbarPanel reparent 到指定挂点。
-    /// XAML 里 ToolbarPanel 初始挂在 ToolbarBottomHost，运行时若需要换位置必须先解绑旧 parent，
-    /// 否则 WPF 会抛 "Specified element is already the logical child of another element" 异常。</summary>
-    private void AttachToolbarTo(ToolbarPlacement placement)
-    {
-        _toolbarPlacement = placement;
-        ContentControl host = placement switch
+        // 主窗关闭时一并关闭工具条；Owner=this 在 .NET WPF 也会自动关，
+        // 这里显式调以防 Owner 链路异常
+        if (_toolbarWindow is not null)
         {
-            ToolbarPlacement.TopOutside => ToolbarTopHost,
-            ToolbarPlacement.BottomOverlay => ToolbarOverlayHost,
-            _ => ToolbarBottomHost,
-        };
-
-        var current = ToolbarPanel.Parent;
-        if (current is ContentControl prevHost && !ReferenceEquals(prevHost, host))
-        {
-            prevHost.Content = null;
-        }
-        if (host.Content is null)
-        {
-            host.Content = ToolbarPanel;
-        }
-        // 图外布局需要给主图和工具栏之间留 8 DIP；图内布局则收成贴底内边距，避免压到边框阴影
-        ToolbarPanel.Margin = placement switch
-        {
-            ToolbarPlacement.TopOutside => new Thickness(0, 0, 0, 8),
-            ToolbarPlacement.BottomOverlay => new Thickness(0, 0, 0, 10),
-            _ => new Thickness(0, 8, 0, 0),
-        };
-        if (placement == ToolbarPlacement.BottomOverlay)
-        {
-            _toolbarOverlayTransform ??= new TranslateTransform();
-            ToolbarPanel.RenderTransform = _toolbarOverlayTransform;
-            ToolbarPanel.RenderTransformOrigin = new Point(0, 0);
-        }
-        else
-        {
-            _toolbarDragStart = null;
-            _toolbarOverlayOffsetX = 0;
-            _toolbarOverlayOffsetY = 0;
-            if (_toolbarOverlayTransform is not null)
-            {
-                _toolbarOverlayTransform.X = 0;
-                _toolbarOverlayTransform.Y = 0;
-            }
-            ToolbarPanel.RenderTransform = Transform.Identity;
+            try { _toolbarWindow.Close(); } catch { }
+            _toolbarWindow = null;
         }
     }
 
     /// <summary>把窗口物理像素绝对定位到屏幕，让主图区域正好覆盖 anchor 截图区域。
-    /// 因为窗口外有 14 DIP 阴影 margin、主图边框 2 DIP、可能还有上方工具栏，
+    /// 因为窗口外有 4 DIP 阴影 margin、主图边框 2 DIP，
     /// 必须用 TranslatePoint 求出 PreviewImage 相对窗口左上的 DIP 偏移，
     /// 再按 anchor monitor DPI 转成物理像素偏移，最后 SetWindowPos 把窗口推到正确位置。</summary>
     private void PlaceWindowAtAnchorPhysical()
@@ -258,98 +180,61 @@ internal partial class ScreenshotPreviewWindow : Window
             NativeMethods.SWP_NOACTIVATE);
     }
 
+    /// <summary>把工具条窗口放到合适位置：
+    /// 优先主图下方 8 DIP，下方空间不够则上方 8 DIP，上下都不够则贴主图内底部 12 DIP。
+    /// 用 Win32 SetWindowPos 物理像素绝对定位，跨屏 / 异构 DPI 不会跳到主屏。
+    /// 用户拖动后位置自由（独立 Window 可任意拖），后续不再受约束</summary>
+    private void PositionToolbarInitially()
+    {
+        if (_toolbarWindow is null) return;
+        var tb = _toolbarWindow;
+
+        var tbHwnd = new WindowInteropHelper(tb).Handle;
+        if (tbHwnd == IntPtr.Zero) return;
+
+        // 工具条 ActualWidth/Height 是 DIP（PerMonitor V2 下 content 大小恒定，与所在屏 DPI 无关）。
+        // 跨到 anchor monitor 后视觉一致 → 物理像素 = DIP × anchor DPI / 96
+        var tbWDip = tb.ActualWidth > 0 ? tb.ActualWidth : 220;
+        var tbHDip = tb.ActualHeight > 0 ? tb.ActualHeight : 44;
+        int tbWPx = (int)Math.Ceiling(tbWDip * _anchorDpiX / 96.0);
+        int tbHPx = (int)Math.Ceiling(tbHDip * _anchorDpiY / 96.0);
+
+        // anchor monitor 工作区，用于判断"工具条放在哪里能完整可见"
+        var monitor = MonitorQuery.FromRect(
+            _anchorPhysical.Left, _anchorPhysical.Top,
+            _anchorPhysical.Right, _anchorPhysical.Bottom);
+
+        int gapOutsidePx = (int)Math.Round(8 * _anchorDpiY / 96.0);
+        int gapInsidePx = (int)Math.Round(12 * _anchorDpiY / 96.0);
+
+        // 水平居中于 anchor 截图区域；垂直三档：下方外侧 > 上方外侧 > 主图内底部
+        int leftPx = _anchorPhysical.Left + (_anchorPhysical.Width - tbWPx) / 2;
+        int topBelowPx = _anchorPhysical.Bottom + gapOutsidePx;
+        int topAbovePx = _anchorPhysical.Top - gapOutsidePx - tbHPx;
+        int topInsidePx = _anchorPhysical.Bottom - tbHPx - gapInsidePx;
+
+        int topPx;
+        if (topBelowPx + tbHPx <= monitor.WorkBottom) topPx = topBelowPx;
+        else if (topAbovePx >= monitor.WorkTop) topPx = topAbovePx;
+        else topPx = topInsidePx;
+
+        // 边界保护：避免工具条横向 / 纵向被推出 anchor monitor 工作区外
+        if (leftPx < monitor.WorkLeft) leftPx = monitor.WorkLeft;
+        if (leftPx + tbWPx > monitor.WorkRight) leftPx = monitor.WorkRight - tbWPx;
+        if (topPx < monitor.WorkTop) topPx = monitor.WorkTop;
+        if (topPx + tbHPx > monitor.WorkBottom) topPx = Math.Max(monitor.WorkTop, monitor.WorkBottom - tbHPx);
+
+        NativeMethods.SetWindowPos(
+            tbHwnd,
+            NativeMethods.HWND_TOPMOST,
+            leftPx, topPx, Math.Max(1, tbWPx), Math.Max(1, tbHPx),
+            NativeMethods.SWP_NOACTIVATE);
+    }
+
     private void OnFrameMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left) return;
         try { DragMove(); } catch { }
-    }
-
-    /// <summary>图内模式允许拖动工具栏本身，避免满屏截图时遮住关键内容；图外模式仍拖整个窗口。</summary>
-    private void OnToolbarMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.ChangedButton != MouseButton.Left) return;
-        if (_toolbarPlacement == ToolbarPlacement.BottomOverlay)
-        {
-            if (IsInteractiveToolbarChild(e.OriginalSource as DependencyObject)) return;
-            _toolbarDragStart = e.GetPosition(Frame);
-            _toolbarDragOrigin = new Point(_toolbarOverlayOffsetX, _toolbarOverlayOffsetY);
-            ToolbarPanel.CaptureMouse();
-            e.Handled = true;
-            return;
-        }
-
-        OnFrameMouseLeftButtonDown(sender, e);
-    }
-
-    private void OnToolbarMouseMove(object sender, MouseEventArgs e)
-    {
-        if (_toolbarPlacement != ToolbarPlacement.BottomOverlay ||
-            _toolbarDragStart is null ||
-            _toolbarOverlayTransform is null ||
-            !ToolbarPanel.IsMouseCaptured)
-        {
-            return;
-        }
-
-        var current = e.GetPosition(Frame);
-        var start = _toolbarDragStart.Value;
-        double nextX = _toolbarDragOrigin.X + (current.X - start.X);
-        double nextY = _toolbarDragOrigin.Y + (current.Y - start.Y);
-
-        var bounds = GetToolbarOverlayBounds();
-        _toolbarOverlayOffsetX = Math.Clamp(nextX, bounds.minX, bounds.maxX);
-        _toolbarOverlayOffsetY = Math.Clamp(nextY, bounds.minY, bounds.maxY);
-        _toolbarOverlayTransform.X = _toolbarOverlayOffsetX;
-        _toolbarOverlayTransform.Y = _toolbarOverlayOffsetY;
-        e.Handled = true;
-    }
-
-    private void OnToolbarMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        if (_toolbarPlacement != ToolbarPlacement.BottomOverlay || e.ChangedButton != MouseButton.Left) return;
-        ReleaseToolbarOverlayDrag();
-    }
-
-    private void OnToolbarLostMouseCapture(object sender, MouseEventArgs e)
-        => ReleaseToolbarOverlayDrag();
-
-    private void ReleaseToolbarOverlayDrag()
-    {
-        _toolbarDragStart = null;
-        if (ToolbarPanel.IsMouseCaptured)
-        {
-            ToolbarPanel.ReleaseMouseCapture();
-        }
-    }
-
-    /// <summary>把拖动范围限制在截图内部，避免工具栏被拖出画面后再次丢失。</summary>
-    private (double minX, double maxX, double minY, double maxY) GetToolbarOverlayBounds()
-    {
-        double hostW = Math.Max(0, Frame.ActualWidth - 4);
-        double hostH = Math.Max(0, Frame.ActualHeight - 4);
-        double panelW = ToolbarPanel.ActualWidth;
-        double panelH = ToolbarPanel.ActualHeight;
-
-        double minX = -(hostW - panelW) / 2;
-        double maxX = (hostW - panelW) / 2;
-        double bottomInset = ToolbarPanel.Margin.Bottom;
-        double minY = -(hostH - panelH - bottomInset);
-        double maxY = -bottomInset;
-
-        if (minX > maxX) (minX, maxX) = (0, 0);
-        if (minY > maxY) minY = maxY;
-        return (minX, maxX, minY, maxY);
-    }
-
-    private static bool IsInteractiveToolbarChild(DependencyObject? source)
-    {
-        while (source is not null)
-        {
-            if (source is Button) return true;
-            if (source is Border border && Equals(border.Name, "ToolbarPanel")) break;
-            source = VisualTreeHelper.GetParent(source);
-        }
-        return false;
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)
@@ -357,42 +242,49 @@ internal partial class ScreenshotPreviewWindow : Window
         bool ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
         bool plain = Keyboard.Modifiers == ModifierKeys.None;
 
+        // C# 不允许 `?.MethodName` 形式取方法组；显式构造 Action<string>? 让 toastSink 可为 null
+        Action<string>? sink = _toolbarWindow is null ? null : _toolbarWindow.ShowLocalToast;
+
         switch (e.Key)
         {
             case Key.Escape:
                 e.Handled = true;
-                Close();
+                CommandClose();
                 break;
             case Key.C when ctrl:
                 e.Handled = true;
-                OnCopyClicked(this, new RoutedEventArgs());
+                CommandCopy(sink);
                 break;
             case Key.S when ctrl:
                 e.Handled = true;
-                OnSaveClicked(this, new RoutedEventArgs());
+                CommandSave(sink);
                 break;
             case Key.O when plain:
                 e.Handled = true;
-                OnOcrClicked(this, new RoutedEventArgs());
+                CommandOcr();
                 break;
         }
     }
 
-    private void OnCopyClicked(object sender, RoutedEventArgs e)
+    /// <summary>工具栏按钮触发：写入剪贴板。toastSink 由工具条传入自己的 ShowLocalToast，
+    /// 让反馈贴近按钮位置而不是飘到主窗中央；null 时静默成功，仅在异常时记日志</summary>
+    public void CommandCopy(Action<string>? toastSink = null)
     {
         try
         {
             _clipboard.SetImagePngBytes(_pngBytes);
-            ShowToast("截图已复制");
+            toastSink?.Invoke("截图已复制");
         }
         catch (Exception ex)
         {
             _log.Warn("screenshot copy failed", ("err", ex.Message));
-            ShowToast("复制失败：" + ex.Message);
+            toastSink?.Invoke("复制失败：" + ex.Message);
         }
     }
 
-    private void OnSaveClicked(object sender, RoutedEventArgs e)
+    /// <summary>工具栏按钮触发：弹保存对话框。
+    /// 注意：SaveFileDialog 是模态对话框，Owner 给 this 即可保证置顶位置不偏</summary>
+    public void CommandSave(Action<string>? toastSink = null)
     {
         var dialog = new SaveFileDialog
         {
@@ -408,29 +300,24 @@ internal partial class ScreenshotPreviewWindow : Window
         try
         {
             File.WriteAllBytes(dialog.FileName, _pngBytes);
-            ShowToast("截图已保存");
+            toastSink?.Invoke("截图已保存");
         }
         catch (Exception ex)
         {
             _log.Warn("screenshot save failed", ("err", ex.Message));
-            ShowToast("保存失败：" + ex.Message);
+            toastSink?.Invoke("保存失败：" + ex.Message);
         }
     }
 
-    private void OnOcrClicked(object sender, RoutedEventArgs e)
+    /// <summary>工具栏按钮触发：关闭预览并触发 OCR。
+    /// 顺序：先关本窗 → onOcrRequested 在 Coordinator 里打开 OCR 结果窗，
+    /// 避免本窗 topmost 在 OCR 窗之上挡视线</summary>
+    public void CommandOcr()
     {
         Close();
         try { _onOcrRequested(); }
         catch (Exception ex) { _log.Warn("screenshot ocr request failed", ("err", ex.Message)); }
     }
 
-    private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
-
-    private void ShowToast(string text)
-    {
-        ToastText.Text = text;
-        ToastBorder.Visibility = Visibility.Visible;
-        _toastTimer.Stop();
-        _toastTimer.Start();
-    }
+    public void CommandClose() => Close();
 }

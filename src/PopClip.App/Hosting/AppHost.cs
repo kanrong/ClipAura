@@ -46,6 +46,7 @@ internal sealed class AppHost : IDisposable
     private OcrProviderRegistry? _ocrRegistry;
     private OcrCaptureCoordinator? _ocrCoordinator;
     private OfflineDictionaryService? _dictionary;
+    private HotKeyApplyResult? _lastHotKeyApplyResult;
 
     public bool TryAcquireSingleInstance()
     {
@@ -173,7 +174,7 @@ internal sealed class AppHost : IDisposable
         _hotkeys.ToolbarRequested += () => _session?.ShowLauncherAtCursor();
         _hotkeys.OcrRequested += () => _ocrCoordinator?.Trigger();
         _hotkeys.ScreenshotRequested += () => _ocrCoordinator?.TriggerScreenshot();
-        _hotkeys.Apply(_settings);
+        _lastHotKeyApplyResult = _hotkeys.Apply(_settings);
 
         // toolbar 构造完成后才能注册依赖它的事件
         _tray.OnPauseChanged += paused =>
@@ -223,8 +224,13 @@ internal sealed class AppHost : IDisposable
                 historyStore: _historyStore,
                 usage: _usage,
                 onOpenConversation: ReopenConversation,
-                ocrProviders: _ocrRegistry?.All);
-            _settingsWindow.Saved += () => ApplyRuntimeSettings(reloadActions: true);
+                ocrProviders: _ocrRegistry?.All,
+                hotKeyStatusProvider: () => _lastHotKeyApplyResult);
+            _settingsWindow.Saved += () =>
+            {
+                ApplyRuntimeSettings(reloadActions: true);
+                _settingsWindow?.RefreshHotKeyRegistrationStatus();
+            };
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
             _settingsWindow.Show();
         });
@@ -265,7 +271,7 @@ internal sealed class AppHost : IDisposable
             if (cfg is not null) _catalog.Load(cfg);
             else _catalog.Load(DefaultActionsFactory.Create());
         }
-        _hotkeys?.Apply(_settings);
+        _lastHotKeyApplyResult = _hotkeys?.Apply(_settings);
         ApplyStartupSetting();
     }
 

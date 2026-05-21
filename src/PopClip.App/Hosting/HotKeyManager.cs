@@ -23,14 +23,23 @@ internal sealed class HotKeyManager : IDisposable
 
     public HotKeyManager(ILog log) => _log = log;
 
-    public void Apply(AppSettings settings)
+    public HotKeyApplyResult Apply(AppSettings settings)
     {
         EnsureListening();
         UnregisterAll();
-        Register(PauseId, settings.PauseHotKey);
-        Register(ToolbarId, settings.ToolbarHotKey);
-        Register(OcrId, settings.OcrHotKey);
-        Register(ScreenshotId, settings.ScreenshotHotKey);
+        return new HotKeyApplyResult(
+            settings.EnablePauseHotKey
+                ? Register(PauseId, settings.PauseHotKey)
+                : HotKeyRegistrationStatus.Disabled("未启用"),
+            settings.EnableToolbarHotKey
+                ? Register(ToolbarId, settings.ToolbarHotKey)
+                : HotKeyRegistrationStatus.Disabled("未启用"),
+            settings.EnableOcrHotKey
+                ? Register(OcrId, settings.OcrHotKey)
+                : HotKeyRegistrationStatus.Disabled("未启用"),
+            settings.EnableScreenshotHotKey
+                ? Register(ScreenshotId, settings.ScreenshotHotKey)
+                : HotKeyRegistrationStatus.Disabled("未启用"));
     }
 
     private void EnsureListening()
@@ -40,21 +49,25 @@ internal sealed class HotKeyManager : IDisposable
         _listening = true;
     }
 
-    private void Register(int id, string text)
+    private HotKeyRegistrationStatus Register(int id, string text)
     {
         if (!TryParse(text, out var modifiers, out var key))
         {
             _log.Warn("hotkey parse failed", ("hotkey", text));
-            return;
+            return HotKeyRegistrationStatus.Invalid("格式错误，请使用 Ctrl+Alt+P 这种写法");
         }
 
         modifiers |= NativeMethods.MOD_NOREPEAT;
         if (!NativeMethods.RegisterHotKey(0, id, modifiers, key))
         {
+            var err = new Win32Exception().Message;
             _log.Warn("hotkey register failed",
                 ("hotkey", text),
-                ("err", new Win32Exception().Message));
+                ("err", err));
+            return HotKeyRegistrationStatus.Failed($"注册失败，可能与其他程序冲突：{err}");
         }
+
+        return HotKeyRegistrationStatus.Registered();
     }
 
     private void OnThreadMessage(ref MSG msg, ref bool handled)
@@ -161,4 +174,26 @@ internal sealed class HotKeyManager : IDisposable
             _listening = false;
         }
     }
+}
+
+public sealed record HotKeyApplyResult(
+    HotKeyRegistrationStatus Pause,
+    HotKeyRegistrationStatus Toolbar,
+    HotKeyRegistrationStatus Ocr,
+    HotKeyRegistrationStatus Screenshot);
+
+public sealed record HotKeyRegistrationStatus(HotKeyRegistrationState State, string Message)
+{
+    public static HotKeyRegistrationStatus Registered() => new(HotKeyRegistrationState.Registered, "已注册");
+    public static HotKeyRegistrationStatus Disabled(string message = "未启用") => new(HotKeyRegistrationState.Disabled, message);
+    public static HotKeyRegistrationStatus Invalid(string message) => new(HotKeyRegistrationState.Invalid, message);
+    public static HotKeyRegistrationStatus Failed(string message) => new(HotKeyRegistrationState.Failed, message);
+}
+
+public enum HotKeyRegistrationState
+{
+    Registered,
+    Disabled,
+    Invalid,
+    Failed,
 }

@@ -50,46 +50,123 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="ScreenshotToolbarSepStyle" TargetType="Rectangle">
+            <Setter Property="Width" Value="1" />
+            <Setter Property="Margin" Value="4,5" />
+            <Setter Property="Fill" Value="{DynamicResource ToolbarSeparator}" />
+            <Setter Property="Opacity" Value="0.5" />
+        </Style>
     </Window.Resources>
 
-    <Border x:Name="Frame"
-            BorderBrush="{DynamicResource ToolbarAccent}"
-            BorderThickness="1"
-            Background="{DynamicResource ToolbarToastBackground}"
-            Cursor="SizeAll">
-        <Grid ClipToBounds="True">
-            <Image x:Name="PreviewImage"
-                   Stretch="Fill"
-                   RenderOptions.BitmapScalingMode="HighQuality" />
+    <!-- 外层 Margin 给 DropShadow 留绘制空间；窗口总 DIP = 14*2 + 内容 -->
+    <Grid x:Name="RootGrid" Margin="14">
+        <Grid.RowDefinitions>
+            <!-- Row 0：工具栏挂点（默认空）；若截图贴近屏幕底部，cs 会把 ToolbarPanel reparent 到这里 -->
+            <RowDefinition Height="Auto" />
+            <!-- Row 1：主截图 -->
+            <RowDefinition Height="Auto" />
+            <!-- Row 2：工具栏挂点（默认位置）-->
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
 
-            <Border x:Name="ToolbarBorder"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Top"
-                    Margin="8"
+        <ContentControl x:Name="ToolbarTopHost"
+                        Grid.Row="0"
+                        HorizontalAlignment="Center" />
+
+        <Border x:Name="Frame"
+                Grid.Row="1"
+                BorderBrush="{DynamicResource ToolbarAccentSoft}"
+                BorderThickness="2"
+                Background="Transparent"
+                HorizontalAlignment="Center"
+                Cursor="SizeAll">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="12" ShadowDepth="2" Direction="270" Opacity="0.35" Color="Black" />
+            </Border.Effect>
+            <Grid ClipToBounds="True">
+                <!-- Stretch=None 让 Image 控件 DIP = BitmapSource DIP；
+                     BitmapSource 用 anchor monitor DPI 创建，保证 DIP × 屏幕 DPI = anchor 物理像素，
+                     绘制时不触发任何缩放算法，文字与原截图严格 1:1 -->
+                <Image x:Name="PreviewImage"
+                       Stretch="None"
+                       RenderOptions.BitmapScalingMode="NearestNeighbor"
+                       SnapsToDevicePixels="True" />
+
+                <!-- 操作反馈 toast：仅短暂出现在图片顶部，不长时间遮挡内容 -->
+                <Border x:Name="ToastBorder"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Top"
+                        Margin="0,10,0,0"
+                        Padding="10,4"
+                        Background="{DynamicResource ToolbarToastBackground}"
+                        BorderBrush="{DynamicResource ToolbarBorder}"
+                        BorderThickness="1"
+                        CornerRadius="12"
+                        Visibility="Collapsed">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="6" ShadowDepth="1" Direction="270" Opacity="0.20" Color="Black" />
+                    </Border.Effect>
+                    <TextBlock x:Name="ToastText"
+                               Foreground="{DynamicResource ToolbarForeground}"
+                               FontSize="11.5" />
+                </Border>
+
+                <!-- 满屏截图时上下两侧都放不下工具栏，这个挂点让工具栏退化为贴在图片内底部显示 -->
+                <ContentControl x:Name="ToolbarOverlayHost"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Bottom" />
+            </Grid>
+        </Border>
+
+        <ContentControl x:Name="ToolbarBottomHost"
+                        Grid.Row="2"
+                        HorizontalAlignment="Center">
+            <!-- 默认位置：图片下方；cs 在 Loaded 阶段会按 anchor 物理位置切换到上方挂点 -->
+            <Border x:Name="ToolbarPanel"
+                    Margin="0,8,0,0"
                     Padding="6,4"
                     Background="{DynamicResource ToolbarToastBackground}"
                     BorderBrush="{DynamicResource ToolbarBorder}"
                     BorderThickness="1"
-                    CornerRadius="10">
+                    CornerRadius="10"
+                    Cursor="SizeAll">
                 <Border.Effect>
-                    <DropShadowEffect BlurRadius="8" ShadowDepth="1" Direction="270" Opacity="0.24" Color="Black" />
+                    <DropShadowEffect BlurRadius="10" ShadowDepth="2" Direction="270" Opacity="0.30" Color="Black" />
                 </Border.Effect>
-                <StackPanel Orientation="Horizontal">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- 截图尺寸胶囊：始终显示，让用户一眼看到自己截了多大 -->
+                    <Border Padding="9,3"
+                            Margin="2,0,4,0"
+                            Background="{DynamicResource ToolbarAccentSoft}"
+                            CornerRadius="10"
+                            Opacity="0.95">
+                        <TextBlock x:Name="DimensionText"
+                                   Foreground="{DynamicResource ToolbarForeground}"
+                                   FontSize="11.5"
+                                   VerticalAlignment="Center" />
+                    </Border>
+
+                    <Rectangle Style="{StaticResource ScreenshotToolbarSepStyle}" />
+
                     <Button Style="{StaticResource ScreenshotToolButtonStyle}"
                             Click="OnCopyClicked"
-                            ToolTip="复制图片到剪贴板">
+                            ToolTip="复制图片到剪贴板 (Ctrl+C)">
                         <iconPacks:PackIconMaterialDesign Kind="ContentCopyRound" Width="16" Height="16" />
                     </Button>
                     <Button Style="{StaticResource ScreenshotToolButtonStyle}"
                             Click="OnSaveClicked"
-                            ToolTip="保存图片为 PNG">
+                            ToolTip="保存图片为 PNG (Ctrl+S)">
                         <iconPacks:PackIconMaterialDesign Kind="SaveAltRound" Width="16" Height="16" />
                     </Button>
                     <Button Style="{StaticResource ScreenshotToolButtonStyle}"
                             Click="OnOcrClicked"
-                            ToolTip="OCR 识别当前截图">
+                            ToolTip="OCR 识别当前截图 (O)">
                         <iconPacks:PackIconMaterialDesign Kind="DocumentScannerRound" Width="16" Height="16" />
                     </Button>
+
+                    <Rectangle Style="{StaticResource ScreenshotToolbarSepStyle}" />
+
                     <Button Style="{StaticResource ScreenshotToolButtonStyle}"
                             Click="OnCloseClicked"
                             ToolTip="关闭 (Esc)">
@@ -97,24 +174,6 @@
                     </Button>
                 </StackPanel>
             </Border>
-
-            <Border x:Name="ToastBorder"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Bottom"
-                    Margin="0,0,0,10"
-                    Padding="10,4"
-                    Background="{DynamicResource ToolbarToastBackground}"
-                    BorderBrush="{DynamicResource ToolbarBorder}"
-                    BorderThickness="1"
-                    CornerRadius="12"
-                    Visibility="Collapsed">
-                <Border.Effect>
-                    <DropShadowEffect BlurRadius="6" ShadowDepth="1" Direction="270" Opacity="0.20" Color="Black" />
-                </Border.Effect>
-                <TextBlock x:Name="ToastText"
-                           Foreground="{DynamicResource ToolbarForeground}"
-                           FontSize="11.5" />
-            </Border>
-        </Grid>
-    </Border>
+        </ContentControl>
+    </Grid>
 </Window>

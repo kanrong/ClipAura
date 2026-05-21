@@ -170,6 +170,15 @@ public sealed class AppSettings
     /// false：纯键盘用户可关闭以避免一切键盘事件触发浮窗</summary>
     public bool EnableSelectAllPopup { get; set; } = true;
 
+    /// <summary>是否启用"暂停 / 恢复"全局快捷键。</summary>
+    public bool EnablePauseHotKey { get; set; } = true;
+    /// <summary>是否启用"唤起工具栏"全局快捷键。</summary>
+    public bool EnableToolbarHotKey { get; set; } = true;
+    /// <summary>是否启用"区域 OCR 截选"全局快捷键。</summary>
+    public bool EnableOcrHotKey { get; set; } = true;
+    /// <summary>是否启用"区域截图"全局快捷键。</summary>
+    public bool EnableScreenshotHotKey { get; set; } = true;
+
     public string PauseHotKey { get; set; } = "Ctrl+Alt+P";
     public string ToolbarHotKey { get; set; } = "Ctrl+Alt+Space";
 

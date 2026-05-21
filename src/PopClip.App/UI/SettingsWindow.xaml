@@ -1130,17 +1130,39 @@
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="180" />
                                             <ColumnDefinition Width="280" />
+                                            <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="暂停 / 恢复" />
-                                        <ui:TextBox Grid.Column="1" x:Name="PauseHotKeyBox" />
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="暂停 / 恢复" />
+                                        <ui:TextBox Grid.Row="0" Grid.Column="1" x:Name="PauseHotKeyBox" />
+                                        <ui:ToggleSwitch Grid.Row="0" Grid.Column="2" x:Name="EnablePauseHotKeyBox" Margin="12,0,0,0" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Row="1" Grid.Column="1"
+                                                   Margin="0,6,0,0"
+                                                   Style="{StaticResource Settings.HintText}"
+                                                   Foreground="{Binding PauseHotKeyStatusBrush}"
+                                                   Text="{Binding PauseHotKeyStatusText}" />
                                     </Grid>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="180" />
                                             <ColumnDefinition Width="280" />
+                                            <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="唤起工具栏" />
-                                        <ui:TextBox Grid.Column="1" x:Name="ToolbarHotKeyBox" />
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="唤起工具栏" />
+                                        <ui:TextBox Grid.Row="0" Grid.Column="1" x:Name="ToolbarHotKeyBox" />
+                                        <ui:ToggleSwitch Grid.Row="0" Grid.Column="2" x:Name="EnableToolbarHotKeyBox" Margin="12,0,0,0" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Row="1" Grid.Column="1"
+                                                   Margin="0,6,0,0"
+                                                   Style="{StaticResource Settings.HintText}"
+                                                   Foreground="{Binding ToolbarHotKeyStatusBrush}"
+                                                   Text="{Binding ToolbarHotKeyStatusText}" />
                                     </Grid>
                                 </StackPanel>
                             </Border>
@@ -1164,15 +1186,30 @@
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="180" />
                                             <ColumnDefinition Width="280" />
+                                            <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="区域 OCR 截选" />
-                                        <ui:TextBox Grid.Column="1" x:Name="OcrHotKeyBox" />
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="区域截图" Margin="0,10,0,0" />
-                                        <ui:TextBox Grid.Row="1" Grid.Column="1" x:Name="ScreenshotHotKeyBox" Margin="0,10,0,0" />
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="区域 OCR 截选" />
+                                        <ui:TextBox Grid.Row="0" Grid.Column="1" x:Name="OcrHotKeyBox" />
+                                        <ui:ToggleSwitch Grid.Row="0" Grid.Column="2" x:Name="EnableOcrHotKeyBox" Margin="12,0,0,0" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Row="1" Grid.Column="1"
+                                                   Margin="0,6,0,0"
+                                                   Style="{StaticResource Settings.HintText}"
+                                                   Foreground="{Binding OcrHotKeyStatusBrush}"
+                                                   Text="{Binding OcrHotKeyStatusText}" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="区域截图" Margin="0,10,0,0" />
+                                        <ui:TextBox Grid.Row="2" Grid.Column="1" x:Name="ScreenshotHotKeyBox" Margin="0,10,0,0" />
+                                        <ui:ToggleSwitch Grid.Row="2" Grid.Column="2" x:Name="EnableScreenshotHotKeyBox" Margin="12,10,0,0" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Row="3" Grid.Column="1"
+                                                   Margin="0,6,0,0"
+                                                   Style="{StaticResource Settings.HintText}"
+                                                   Foreground="{Binding ScreenshotHotKeyStatusBrush}"
+                                                   Text="{Binding ScreenshotHotKeyStatusText}" />
                                     </Grid>
                                 </StackPanel>
                             </Border>

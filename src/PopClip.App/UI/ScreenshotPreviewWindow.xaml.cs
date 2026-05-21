@@ -234,7 +234,10 @@ internal partial class ScreenshotPreviewWindow : Window
     private void OnFrameMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left) return;
-        try { DragMove(); } catch { }
+        // 不用 Window.DragMove() —— 它走 WM_SYSCOMMAND + SC_MOVE，受 Aero Snap 干预，
+        // 窗口顶部拖到屏幕上沿时 OS 会把它"贴边 / 弹回"工作区，无法把截图上半部分推到屏幕外。
+        // WindowDragHelper.BeginDrag 直接 SetWindowPos，让位移 1:1 跟随鼠标
+        WindowDragHelper.BeginDrag(this);
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)

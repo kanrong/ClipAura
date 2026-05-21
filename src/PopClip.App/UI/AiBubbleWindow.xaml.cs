@@ -313,24 +313,15 @@ internal partial class AiBubbleWindow : Window
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
 
-    /// <summary>整条 Header 充当标题栏：按下鼠标左键就 DragMove。
-    /// 必须只在 ButtonState=Pressed 时调用一次，否则 WPF 会抛 InvalidOperationException</summary>
+    /// <summary>整条 Header 充当标题栏：按下鼠标左键就开始自定义拖动。
+    /// 不用 Window.DragMove() —— 它走 WM_SYSCOMMAND + SC_MOVE，受 Aero Snap 干预，
+    /// 拖到屏幕顶部会被 OS 强制贴边 / 弹回工作区</summary>
     private void OnHeaderMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left || e.ButtonState != MouseButtonState.Pressed) return;
         // 点中 Header 内的子按钮（Pin / 关闭）时不要拖动，避免按钮 Click 事件被吞
         if (e.OriginalSource is DependencyObject d && FindAncestor<Button>(d) is not null) return;
-        try
-        {
-            DragMove();
-        }
-        catch (InvalidOperationException ex)
-        {
-            // WS_EX_NOACTIVATE 窗口偶发"窗口未捕获鼠标"导致 DragMove 抛异常，
-            // 这种情况下放弃单次拖动即可，不影响后续交互。
-            // Debug 级别记录便于定位 IDE 输出窗口的 first-chance exception 来源
-            _log.Debug("bubble dragmove swallowed", ("ex", ex.GetType().Name), ("msg", ex.Message));
-        }
+        WindowDragHelper.BeginDrag(this);
     }
 
     private void OnPinClicked(object sender, RoutedEventArgs e)

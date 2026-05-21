@@ -49,8 +49,8 @@ internal partial class OcrResultToolbarWindow : Window
     {
         if (e.ChangedButton != MouseButton.Left) return;
         // 命中目标若是 Button 或图标本身则不拖动 —— 让按钮 Click 正常触发。
-        // DragMove 必须在 MouseLeftButtonDown 同步调用，否则 WPF 抛 InvalidOperationException
-        try { DragMove(); } catch { /* 拖动过程中窗口被异常关闭时偶发抛异常，吞掉不影响功能 */ }
+        // 不用 Window.DragMove() —— 走 SC_MOVE 受 Aero Snap 影响，拖到屏幕上沿会弹回工作区
+        WindowDragHelper.BeginDrag(this);
     }
 
     // ============== Host 推送的状态更新 ==============

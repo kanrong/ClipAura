@@ -27,16 +27,16 @@ internal partial class ScreenshotPreviewToolbarWindow : Window
         Owner = host;
         DimensionText.Text = dimensionText;
 
-        // 整个 ToolbarBorder 都是 DragMove 响应区：按钮自己消费 MouseLeftButtonDown，
-        // 不会冒泡到 Border，所以点按钮不会误触发 DragMove。
-        // DragMove 必须在 MouseLeftButtonDown 同步调用，否则 WPF 抛 InvalidOperationException
+        // 整个 ToolbarBorder 都是拖动响应区：按钮自己消费 MouseLeftButtonDown，
+        // 不会冒泡到 Border，所以点按钮不会误触发拖动。
+        // 不用 Window.DragMove() —— 它走 SC_MOVE，受 Aero Snap 影响把工具条弹回工作区
         ToolbarBorder.MouseLeftButtonDown += OnBorderMouseDown;
     }
 
     private void OnBorderMouseDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left) return;
-        try { DragMove(); } catch { /* 拖动过程中窗口被异常关闭时偶发抛异常，吞掉不影响功能 */ }
+        WindowDragHelper.BeginDrag(this);
     }
 
     /// <summary>工具条自己的轻量 toast：用于复制 / 保存等动作的反馈，

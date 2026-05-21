@@ -57,7 +57,8 @@ internal partial class OcrResultTextPanelWindow : Window
         // 但用户在按钮边缘按下时偶尔事件会冒上来 — 这里再做一次防御性检查
         if (e.OriginalSource is System.Windows.DependencyObject d && FindAncestor<System.Windows.Controls.Button>(d) is not null)
             return;
-        try { DragMove(); } catch { /* 拖动期间窗口被异常关闭时偶发抛异常，吞掉 */ }
+        // 不用 Window.DragMove() —— 走 SC_MOVE 受 Aero Snap 影响，拖到屏幕上沿会弹回工作区
+        WindowDragHelper.BeginDrag(this);
     }
 
     /// <summary>右下角 grip 按下：调用 Win32 ReleaseCapture + SendMessage(WM_NCLBUTTONDOWN, HTBOTTOMRIGHT)

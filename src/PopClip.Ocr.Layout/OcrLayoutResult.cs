@@ -7,7 +7,18 @@ public enum OcrLayoutContentKind
     Unknown,
     Paragraph,
     Table,
+    List,
     Mixed,
+}
+
+/// <summary>行级语义标签。区域级 ContentKind 之外的二级分类，
+/// 用于在 Paragraph / List 区域内区分普通行、列表项首行、列表项续行等，
+/// 让下游（Markdown 渲染 / 翻译切分 / UI 高亮）能按行做差异化处理。</summary>
+public enum OcrLayoutLineKind
+{
+    Text,
+    ListItem,
+    ListContinuation,
 }
 
 public sealed record OcrLayoutResult(
@@ -26,7 +37,8 @@ public sealed record OcrLayoutRegion(
 public sealed record OcrLayoutLine(
     OcrLayoutRect Bounds,
     string Text,
-    IReadOnlyList<int> SourceBlockIndexes);
+    IReadOnlyList<int> SourceBlockIndexes,
+    OcrLayoutLineKind Kind = OcrLayoutLineKind.Text);
 
 public readonly record struct OcrLayoutRect(float Left, float Top, float Right, float Bottom)
 {

@@ -113,12 +113,12 @@
                 <Button x:Name="CopySelectedButton"
                         Style="{StaticResource OcrToolIconButtonStyle}"
                         Click="OnCopySelected"
-                        ToolTip="复制已选段落 (Ctrl+C) · 仅当工具栏左侧显示已选数量时可用">
+                        ToolTip="复制已选段落 (Ctrl+C)">
                     <iconPacks:PackIconMaterialDesign Kind="LibraryAddCheckRound" Width="16" Height="16" />
                 </Button>
                 <Button Style="{StaticResource OcrToolIconButtonStyle}"
                         Click="OnCopyScreenshot"
-                        ToolTip="复制原截图图片到剪贴板">
+                        ToolTip="复制截图到剪贴板">
                     <iconPacks:PackIconMaterialDesign Kind="ImageRound" Width="16" Height="16" />
                 </Button>
 
@@ -166,7 +166,7 @@
                 <Button x:Name="ToggleTextPanelButton"
                         Style="{StaticResource OcrToolIconButtonStyle}"
                         Click="OnToggleTextPanel"
-                        ToolTip="切换识别文本侧边面板 · 显示整段文字方便整体阅读 / 复制">
+                        ToolTip="打开 / 关闭识别文本侧边面板 · 显示整段文字方便整体阅读 / 复制">
                     <iconPacks:PackIconMaterialDesign x:Name="ToggleTextPanelIcon"
                                                      Kind="ChromeReaderModeRound"
                                                      Width="16" Height="16" />
@@ -175,7 +175,7 @@
                 <!-- Quick 输出：保持原本功能，仅替换图标 -->
                 <Button Style="{StaticResource OcrToolIconButtonStyle}"
                         Click="OnSwitchToQuick"
-                        ToolTip="切换 Quick 输出 · 一次性按 Quick 模式输出本次结果（不修改设置）">
+                        ToolTip="切换到 Quick 输出">
                     <iconPacks:PackIconMaterialDesign Kind="BoltRound" Width="16" Height="16" />
                 </Button>
 
@@ -184,7 +184,7 @@
                 <Button x:Name="SwitchToScreenshotButton"
                         Style="{StaticResource OcrToolIconButtonStyle}"
                         Click="OnSwitchToScreenshot"
-                        ToolTip="切换到截图预览（在原截图上做复制 / 保存 / 再识别）">
+                        ToolTip="切换到截图预览">
                     <iconPacks:PackIconMaterialDesign Kind="PhotoCameraRound" Width="16" Height="16" />
                 </Button>
 

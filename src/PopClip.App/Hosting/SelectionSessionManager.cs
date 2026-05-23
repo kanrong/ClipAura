@@ -615,6 +615,19 @@ internal sealed class SelectionSessionManager : IDisposable
     {
         var toastBefore = _toolbar.LastToastAtUtc;
         var isAiAction = IsAiAction(action);
+
+        // 点击动作按钮的瞬间就把浮窗 dismiss 掉：
+        // 后续 action 触发的 toast / 气泡 / 对话框等出现时，浮窗已不在屏幕上，避免视觉叠加。
+        // 旧版用 await Task.Delay(700) + dismiss 让用户"看完 toast 再关浮窗"，但实际上：
+        // 1) Toast 是独立 ToolbarToastWindow，自带 1.8s 计时，浮窗关不关都能显示完整时长；
+        // 2) 气泡 / 对话窗 / 截图预览等会在浮窗位置附近弹出，二者叠加遮挡且视觉拥挤；
+        // 3) 用户已经"用按钮表达了意图"，浮窗的存在不再提供任何信息，反而是噪音。
+        // DismissOnActionInvoked=false 时用户明确选择"长留浮窗"，尊重设置不主动关
+        if (_settings.DismissOnActionInvoked)
+        {
+            _toolbar.DismissExternal("action-invoked");
+        }
+
         // 注入 descriptor 上下文，让智能动作可读 host.Descriptor.OutputMode 决定输出落点
         var scopedHost = new ScopedActionHost(_actionHost, descriptor);
         _ = Task.Run(async () =>
@@ -645,11 +658,8 @@ internal sealed class SelectionSessionManager : IDisposable
                         _toolbar.ShowInlineToast(text);
                     }
                 });
-                await Task.Delay(700).ConfigureAwait(false);
-                if (_settings.DismissOnActionInvoked)
-                {
-                    _toolbar.DismissExternal("action-completed");
-                }
+                // 浮窗已在按钮点击瞬间 dismiss，这里不再需要"等 toast 显示完再 dismiss"的延迟链路。
+                // Toast 独立窗口自带 1.8s 计时，浮窗不在不影响 toast 完整显示
             }
             catch (Exception ex)
             {
@@ -704,6 +714,15 @@ internal sealed class SelectionSessionManager : IDisposable
         if (string.Equals(action.Id, BuiltInActionIds.Translate, StringComparison.OrdinalIgnoreCase)
             && _actionHost.Ai.CanRun
             && _settings.TranslateInlineWhenAiEnabled)
+        {
+            return false;
+        }
+        // 内置"搜索"动作直接打开浏览器，用户在浏览器里已经能看到搜索结果，
+        // 再补一个"搜索 ✓" toast 是冗余且打断节奏。
+        // 同一类"打开外部应用"动作（OpenUrl / Mailto）走的也是 UrlLauncher，按同样语义保持安静
+        if (string.Equals(action.Id, BuiltInActionIds.Search, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(action.Id, BuiltInActionIds.OpenUrl, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(action.Id, BuiltInActionIds.Mailto, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }

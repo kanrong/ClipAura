@@ -35,6 +35,16 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     public ObservableCollection<ToolbarItemRow> Rows { get; } = new();
 
     private nint _hwnd;
+
+    /// <summary>浮窗自进程启动以来是否已经被 ShowAt 过至少一次。
+    /// 与 _isShown（当前是否可见）解耦：dismiss 后 _isShown=false 但 _hasBeenShown 仍 true。
+    ///
+    /// 设计动机：RunAction 在按钮点击瞬间就 dismiss 浮窗，但 action 后续可能要打开气泡 / 对话框 /
+    /// 翻译窗等，这些窗体需要锚定到"用户刚才看到的浮窗位置"。Window.Hide() 不会清掉
+    /// Left/Top/Width/Height，于是只要保留"曾经定位过"的语义就能继续把它们当作 anchor 用。
+    /// PrewarmLayout 创建 HWND 但 Left/Top 仍是 WPF 默认值（0,0），不能用作 anchor，
+    /// 所以必须用一个独立标志位（而不是 _hwnd != 0）区分"HWND 已建" vs "已经 ShowAt 过"</summary>
+    private bool _hasBeenShown;
     private readonly ILog _log;
     private DateTime _lastShownAtUtc;
     private bool _prewarmed;
@@ -430,6 +440,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         // 显式写回当前测量尺寸，避免首次显示沿用 HWND 创建/预热阶段的旧尺寸
         WindowStyleHelper.ShowNoActivate(_hwnd, x, y, widthPx, heightPx);
         _isShown = true;
+        _hasBeenShown = true;
         _lastShownAtUtc = DateTime.UtcNow;
         ScheduleTimeoutDismiss();
     }
@@ -780,10 +791,15 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
 
     /// <summary>计算 AI 内联气泡的锚点：浮窗下沿水平居中点，单位 DIP。
     /// 同时返回该浮窗所在 monitor 的工作区上下沿 DIP 值，让气泡能在屏幕底部空间不足时翻到上方。
-    /// 浮窗尚未显示时返回 null —— 此时 AiTextService 应回退到现有 toast/notify 路径</summary>
+    /// 浮窗从未显示过时返回 null —— 此时 AiTextService 应回退到现有 toast/notify 路径。
+    ///
+    /// 关键：不再用 _isShown 短路 —— RunAction 在按钮点击瞬间就 dismiss 浮窗，但 action 后续
+    /// 触发的气泡 / 对话框需要锚定到"用户刚刚看到的浮窗位置"。Left/Top/Width/Height 在 Hide()
+    /// 后仍是上次 ShowAt 的值，配合 _hasBeenShown 标志能稳定还原 anchor。
+    /// 仅当浮窗一次都没显示过（PrewarmLayout 创建了 HWND 但 Left/Top 还是默认 0,0）时才返回 null</summary>
     public BubbleAnchor? GetCurrentBubbleAnchor()
     {
-        if (!_isShown || _hwnd == 0) return null;
+        if (!_hasBeenShown || _hwnd == 0) return null;
         var centerXDip = Left + Width / 2;
         // ShadowPaddingDip 是浮窗外缘留给阴影的透明 padding；扣掉它才能贴近"用户能看到的浮窗底"
         var topYDip = Top + Height - ShadowPaddingDip;

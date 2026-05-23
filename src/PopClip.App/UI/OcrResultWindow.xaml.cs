@@ -36,23 +36,48 @@ namespace PopClip.App.UI;
 internal partial class OcrResultWindow : Window
 {
     private readonly ILog _log;
-    private readonly OcrResult _result;
+
+    /// <summary>当前结果。loading 模式下初始为 OcrResult.Empty，
+    /// PopulateResult 调用时替换为真实结果并重建 polygon / 工具栏状态。
+    /// 因此不能用 readonly —— 整个窗口的生命周期中可能从"识别中态"过渡到"已识别态"</summary>
+    private OcrResult _result;
     private readonly OcrImage _screenshot;
     private readonly ClipboardWriter _clipboard;
     private readonly AppSettings _settings;
     private readonly AiTextService? _aiText;
     private readonly Action? _onCloseRequested;
-    private readonly string _layoutFullText;
+    private string _layoutFullText;
+
+    /// <summary>窗口当前是否处于"OCR 识别中"加载态。
+    /// loading 时：截图背景立即显示，polygon overlay / 工具栏 copy/translate 按钮禁用；
+    /// PopulateResult 完成后转为 false，激活完整交互能力。
+    /// 设计动机：让"截图预览 → OCR"切换可立即建立新窗体（保留位置 / 背景），
+    /// OCR 异步完成时再叠 polygon，避免 1~3 秒识别期间 UI 空白卡住</summary>
+    private bool _isLoading;
+
+    /// <summary>窗口是否已 Close。Closed 事件触发后置 true，让 PopulateResult 等异步回调能感知
+    /// "窗口已被用户提前关闭"（如 loading 期间用户按了 Esc / 切到截图 / 开始新识别），
+    /// 此时延迟到达的 OCR 结果不应再尝试操作 UI 元素</summary>
+    private bool _isClosed;
 
     /// <summary>用户在结果窗点"Quick 输出"时调用：交给 Coordinator 走一遍 Quick 模式渲染
     /// （剪贴板 + 浮窗气泡 + toast），不修改 settings.OcrResultMode。
     /// 用户的 OCR 模式偏好通过设置面板永久切换，本按钮只影响当次输出</summary>
     private readonly Action<string>? _quickFallback;
 
-    /// <summary>用户点工具栏"切到截图预览"时调用：交给 Coordinator 用同一张截图打开 ScreenshotPreviewWindow。
+    /// <summary>用户点工具栏"切到截图预览"时调用。
+    /// 参数：当前 OCR 结果图在屏幕上的物理像素 rect（含用户拖动 / 跨屏挪动后的真实位置），
+    /// 让 Coordinator 据此把新打开的截图预览窗放到同一个位置，视觉上保留窗体位置惯性。
+    ///
     /// null 表示宿主没有提供此能力（兜底场景），UI 上的切换按钮会被置灰。
-    /// 切换前 OCR 结果窗会自行关闭，由 Coordinator 负责打开新的预览窗</summary>
-    private readonly Action? _switchToScreenshot;
+    /// 切换流程改造：本窗不再自行 Close —— 等 Coordinator 把新预览窗 Show + Loaded 后再统一关旧窗，
+    /// 让"高亮 OCR 图 → 原始截图"切换在视觉上无缝衔接</summary>
+    private readonly Action<WinRectangle>? _switchToScreenshot;
+
+    /// <summary>用户点工具栏"开始新识别"时调用：交给 Coordinator 关闭本窗并重新进入选区状态机。
+    /// 与"切到截图"按钮的区别：reshoot 不复用当前截图，会真正进入选区让用户重新框选 OCR 区域。
+    /// null 时按钮置灰</summary>
+    private readonly Action? _reshootOcr;
     private readonly Action? _saveSettings;
 
     /// <summary>"打开设置某一分页"的跨层回调（如 "AI" / "Ocr"）。
@@ -89,22 +114,26 @@ internal partial class OcrResultWindow : Window
     private OcrResultTextPanelWindow? _textPanelWindow;
 
     /// <summary>每个 block 对应一个 Polygon overlay。
-    /// 顺序与 _result.Blocks 一致，下标可双向查询。</summary>
-    private readonly List<Polygon> _polygons = new();
+    /// 顺序与 _result.Blocks 一致，下标可双向查询。
+    /// loading → populated 切换时由 BuildPolygons 重建，不能 readonly</summary>
+    private List<Polygon> _polygons = new();
 
     /// <summary>每个 block 对应的"译文覆盖框"。null 表示该 block 当前没有 overlay 显示。
     /// 与 _translatedText 解耦：用户切回原文时清掉 overlay（设为 null），但 _translatedText 保留
-    /// 让二次切换译文显示能直接走缓存，免去重新调用 AI</summary>
-    private readonly Border?[] _translationOverlays;
+    /// 让二次切换译文显示能直接走缓存，免去重新调用 AI。
+    /// PopulateResult 时按新 result.Blocks.Count 重新分配 —— 不能 readonly</summary>
+    private Border?[] _translationOverlays;
 
     /// <summary>每个 block 对应的 OCR 原文贴图。用于工具栏"显示识别原文"开关，
-    /// 与翻译 overlay 分层，避免翻译切换影响原文贴图偏好。</summary>
-    private readonly Border?[] _recognizedTextOverlays;
+    /// 与翻译 overlay 分层，避免翻译切换影响原文贴图偏好。
+    /// PopulateResult 时按新 result.Blocks.Count 重新分配 —— 不能 readonly</summary>
+    private Border?[] _recognizedTextOverlays;
 
     /// <summary>每个 block 的译文文本缓存。null = 从未翻译过；非空字符串 = 已翻译过且文本可复用。
     /// 切换"显示译文 → 原文 → 译文"时，第二次切回不需要重新请求 AI；仅当用户主动调 CommandTranslateClear
-    /// 清空缓存，或选中段落集合扩张到新的未缓存段时，才会触发新的 AI 请求</summary>
-    private readonly string?[] _translatedText;
+    /// 清空缓存，或选中段落集合扩张到新的未缓存段时，才会触发新的 AI 请求。
+    /// PopulateResult 时按新 result.Blocks.Count 重新分配 —— 不能 readonly</summary>
+    private string?[] _translatedText;
 
     /// <summary>当前是否处于"展示译文"态。
     /// false（默认）：原文模式，TranslationCanvas 上没有 overlay；
@@ -149,10 +178,13 @@ internal partial class OcrResultWindow : Window
         Action<string>? openSettings = null,
         Action? saveSettings = null,
         Action? onCloseRequested = null,
-        Action? switchToScreenshot = null)
+        Action<WinRectangle>? switchToScreenshot = null,
+        Action? reshootOcr = null,
+        bool isLoading = false)
     {
         _log = log;
         _result = result;
+        _isLoading = isLoading;
         _screenshot = screenshot;
         _clipboard = clipboard;
         _settings = settings;
@@ -163,6 +195,7 @@ internal partial class OcrResultWindow : Window
         _saveSettings = saveSettings;
         _onCloseRequested = onCloseRequested;
         _switchToScreenshot = switchToScreenshot;
+        _reshootOcr = reshootOcr;
         _anchorPhysical = anchorPhysical;
         _anchorDpiX = anchorDpiX == 0 ? 96 : anchorDpiX;
         _anchorDpiY = anchorDpiY == 0 ? 96 : anchorDpiY;
@@ -173,6 +206,13 @@ internal partial class OcrResultWindow : Window
         _showingInlineText = _settings.OcrInlineTextVisible;
 
         InitializeComponent();
+
+        // loading 模式下立即把截图背景中央的"识别中…"提示挂出来。
+        // 比工具栏状态胶囊更醒目；BuildPolygons 跳过时只剩截图 + 提示文字
+        if (_isLoading)
+        {
+            LoadingHintBorder.Visibility = Visibility.Visible;
+        }
 
         // 边框模式：四周加 2px 主题色边框 + 4 DIP 阴影 padding；无边模式保持 0。
         // 关键：Window 总尺寸要扩出 _outerInsetWidth * 2，让里面的 Grid/Image 区域仍等于原截图大小，
@@ -275,10 +315,15 @@ internal partial class OcrResultWindow : Window
         PlaceWindowAtAnchorPhysical();
         UpdateLayout();
 
-        BuildPolygons();
-        if (_showingInlineText)
+        // loading 态下没有 block 可绘制；BuildPolygons / RenderRecognizedTextOverlays 都会在
+        // PopulateResult 中被调用。这里只先建好工具栏 / 文本面板的"识别中"状态
+        if (!_isLoading)
         {
-            RenderRecognizedTextOverlays();
+            BuildPolygons();
+            if (_showingInlineText)
+            {
+                RenderRecognizedTextOverlays();
+            }
         }
 
         // 工具条窗口在主窗 Loaded 之后再 Show：此时主窗 Left/Top/ActualWidth/ActualHeight 都是稳定值，
@@ -290,6 +335,7 @@ internal partial class OcrResultWindow : Window
         _toolbarWindow.Top = -32000;
         // 宿主未注入"切到截图"回调时把按钮置灰，避免点击无反应造成困惑
         _toolbarWindow.SetSwitchToScreenshotEnabled(_switchToScreenshot is not null);
+        _toolbarWindow.SetReshootOcrEnabled(_reshootOcr is not null);
         // 工具条 SizeToContent=WidthAndHeight，必须先 Show 一次让它测出 ActualWidth/Height
         _toolbarWindow.Show();
         PositionToolbarInitially();
@@ -407,6 +453,7 @@ internal partial class OcrResultWindow : Window
 
     private void OnWindowClosed(object? sender, EventArgs e)
     {
+        _isClosed = true;
         // 主窗关闭时一并关闭工具条 / 文本面板；Owner=this 在 .NET WPF 也会自动关，
         // 这里显式调以防 Owner 链路异常
         if (_toolbarWindow is not null)
@@ -478,10 +525,12 @@ internal partial class OcrResultWindow : Window
                 },
                 translateAsync: translateAsync);
             _textPanelWindow.Owner = this;
-            // 关键：刚 new 出来时不要在 OS 默认 (0,0) 闪现，先挪屏外再 Show
+            // 关键：刚 new 出来时不要在 OS 默认 (0,0) 闪现，先挪屏外再 Show。
+            // 默认 Width 加宽到 480 让一行能容纳约 30~40 个中文 / 60~80 个 ASCII，
+            // 整段段落不被频繁折行，与 OCR Quick 气泡的阅读宽度保持一致
             _textPanelWindow.Left = -32000;
             _textPanelWindow.Top = -32000;
-            _textPanelWindow.Width = 320;
+            _textPanelWindow.Width = 480;
             _textPanelWindow.Height = Math.Max(160, Math.Min(560, ActualHeight));
             _textPanelWindow.Show();
             UpdateTextPanelContent();
@@ -587,6 +636,16 @@ internal partial class OcrResultWindow : Window
     private void UpdateTextPanelContent()
     {
         if (_textPanelWindow is null) return;
+
+        // loading 态下还没有任何 block，面板内显示"识别中…"占位。
+        // 避免空白面板让用户误以为窗口卡死
+        if (_isLoading)
+        {
+            _textPanelWindow.SetContent("识别中…");
+            _textPanelWindow.SetMeta("OCR 正在处理截图");
+            return;
+        }
+
         int sel = SelectedCount();
         string body;
         string meta;
@@ -666,6 +725,70 @@ internal partial class OcrResultWindow : Window
     ///
     /// 缩放系数用 Image 区域（Window 内部去掉 border）大小，而非 Window 整体。
     /// 否则 bordered 模式下 polygon 比截图大 2px、整体偏移 2px，与原图错位</summary>
+    /// <summary>把 loading 态的结果窗升级为已识别态。
+    /// 调用方负责保证 result 来自当前截图（OcrCaptureCoordinator 在 OCR 异步完成后回到 UI 线程调用）。
+    ///
+    /// 这一路径承担"截图预览 → OCR"切换的视觉无缝化：
+    /// 1. 截图背景在窗口创建时就显示（避免识别期间空白闪烁）；
+    /// 2. 工具栏先显示"识别中…"占位，复制 / 翻译按钮置灰；
+    /// 3. OCR 完成回到这里时刷新 _result / 各数组、重建 polygon、激活工具栏全部能力。
+    ///
+    /// 不打断用户在 loading 时已经做的"切回截图 / 开始新识别"等操作 —— 那些操作会触发新窗体生命周期，
+    /// 本窗口被关闭，PopulateResult 自然不会再回调到。
+    /// 重复调用是允许的：例如用户在 loading 期间已经看到结果但又想换 provider 重识别 —— 直接 PopulateResult
+    /// 第二次即可，内部会重建所有数组与 polygon。</summary>
+    public void PopulateResult(OcrResult result, string? layoutFullText = null)
+    {
+        // loading 期间用户可能已经按了 Esc / "切到截图" / "开始新识别"，把当前 loading 窗 Close 掉了。
+        // 此时延迟到达的 OCR 结果不应再操作 UI 元素（避免空 polygon 渲染、占用资源）
+        if (_isClosed) return;
+
+        // 极端情况：OCR 在 Window.Show() 返回后、Loaded 事件触发前完成 —— 此时 ActualWidth/Height
+        // 还是 0，BuildPolygons 的缩放系数会算出 0，polygon 全部坍缩到 (0,0)。
+        // 订阅 Loaded 让真实 layout 完成后再回调 PopulateResult，避免空 polygon 渲染
+        if (!IsLoaded)
+        {
+            RoutedEventHandler? handler = null;
+            handler = (_, _) =>
+            {
+                Loaded -= handler;
+                PopulateResult(result, layoutFullText);
+            };
+            Loaded += handler;
+            return;
+        }
+
+        _result = result;
+        _layoutFullText = string.IsNullOrWhiteSpace(layoutFullText) ? "" : layoutFullText.Trim();
+
+        // 重新按新 block 数分配所有"per-block"数组。
+        // 旧的选中 / 翻译缓存 / inline text overlay 都失效（block 含义变了），全部清掉
+        _selected = new bool[result.Blocks.Count];
+        _translationOverlays = new Border?[result.Blocks.Count];
+        _recognizedTextOverlays = new Border?[result.Blocks.Count];
+        _translatedText = new string?[result.Blocks.Count];
+        _hoverIndex = -1;
+        _marqueeStart = null;
+        _isDragging = false;
+        _showingTranslation = false;
+        _translating = false;
+        // TranslationCanvas / RecognizedTextCanvas 上的 overlay 是 loading 升级前留下的（理论上不会有，
+        // 但 PopulateResult 也允许 populated → populated 二次调用，所以这里清干净更稳）
+        TranslationCanvas.Children.Clear();
+        RecognizedTextCanvas.Children.Clear();
+        MarqueeRect.Visibility = Visibility.Collapsed;
+
+        _isLoading = false;
+        // 关掉截图背景中央的"识别中…"提示；接下来 BuildPolygons 会让 polygon 出现在截图上
+        LoadingHintBorder.Visibility = Visibility.Collapsed;
+        BuildPolygons();
+        if (_showingInlineText)
+        {
+            RenderRecognizedTextOverlays();
+        }
+        UpdateStatusBar();
+    }
+
     private void BuildPolygons()
     {
         OverlayCanvas.Children.Clear();
@@ -788,6 +911,10 @@ internal partial class OcrResultWindow : Window
 
     private void OnOverlayMouseDown(object sender, MouseButtonEventArgs e)
     {
+        // loading 态下不接受任何 marquee 操作：还没有 polygon 可以选中，
+        // 启动 marquee 也会让"识别中…"画面上突然冒出一个虚框，体验混乱
+        if (_isLoading) return;
+
         _marqueeStart = e.GetPosition(OverlayCanvas);
         _isDragging = false;
         OverlayCanvas.CaptureMouse();
@@ -874,12 +1001,17 @@ internal partial class OcrResultWindow : Window
 
     private void OnKeyDown(object sender, KeyEventArgs e)
     {
+        // Escape 在 loading 态也必须有效（用户取消识别），其他快捷键依赖已识别结果故 loading 时屏蔽
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            CloseSelf("escape");
+            return;
+        }
+        if (_isLoading) return;
+
         switch (e.Key)
         {
-            case Key.Escape:
-                e.Handled = true;
-                CloseSelf("escape");
-                break;
             case Key.A when (Keyboard.Modifiers & ModifierKeys.Control) != 0:
                 e.Handled = true;
                 SelectAll();
@@ -1024,21 +1156,54 @@ internal partial class OcrResultWindow : Window
     /// 关闭结果窗后由 Coordinator 用同一张截图打开 ScreenshotPreviewWindow，
     /// 让用户能继续做"复制图片 / 保存为 PNG / 再次 OCR"等截图侧操作。
     ///
-    /// 没有 switchToScreenshot 回调时（理论上不会发生，AppHost 已注入），
-    /// 工具栏构造时已通过 SetSwitchToScreenshotEnabled(false) 把按钮置灰</summary>
+    /// 切换流程改造：
+    /// 1) 把当前结果图在屏上的物理像素 rect 传给回调，让 Coordinator 用同一个位置打开截图预览，
+    ///    保留用户对结果窗的拖动 / 跨屏位置惯性；
+    /// 2) 本窗不在这里 Close —— 由 Coordinator 在新预览窗 Loaded 之后再统一关闭，
+    ///    让"高亮 OCR 图 → 原始截图"切换视觉上几乎无缝衔接（同位置叠两层短暂共存）</summary>
     public void CommandSwitchToScreenshot()
     {
         if (_switchToScreenshot is null) return;
         _log.Info("ocr result switch-to-screenshot triggered");
-        // 顺序与 CommandSwitchToQuick 保持一致：先关结果窗再触发新窗口，
-        // 避免新预览窗因为 topmost 抢焦点时撞上旧窗的关闭流程
-        var fallback = _switchToScreenshot;
-        Dispatcher.BeginInvoke(new Action(() =>
+        var anchor = GetCurrentImagePhysicalRect();
+        try { _switchToScreenshot(anchor); }
+        catch (Exception ex) { _log.Warn("switch-to-screenshot failed", ("err", ex.Message)); }
+    }
+
+    /// <summary>工具栏"开始新识别"按钮入口：交给 Coordinator 关闭本窗 + 拉起新的选区状态机。
+    /// 先 Hide 本窗 + 工具栏让屏幕保持干净，再触发 reshoot 回调；
+    /// 与"快捷键 / 托盘"路径不同，这条路径需要主动隐藏旧结果窗，避免 OCR 选区蒙层下还看到旧的高亮图</summary>
+    public void CommandReshootOcr()
+    {
+        if (_reshootOcr is null) return;
+        _log.Info("ocr result reshoot triggered");
+        try
         {
-            CloseSelf("switch-to-screenshot");
-            try { fallback(); }
-            catch (Exception ex) { _log.Warn("switch-to-screenshot failed", ("err", ex.Message)); }
-        }), DispatcherPriority.Background);
+            if (_toolbarWindow is not null) { try { _toolbarWindow.Hide(); } catch { } }
+            if (_textPanelWindow is not null) { try { _textPanelWindow.Hide(); } catch { } }
+            Hide();
+            _reshootOcr();
+        }
+        catch (Exception ex) { _log.Warn("reshoot ocr failed", ("err", ex.Message)); }
+    }
+
+    /// <summary>读取当前结果图在屏幕上的物理像素位置。
+    /// Window 内部从外到内的 DIP 层次：_shadowMargin（阴影留白）+ _borderWidth（主题边框）→ 图像区域。
+    /// 用 GetWindowRect 取窗口物理矩形 + _outerInsetWidth 物理像素偏移，得到图像区域左上像素坐标；
+    /// 宽高直接复用最初的 anchor 尺寸（图像内容未变形）。
+    ///
+    /// 用于"切到截图预览"按钮：让新预览窗在用户拖动 / 跨屏挪动后的当前位置打开，而不是闪回最初的框选位置</summary>
+    private WinRectangle GetCurrentImagePhysicalRect()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return _anchorPhysical;
+        if (!NativeMethods.GetWindowRect(hwnd, out var rect)) return _anchorPhysical;
+
+        int insetPxX = (int)Math.Round(_outerInsetWidth * _anchorDpiX / 96.0);
+        int insetPxY = (int)Math.Round(_outerInsetWidth * _anchorDpiY / 96.0);
+        int x = rect.Left + insetPxX;
+        int y = rect.Top + insetPxY;
+        return new WinRectangle(x, y, _anchorPhysical.Width, _anchorPhysical.Height);
     }
 
     /// <summary>工具栏"启用 AI"按钮（仅当 AI 未启用时显示）：
@@ -1419,6 +1584,35 @@ internal partial class OcrResultWindow : Window
     {
         int total = _result.Blocks.Count;
         int sel = SelectedCount();
+
+        // loading 态：截图背景已经显示，但 OCR 还在跑 —— 工具栏 / 文本面板 / 右键菜单都按"识别中"渲染。
+        // 复制 / 翻译类按钮全部置灰；"切到截图"和"开始新识别"保持可用，方便用户在长时识别时放弃当前任务
+        if (_isLoading)
+        {
+            _toolbarWindow?.SetStatus("识别中…");
+            _toolbarWindow?.SetCopySelectedEnabled(false);
+            _toolbarWindow?.SetCopyAllEnabled(false);
+            _toolbarWindow?.SetTranslateToggleEnabled(false);
+            _toolbarWindow?.SetTranslateToggleShowingTranslation(false);
+            _toolbarWindow?.SetInlineTextVisible(_showingInlineText);
+
+            if (_textPanelWindow is not null && _textPanelWindow.Visibility == Visibility.Visible)
+            {
+                UpdateTextPanelContent();
+            }
+
+            MiCopySelected.IsEnabled = false;
+            MiClearSel.IsEnabled = false;
+            MiCopyAll.IsEnabled = false;
+            MiSelectAll.IsEnabled = false;
+            MiTranslateAll.IsEnabled = false;
+            MiTranslateSelected.IsEnabled = false;
+            var loadingAiAvailable = _aiText is not null && _aiText.CanRun;
+            var loadingVis = loadingAiAvailable ? Visibility.Visible : Visibility.Collapsed;
+            MiTranslateAll.Visibility = loadingVis;
+            MiTranslateSelected.Visibility = loadingVis;
+            return;
+        }
 
         // 工具栏状态胶囊：只在"有实际选中段落"或"完全未识别"时展示。
         // 旧的"点击 / 拖框 / Ctrl+A 全选"那种引导文案对老用户是视觉噪音，

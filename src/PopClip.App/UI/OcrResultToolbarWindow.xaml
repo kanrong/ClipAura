@@ -188,6 +188,15 @@
                     <iconPacks:PackIconMaterialDesign Kind="PhotoCameraRound" Width="16" Height="16" />
                 </Button>
 
+                <!-- 开始新识别：立刻隐藏本结果窗与工具栏，进入新的选区状态机让用户重新框选 OCR 区域。
+                     与截图工具栏的"重新截图"按钮对偶，承担"我对当前结果不满意，想换一片区域重识别"的诉求 -->
+                <Button x:Name="ReshootOcrButton"
+                        Style="{StaticResource OcrToolIconButtonStyle}"
+                        Click="OnReshootOcr"
+                        ToolTip="开始新识别 · 关闭本结果窗并重新选择 OCR 区域">
+                    <iconPacks:PackIconMaterialDesign Kind="CropFreeRound" Width="16" Height="16" />
+                </Button>
+
                 <Rectangle Style="{StaticResource OcrToolbarSepStyle}" />
 
                 <!-- 关闭按钮：用 Material Close 图标 -->

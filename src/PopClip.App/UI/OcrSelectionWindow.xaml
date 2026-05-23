@@ -11,12 +11,34 @@
         ResizeMode="NoResize"
         UseLayoutRounding="True"
         Cursor="Cross">
-    <Canvas x:Name="RootCanvas" Background="Transparent">
-        <!-- 选区四周的半透明黑色蒙层（上/下/左/右四块组合），让选区中心保持完全透明 -->
-        <Rectangle x:Name="MaskTop"    Fill="#99000000" IsHitTestVisible="False" />
-        <Rectangle x:Name="MaskBottom" Fill="#99000000" IsHitTestVisible="False" />
-        <Rectangle x:Name="MaskLeft"   Fill="#99000000" IsHitTestVisible="False" />
-        <Rectangle x:Name="MaskRight"  Fill="#99000000" IsHitTestVisible="False" />
+    <!-- Background 设成 #01000000（alpha=1）而非 Transparent（alpha=0）：
+         WPF 在 AllowsTransparency=True 时，alpha=0 像素会被 DWM 视为完全透明 → 鼠标事件
+         穿透到下层窗口。选区中心如果是 alpha=0，WaitingForEnd 状态（没有 CaptureMouse 时）
+         鼠标移到选区内 / 内部往外缩小时 MouseMove 会"漏掉"事件，框选不跟随鼠标，
+         背后程序还能 hover 响应 —— 用户报告"框选区域不跟随缩小"的根因。
+         alpha=1 的近黑色像素 (#01000000) 视觉上几乎不可见（叠加到任意背景 < 0.4% 黑），
+         但 WPF / DWM hit-test 会正常接收鼠标事件，整个窗口区域都能稳定收到 MouseMove -->
+    <Canvas x:Name="RootCanvas" Background="#01000000">
+        <!-- 选区蒙层：单个 Path + CombinedGeometry(Exclude) 渲染"全屏黑 - 选区"的差集。
+             旧方案用 4 个 Rectangle 分别覆盖上 / 下 / 左 / 右四侧，选区缩小时 4 块矩形 layout 同时变大，
+             加上半透明区域 GPU alpha blend 重负载，导致 60Hz MouseMove 跟手滞后明显（用户反馈"卡卡的"
+             以及"鼠标跑到框选区域里面框不跟随"）。
+             现在 Path 是单个 Visual 单次 GPU draw call，更新 MaskInnerGeometry.Rect 不触发任何 element
+             measure / arrange，仅 GPU 重新算 path 差集 → 渲染压力直线下降，缩小操作丝滑跟手 -->
+        <Path x:Name="MaskPath"
+              Fill="#99000000"
+              IsHitTestVisible="False">
+            <Path.Data>
+                <CombinedGeometry GeometryCombineMode="Exclude">
+                    <CombinedGeometry.Geometry1>
+                        <RectangleGeometry x:Name="MaskOuterGeometry" />
+                    </CombinedGeometry.Geometry1>
+                    <CombinedGeometry.Geometry2>
+                        <RectangleGeometry x:Name="MaskInnerGeometry" />
+                    </CombinedGeometry.Geometry2>
+                </CombinedGeometry>
+            </Path.Data>
+        </Path>
 
         <!-- 1px 蓝色主线，在暗色蒙层、浅色页面和彩色背景上都能稳定区分选区边界。
              选区内部完全透明，确保用户看到的是屏幕原始内容，不被色调干扰 -->

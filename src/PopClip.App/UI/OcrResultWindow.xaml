@@ -68,6 +68,37 @@
                            Opacity="0.35" />
             </Canvas>
 
+            <!-- loading 占位：OCR 异步识别期间在截图背景中央显示醒目提示文字。
+                 比工具栏的状态胶囊（位于主图下方且文字小）更明显，用户能一眼看到"正在识别"。
+                 单 TextBlock + 半透明深色 Border 在任意截图背景上都能稳定阅读。
+                 IsHitTestVisible=False 让鼠标穿透到下方 OverlayCanvas（loading 期间没有 polygon，
+                 OverlayCanvas 仍 hit testable 但 _isLoading 守卫让 marquee 不会启动）。
+                 PopulateResult 完成时由 code-behind 改为 Collapsed -->
+            <Border x:Name="LoadingHintBorder"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Padding="26,16"
+                    Background="{DynamicResource ToolbarToastBackground}"
+                    BorderBrush="{DynamicResource ToolbarAccentSoft}"
+                    BorderThickness="1"
+                    CornerRadius="18"
+                    Visibility="Collapsed"
+                    IsHitTestVisible="False">
+                <Border.Effect>
+                    <DropShadowEffect Color="Black"
+                                      Direction="270"
+                                      BlurRadius="8"
+                                      ShadowDepth="2"
+                                      Opacity="0.45"
+                                      RenderingBias="Performance" />
+                </Border.Effect>
+                <TextBlock x:Name="LoadingHintText"
+                           Text="识别中…"
+                           Foreground="{DynamicResource ToolbarForeground}"
+                           FontSize="22"
+                           FontWeight="Medium" />
+            </Border>
+
             <!-- 顶部短暂 Toast：复制成功 / 全选 / 取消选 的反馈 -->
             <Border x:Name="ToastBorder"
                     VerticalAlignment="Top"

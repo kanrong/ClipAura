@@ -116,6 +116,16 @@
                     <iconPacks:PackIconMaterialDesign Kind="DocumentScannerRound" Width="16" Height="16" />
                 </Button>
 
+                <!-- 重新截图：立刻隐藏本预览与工具栏，进入新的选区状态机让用户重新框选区域。
+                     注意：快捷键 / 托盘触发的截图保持原行为不做隐藏处理（无主动复用本窗的语义），
+                     仅本按钮触发的"重新截图"路径会主动 Hide 旧预览 -->
+                <Button x:Name="ReshootButton"
+                        Style="{StaticResource ScreenshotToolButtonStyle}"
+                        Click="OnReshootClicked"
+                        ToolTip="重新截图 · 关闭本预览并重新框选新的截图区域">
+                    <iconPacks:PackIconMaterialDesign Kind="CropFreeRound" Width="16" Height="16" />
+                </Button>
+
                 <Rectangle Style="{StaticResource ScreenshotToolbarSepStyle}" />
 
                 <Button Style="{StaticResource ScreenshotToolButtonStyle}"

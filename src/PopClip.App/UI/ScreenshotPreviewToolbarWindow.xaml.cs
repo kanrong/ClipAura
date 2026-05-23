@@ -62,5 +62,10 @@ internal partial class ScreenshotPreviewToolbarWindow : Window
     private void OnCopyClicked(object sender, RoutedEventArgs e) => _host.CommandCopy(ShowLocalToast);
     private void OnSaveClicked(object sender, RoutedEventArgs e) => _host.CommandSave(ShowLocalToast);
     private void OnOcrClicked(object sender, RoutedEventArgs e) => _host.CommandOcr();
+    private void OnReshootClicked(object sender, RoutedEventArgs e) => _host.CommandReshoot();
     private void OnCloseClicked(object sender, RoutedEventArgs e) => _host.CommandClose();
+
+    /// <summary>由 host 调用：当 Coordinator 没注入 onReshootRequested 回调时（兜底场景），
+    /// 把按钮置灰避免点击无反应</summary>
+    public void SetReshootEnabled(bool enabled) => ReshootButton.IsEnabled = enabled;
 }

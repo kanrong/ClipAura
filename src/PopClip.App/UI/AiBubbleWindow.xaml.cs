@@ -94,7 +94,12 @@ internal partial class AiBubbleWindow : Window
     /// monitorBottomY 用于"下方放不下时翻到上方"判断，调用方传入当前 anchor 所在屏幕的工作区底沿即可。
     ///
     /// 复用语义：当前窗口已是 Pin 态时（presenter 复用同一个实例承载新内容），
-    /// 跳过位置重算 + 保留 Pin 状态，让用户体验是"原位刷新"而非"关掉重弹"</summary>
+    /// 跳过位置重算 + 保留 Pin 状态，让用户体验是"原位刷新"而非"关掉重弹"。
+    ///
+    /// preferredMinWidth / preferredMaxWidth：调用方可按内容形态指定气泡的宽度区间；
+    /// null 时沿用 XAML 默认值（MinWidth=320, RootGrid.MaxWidth=520）。
+    /// 设计动机：OCR Quick 模式正文动辄是整段段落，默认 320~520 太窄导致频繁折行 + 频繁滚动，
+    /// 让 OCR 调用方传入更大区间（如 480 ~ 640）能显著提升整段阅读体验</summary>
     public void ShowAt(
         string title,
         string model,
@@ -105,7 +110,9 @@ internal partial class AiBubbleWindow : Window
         double anchorCenterX,
         double anchorTopY,
         double monitorBottomY,
-        double monitorTopY)
+        double monitorTopY,
+        double? preferredMinWidth = null,
+        double? preferredMaxWidth = null)
     {
         // 记录 Pin 态后再清正文：清正文不应改 Pin 状态，
         // 否则用户用 Pin 的"刷新"语义会失效
@@ -142,9 +149,20 @@ internal partial class AiBubbleWindow : Window
         // 默认隐藏翻译按钮，调用方通过 ConfigureTranslate 显式开启
         TranslateButton.Visibility = Visibility.Collapsed;
         // 每次 ShowAt 重置 SizeToContent，让新内容能自适应大小；用户拖 ResizeGrip 后会切到 Manual。
-        // 同时把 MaxWidth / MaxHeight 上限恢复，确保上一轮被用户拉宽 / 拉高的窗口不影响本轮自适应
+        // 同时把 MaxWidth / MaxHeight 上限恢复，确保上一轮被用户拉宽 / 拉高的窗口不影响本轮自适应。
+        //
+        // 宽度区间：调用方传入 preferredMinWidth / preferredMaxWidth 时按其语义覆盖默认 320 / 520，
+        // 让 OCR Quick 这类需要"较宽阅读区"的场景能展现更长行宽度。
+        // 注意：Window.MinWidth 决定 SizeToContent 自适应下限；
+        // RootGrid.MaxWidth 决定 SizeToContent 自适应上限（避免长文本无限拉宽）；
+        // BodyScroll.MinWidth 让短文本时正文区不被压得过窄，扣掉外层 Margin(8*2) + ScrollViewer Margin(14*2)
+        // ~= 44 DIP 即可，保证 ScrollViewer 自己至少这么宽
         SizeToContent = SizeToContent.WidthAndHeight;
-        RootGrid.MaxWidth = 520;
+        var effectiveMinWidth = preferredMinWidth ?? 320.0;
+        var effectiveMaxWidth = preferredMaxWidth ?? 520.0;
+        MinWidth = effectiveMinWidth;
+        RootGrid.MaxWidth = effectiveMaxWidth;
+        BodyScroll.MinWidth = Math.Max(0, effectiveMinWidth - 44);
         BodyScroll.MaxHeight = 360;
 
         // 先把窗口贴到屏幕外测量真实尺寸，再瞬移到目标坐标，避免用户看到 (0,0) → 目标 的 1 帧闪动

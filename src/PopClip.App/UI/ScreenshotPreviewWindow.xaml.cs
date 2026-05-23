@@ -34,7 +34,17 @@ internal partial class ScreenshotPreviewWindow : Window
     private readonly uint _anchorDpiX;
     private readonly uint _anchorDpiY;
     private readonly ClipboardWriter _clipboard;
-    private readonly Action _onOcrRequested;
+
+    /// <summary>切到 OCR 识别的回调。参数为当前截图图像在屏幕上的物理像素 rect
+    /// （= 用户在预览窗内挪动 / 跨屏拖动后图像区域的真实位置），让 OCR 结果窗能在同一个屏幕位置弹出，
+    /// 视觉上像是"原地把截图换成了带高亮的 OCR 结果"，而非闪回最初的框选位置</summary>
+    private readonly Action<WinRectangle> _onOcrRequested;
+
+    /// <summary>"开始新的截图"按钮的回调：让 Coordinator 关闭当前预览 + 重新进入选区状态机。
+    /// 与外部快捷键 / 托盘截图不同，这条路径要主动 Hide 预览 + 工具栏让屏幕保持干净。
+    /// null 表示宿主未注入该能力（向后兼容场景），UI 上按钮会置灰</summary>
+    private readonly Action? _onReshootRequested;
+
     private readonly string _dimensionText;
 
     private ScreenshotPreviewToolbarWindow? _toolbarWindow;
@@ -46,7 +56,8 @@ internal partial class ScreenshotPreviewWindow : Window
         uint anchorDpiX,
         uint anchorDpiY,
         ClipboardWriter clipboard,
-        Action onOcrRequested)
+        Action<WinRectangle> onOcrRequested,
+        Action? onReshootRequested = null)
     {
         _log = log;
         _pngBytes = pngBytes;
@@ -55,6 +66,7 @@ internal partial class ScreenshotPreviewWindow : Window
         _anchorDpiY = anchorDpiY == 0 ? 96 : anchorDpiY;
         _clipboard = clipboard;
         _onOcrRequested = onOcrRequested;
+        _onReshootRequested = onReshootRequested;
         _dimensionText = $"{_anchorPhysical.Width} × {_anchorPhysical.Height}";
 
         InitializeComponent();
@@ -126,6 +138,8 @@ internal partial class ScreenshotPreviewWindow : Window
         _toolbarWindow = new ScreenshotPreviewToolbarWindow(this, _dimensionText);
         _toolbarWindow.Left = -32000;
         _toolbarWindow.Top = -32000;
+        // 宿主未注入"重新截图"回调时按钮置灰，避免按了无反应
+        _toolbarWindow.SetReshootEnabled(_onReshootRequested is not null);
         // SizeToContent=WidthAndHeight，必须先 Show 一次让它测出 ActualWidth/Height
         _toolbarWindow.Show();
         PositionToolbarInitially();
@@ -312,15 +326,71 @@ internal partial class ScreenshotPreviewWindow : Window
         }
     }
 
-    /// <summary>工具栏按钮触发：关闭预览并触发 OCR。
-    /// 顺序：先关本窗 → onOcrRequested 在 Coordinator 里打开 OCR 结果窗，
-    /// 避免本窗 topmost 在 OCR 窗之上挡视线</summary>
+    /// <summary>工具栏按钮触发：切换到 OCR 识别。
+    ///
+    /// 与旧版差异：
+    /// 1) 不主动 Close 本窗，由 Coordinator 在 OCR 结果窗 Show + Loaded 完成后再关闭，
+    ///    让"截图图像 → OCR 高亮结果图"在视觉上几乎无缝衔接（两个窗口在同一位置短暂共存）；
+    /// 2) 把当前图像在屏上的物理像素 rect 传给回调，让 OCR 结果窗在当前预览位置弹出，
+    ///    而非用最初的框选位置 —— 用户拖动 / 跨屏后保留位置惯性</summary>
     public void CommandOcr()
     {
-        Close();
-        try { _onOcrRequested(); }
+        var anchor = GetCurrentImagePhysicalRect();
+        try { _onOcrRequested(anchor); }
         catch (Exception ex) { _log.Warn("screenshot ocr request failed", ("err", ex.Message)); }
     }
 
+    /// <summary>工具栏按钮触发：开始一次新的截图。
+    /// 立刻 Hide 自己（包括子工具栏）让屏幕保持干净，再调用 Coordinator 重新进入选区状态机。
+    /// 注意：Hide 而非 Close —— 若用户在新选区里 ESC 取消，Coordinator 仍可决定要不要把本窗恢复回来；
+    /// 但当前实现是直接关闭并触发新流程，所以 Hide 后会跟随真正 Close 一并清理</summary>
+    public void CommandReshoot()
+    {
+        if (_onReshootRequested is null) return;
+        try
+        {
+            // 隐藏本窗 + 工具栏：让 OcrSelectionWindow 的全屏蒙层下方能看到桌面真实内容，
+            // 避免旧预览叠在新选区上影响用户判断
+            if (_toolbarWindow is not null)
+            {
+                try { _toolbarWindow.Hide(); } catch { }
+            }
+            Hide();
+            // 真正的 Close 留给 Coordinator 处理 —— Coordinator 会在拉起新选区前关闭旧窗，
+            // 与"快捷键 / 托盘"路径保持一致的窗口生命周期管理
+            _onReshootRequested();
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("screenshot reshoot request failed", ("err", ex.Message));
+        }
+    }
+
     public void CommandClose() => Close();
+
+    /// <summary>读取当前截图图像在屏幕上的物理像素位置。
+    /// 用 GetWindowRect 取窗口物理矩形，再加上 PreviewImage 相对 Window 的 DIP 偏移（含 4 DIP Margin + 2 DIP Frame BorderThickness），
+    /// 换算成物理像素后得到图像左上像素坐标，宽高直接复用最初的 anchor 尺寸（图像内容未变形）。
+    ///
+    /// 跨屏 / 异构 DPI 注意：GetWindowRect 始终返回物理像素，DIP 偏移用窗口创建时的 anchorDpi 换算 —
+    /// 若用户在预览过程中把窗口拖到另一块 DPI 不同的屏，imageOffset 会有 sub-pixel 误差，
+    /// 但 PreviewImage 是 Stretch=None 绘制，DPI 影响也只是边缘几像素，不影响 OCR 结果的视觉对齐</summary>
+    private WinRectangle GetCurrentImagePhysicalRect()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return _anchorPhysical;
+        if (!NativeMethods.GetWindowRect(hwnd, out var rect)) return _anchorPhysical;
+
+        double dpiScaleX = _anchorDpiX / 96.0;
+        double dpiScaleY = _anchorDpiY / 96.0;
+        Point imageOffsetDip;
+        try { imageOffsetDip = PreviewImage.TranslatePoint(new Point(0, 0), this); }
+        catch { imageOffsetDip = new Point(0, 0); }
+        int imageOffsetPxX = (int)Math.Round(imageOffsetDip.X * dpiScaleX);
+        int imageOffsetPxY = (int)Math.Round(imageOffsetDip.Y * dpiScaleY);
+
+        int x = rect.Left + imageOffsetPxX;
+        int y = rect.Top + imageOffsetPxY;
+        return new WinRectangle(x, y, _anchorPhysical.Width, _anchorPhysical.Height);
+    }
 }

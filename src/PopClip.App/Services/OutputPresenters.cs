@@ -47,27 +47,41 @@ internal sealed class FloatingToolbarBubblePresenter : IInlineBubblePresenter
                     SystemParameters.PrimaryScreenHeight / 2,
                     double.PositiveInfinity,
                     0.0);
-            ShowStaticCore(title, text, anchor, canReplace, onReplace, translateAsync: null);
+            ShowStaticCore(title, text, anchor, canReplace, onReplace, translateAsync: null,
+                preferredMinWidth: null, preferredMaxWidth: null);
         });
     }
 
     /// <summary>用调用方提供的 anchor 显示静态气泡，常用于没有浮窗可锚定的独立流程
     /// （如 OCR Quick 模式：截图框就是 anchor，浮窗根本不会出现）。
     /// caller 负责把 OCR 截图框等物理像素信息换算到 DIP，避免本方法依赖具体 anchor 来源。
-    /// translateAsync 非空时气泡会在按钮栏显示"翻译"按钮，按缓存切换语义</summary>
+    /// translateAsync 非空时气泡会在按钮栏显示"翻译"按钮，按缓存切换语义。
+    ///
+    /// preferredMinWidth / preferredMaxWidth：让调用方按内容形态指定气泡宽度区间。
+    /// OCR Quick 路径会传入更大的区间（如 480~640），让整段识别文本有足够行宽不频繁折行</summary>
     public void ShowStaticAt(
         string title,
         string text,
         BubbleAnchor anchor,
         bool canReplace = false,
         Func<string, Task>? onReplace = null,
-        Func<string, Task<string?>>? translateAsync = null)
+        Func<string, Task<string?>>? translateAsync = null,
+        double? preferredMinWidth = null,
+        double? preferredMaxWidth = null)
     {
         WpfApplication.Current.Dispatcher.Invoke(() =>
-            ShowStaticCore(title, text, anchor, canReplace, onReplace, translateAsync));
+            ShowStaticCore(title, text, anchor, canReplace, onReplace, translateAsync, preferredMinWidth, preferredMaxWidth));
     }
 
-    private void ShowStaticCore(string title, string text, BubbleAnchor anchor, bool canReplace, Func<string, Task>? onReplace, Func<string, Task<string?>>? translateAsync)
+    private void ShowStaticCore(
+        string title,
+        string text,
+        BubbleAnchor anchor,
+        bool canReplace,
+        Func<string, Task>? onReplace,
+        Func<string, Task<string?>>? translateAsync,
+        double? preferredMinWidth,
+        double? preferredMaxWidth)
     {
         // Pin 态复用：保留窗口本体 / 位置 / Pin 视觉状态，只刷新标题 + 内容；
         // 未 Pin 时维持旧行为：关掉旧气泡，按 anchor 重新定位
@@ -85,7 +99,9 @@ internal sealed class FloatingToolbarBubblePresenter : IInlineBubblePresenter
             anchorCenterX: anchor.CenterX,
             anchorTopY: anchor.TopY,
             monitorBottomY: anchor.MonitorBottomDip,
-            monitorTopY: anchor.MonitorTopDip);
+            monitorTopY: anchor.MonitorTopDip,
+            preferredMinWidth: preferredMinWidth,
+            preferredMaxWidth: preferredMaxWidth);
         bubble.SetCompleted(text ?? "", model: "", elapsed: TimeSpan.Zero, promptTok: 0, compTok: 0);
         bubble.ScrollBodyToTop();
         // 翻译能力注入：放在 SetCompleted 之后是因为按钮 IsEnabled 依赖 _accumText.HasValue

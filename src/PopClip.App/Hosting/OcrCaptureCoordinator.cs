@@ -155,7 +155,7 @@ internal sealed class OcrCaptureCoordinator
             var captured = CaptureRegion(physical);
             if (purpose == CapturePurpose.Ocr)
             {
-                await RecognizeImageAsync(captured.Image, captured.AnchorRect, captured.Source).ConfigureAwait(false);
+                await RecognizeImageAsync(captured.Image, captured.AnchorRect, captured.Source, closeAfterLoad: null).ConfigureAwait(false);
             }
             else
             {
@@ -205,15 +205,18 @@ internal sealed class OcrCaptureCoordinator
 
         if (_settings.ScreenshotAutoOcr)
         {
-            await RecognizeImageAsync(captured.Image, captured.AnchorRect, captured.Source).ConfigureAwait(false);
+            await RecognizeImageAsync(captured.Image, captured.AnchorRect, captured.Source, closeAfterLoad: null).ConfigureAwait(false);
         }
     }
 
     /// <summary>把已识别后的 OcrImage 转换回一个截图 PNG 字节 + Anchor，再走标准 ScreenshotPreview 路径。
     /// 用于 OCR 结果窗的"切回截图"按钮：用户在结果窗看完识别再想做"复制原图 / 保存 PNG"等截图侧操作时，
     /// 不需要重新拉框 + 重新截屏，直接复用已有像素。OcrImage.GetPngBytes 是带 lazy cache 的 PNG 编码，
-    /// 第二次调用走缓存几乎零成本</summary>
-    private void ShowScreenshotPreviewFromOcr(OcrImage image, SelectionRect anchorRect, string source)
+    /// 第二次调用走缓存几乎零成本。
+    ///
+    /// closeAfterLoad：在新预览窗 Loaded（已 Show + 物理像素定位完成）后再关闭的旧窗。
+    /// 让"OCR 结果窗 → 截图预览窗"切换时两窗在同一位置短暂共存，截图区域背景视觉无缝衔接</summary>
+    private void ShowScreenshotPreviewFromOcr(OcrImage image, SelectionRect anchorRect, string source, Window? closeAfterLoad = null)
     {
         byte[] pngBytes;
         try { pngBytes = image.GetPngBytes(); }
@@ -223,14 +226,16 @@ internal sealed class OcrCaptureCoordinator
             return;
         }
         var captured = new CapturedImage(image, anchorRect, source, pngBytes);
-        ShowScreenshotPreview(captured);
+        ShowScreenshotPreview(captured, closeAfterLoad);
     }
 
-    private void ShowScreenshotPreview(CapturedImage captured)
+    private void ShowScreenshotPreview(CapturedImage captured, Window? closeAfterLoad = null)
     {
         WpfApplication.Current.Dispatcher.Invoke(() =>
         {
-            if (_screenshotWindow is not null)
+            // closeAfterLoad 不为空时表示"切换路径"，旧窗由新窗 Loaded 后关闭以保持视觉连续，
+            // 不能在这里 pre-close。其他路径（快捷键 / 托盘）保留原行为：直接关闭已有的预览窗
+            if (closeAfterLoad is null && _screenshotWindow is not null)
             {
                 try { _screenshotWindow.Close(); } catch { }
                 _screenshotWindow = null;
@@ -252,12 +257,37 @@ internal sealed class OcrCaptureCoordinator
                 monitor.DpiX,
                 monitor.DpiY,
                 _clipboard,
-                onOcrRequested: () =>
+                onOcrRequested: currentAnchor =>
                 {
-                    _ = RecognizeImageAsync(captured.Image, captured.AnchorRect, captured.Source);
+                    // 用户在预览窗内拖动 / 跨屏后再点 OCR：把当前图像物理位置作为新 anchor，
+                    // 让 OCR 结果窗在预览窗当前位置弹出。同时把当前预览窗作为 closeAfterLoad，
+                    // OCR 结果窗 Loaded 后再关，避免切换瞬间出现空白屏幕
+                    var newRect = ToSelectionRect(currentAnchor);
+                    var pendingClose = _screenshotWindow;
+                    _ = RecognizeImageAsync(captured.Image, newRect, captured.Source, closeAfterLoad: pendingClose);
+                },
+                onReshootRequested: () =>
+                {
+                    // 重新截图路径：直接关掉当前预览（含工具栏 Owner 链），再走选区状态机进入新一轮采集。
+                    // 与快捷键 / 托盘触发的区别在于这里明确隐藏了旧预览（按钮入口里已 Hide），
+                    // 让 OcrSelectionWindow 全屏蒙层下方看到的是桌面原始内容而不是旧的高亮截图
+                    var oldWin = _screenshotWindow;
+                    _screenshotWindow = null;
+                    try { oldWin?.Close(); } catch { }
+                    ShowSelectionWindow(CapturePurpose.Screenshot);
                 });
             _screenshotWindow = win;
             win.Closed += (_, _) => { if (ReferenceEquals(_screenshotWindow, win)) _screenshotWindow = null; };
+
+            if (closeAfterLoad is not null)
+            {
+                // 关键：Loaded 触发时机 = WPF 完成布局 + PlaceWindowAtAnchorPhysical 已把窗口定位到目标
+                // 物理像素，此时新窗已显示在屏幕上目标位置。在这里关闭旧窗，用户视觉感受是"原地无缝切换"
+                win.Loaded += (_, _) =>
+                {
+                    try { closeAfterLoad.Close(); } catch { }
+                };
+            }
             win.Show();
             win.Activate();
         });
@@ -303,7 +333,7 @@ internal sealed class OcrCaptureCoordinator
         }
     }
 
-    private async Task RecognizeImageAsync(OcrImage image, SelectionRect anchorRect, string source)
+    private async Task RecognizeImageAsync(OcrImage image, SelectionRect anchorRect, string source, Window? closeAfterLoad = null)
     {
         var provider = _registry.PickActive();
         if (provider is null)
@@ -312,9 +342,28 @@ internal sealed class OcrCaptureCoordinator
             return;
         }
 
-        // 引擎未就绪时识别可能耗时 1~3 秒（含 ONNX 三个 session 冷启动 / WeChatOCR 子进程 spawn），
-        // 先给个轻量 toast 让用户感知到正在工作；已就绪时跳过 toast 避免噪音
-        if (!provider.IsEngineReady)
+        var mode = _settings.OcrResultMode;
+        OcrResultWindow? loadingWin = null;
+
+        // Interactive 模式：在 OCR 开始前先创建"识别中"占位结果窗。
+        // 目的：让"截图预览 → OCR"切换的视觉过渡零空窗 —— 截图背景在新窗里立即可见，
+        // 然后旧 ScreenshotPreviewWindow 由 Loaded 事件链关闭，最后 OCR 异步完成时 PopulateResult。
+        // 即使用户是从快捷键 / 托盘直接进 OCR（没有旧预览窗），loading 占位也比"OCR 跑完前屏幕空白"更友好；
+        // 引擎冷启动时尤其明显，无需依赖 Toast 弥补反馈缺失。
+        // Quick 模式保持原路径：识别完成后直接出气泡 / toast，没有窗体可让它"先显示"
+        if (mode == OcrResultMode.Interactive)
+        {
+            loadingWin = ShowInteractiveResult(
+                OcrResult.Empty, image, anchorRect, layoutFullText: "",
+                quickFallback: text => RenderQuickResult(text, anchorRect, provider.DisplayName),
+                closeAfterLoad: closeAfterLoad,
+                isLoading: true);
+        }
+
+        // 引擎未就绪时识别可能耗时 1~3 秒（含 ONNX 三个 session 冷启动 / WeChatOCR 子进程 spawn）。
+        // Interactive 模式下 loading 窗已经在显示"识别中…"，不需要再叠 toast；
+        // Quick 模式下没有 loading 占位，仍用 toast 让用户知道正在工作
+        if (!provider.IsEngineReady && loadingWin is null)
         {
             ShowAnchoredToast($"文字识别中… ", anchorRect, isError: false, durationMs: 1500);
         }
@@ -330,6 +379,8 @@ internal sealed class OcrCaptureCoordinator
         {
             _log.Error($"ocr provider failed: {provider.Id}", ex);
             ShowAnchoredToast($"OCR 失败: {ex.Message}", anchorRect, isError: true, durationMs: 4000);
+            // OCR 失败时把 loading 占位窗关掉，避免用户对着"识别中…"无限等
+            CloseLoadingWindow(loadingWin);
             return;
         }
         var layout = OcrLayoutAnalyzer.Analyze(result);
@@ -346,22 +397,49 @@ internal sealed class OcrCaptureCoordinator
             // 浮窗这条路径不会显示，必须用 ShowToastAt 直接给屏幕坐标，
             // 否则 ShowInlineToast 会以浮窗左上角（默认 0,0 或上一次位置）为锚 → toast 飘到屏幕外看不见
             ShowAnchoredToast("OCR 未识别到文本", anchorRect, isError: true, durationMs: 3500);
+            CloseLoadingWindow(loadingWin);
             return;
         }
 
-        var mode = _settings.OcrResultMode;
         if (mode == OcrResultMode.Interactive)
         {
-            // iOS 风格：弹结果窗在截图位置上叠加高亮，用户点选 / 框选 / 复制。
-            // 剪贴板与浮窗气泡都不在这条路径触发，所有反馈走结果窗内部；
-            // 但允许结果窗按用户意愿"临时切到 Quick 输出"，传 quickFallback 回调让它能调用同一套 Quick 渲染
-            ShowInteractiveResult(result, image, anchorRect, fullText,
-                quickFallback: text => RenderQuickResult(text, anchorRect, provider.DisplayName));
+            if (loadingWin is not null)
+            {
+                // 已存在的 loading 窗升级为正常结果窗：刷新 _result / 重建 polygon / 激活工具栏全部能力。
+                // 用 Invoke 确保 PopulateResult 在 UI 线程同步完成，与构造时同线程，
+                // 避免 UI 元素跨线程操作的所有竞态
+                WpfApplication.Current.Dispatcher.Invoke(() =>
+                {
+                    try { loadingWin.PopulateResult(result, fullText); }
+                    catch (Exception ex) { _log.Warn("populate result failed", ("err", ex.Message)); }
+                });
+            }
+            else
+            {
+                // 兜底：loading 窗未成功创建（极端线程或资源问题）时走原"OCR 完后再展示"路径
+                ShowInteractiveResult(result, image, anchorRect, fullText,
+                    quickFallback: text => RenderQuickResult(text, anchorRect, provider.DisplayName),
+                    closeAfterLoad: closeAfterLoad);
+            }
             return;
         }
 
-        // Quick 模式（旧行为）：直接写剪贴板 + 浮窗 / 气泡
+        // Quick 模式（旧行为）：直接写剪贴板 + 浮窗 / 气泡。
+        // Quick 模式不弹结果窗，但调用方可能传了 closeAfterLoad（如从 ScreenshotPreview 切到 OCR Quick），
+        // 此时旧预览窗已无意义，统一关掉
+        if (closeAfterLoad is not null)
+        {
+            WpfApplication.Current.Dispatcher.Invoke(() => { try { closeAfterLoad.Close(); } catch { } });
+        }
         RenderQuickResult(fullText, anchorRect, provider.DisplayName);
+    }
+
+    /// <summary>关闭可能为 null 的 loading 占位窗。
+    /// OCR 失败 / 未识别到文本时统一收尾路径，避免把 try / catch / Dispatcher.Invoke 同样的几行重复 3 次</summary>
+    private static void CloseLoadingWindow(OcrResultWindow? loadingWin)
+    {
+        if (loadingWin is null) return;
+        WpfApplication.Current.Dispatcher.Invoke(() => { try { loadingWin.Close(); } catch { } });
     }
 
     /// <summary>Quick 模式的结果渲染逻辑：剪贴板 + 气泡 / inline toast，锚点直接用 OCR 截图框。
@@ -401,12 +479,17 @@ internal sealed class OcrCaptureCoordinator
             // 仅保留"OCR · 字数"作为最简一行，状态栏会展示完成时间，元信息无需再重复 provider
             var bubbleTitle = $"OCR · {fullText.Length} 字";
             var translateFn = BuildBubbleTranslateFunc();
+            // OCR Quick 正文通常是整段段落，默认 320~520 太窄导致频繁折行；
+            // 放宽到 480~640 让一行能容纳约 30~40 个中文 / 60~80 个 ASCII，显著减少滚动需求，
+            // 同时仍保留 SizeToContent 自适应，短文本仍能贴紧最小宽度
             _ = WpfApplication.Current.Dispatcher.BeginInvoke(new Action(() =>
                 _bubble.ShowStaticAt(
                     bubbleTitle,
                     fullText,
                     new BubbleAnchor(anchorCenterDip, anchorTopDip, monitorBottomDip, monitorTopDip),
-                    translateAsync: translateFn)));
+                    translateAsync: translateFn,
+                    preferredMinWidth: 480.0,
+                    preferredMaxWidth: 640.0)));
         }
         else
         {
@@ -428,9 +511,20 @@ internal sealed class OcrCaptureCoordinator
     /// DPI 走 <see cref="MonitorQuery.FromRect"/> 取 anchor 截图所在 monitor 的 effective DPI，
     /// 而不是浮窗当前 PresentationSource 的 DPI —— 副屏框选 + 浮窗在主屏时两者不同，
     /// 后者会让结果窗按主屏 DIP 解读跑回主屏。OcrResultWindow 内部用 Win32 SetWindowPos
-    /// 物理像素绝对定位，跟 FloatingToolbar / ToolbarToastWindow 走同一条多屏正确路径</summary>
-    private void ShowInteractiveResult(OcrResult result, OcrImage image, SelectionRect anchorPhysical, string layoutFullText, Action<string> quickFallback)
+    /// 物理像素绝对定位，跟 FloatingToolbar / ToolbarToastWindow 走同一条多屏正确路径。
+    ///
+    /// closeAfterLoad：在新结果窗 Loaded（已 Show + 物理像素定位完成）后再关闭的旧窗，
+    /// 用于"截图预览 → OCR 结果"切换时让截图背景视觉无缝衔接。
+    ///
+    /// isLoading：当 true 时本调用只创建"识别中"占位窗（截图背景立即可见，polygon / 工具按钮置灰）；
+    /// 调用方应在 OCR 完成后调用 win.PopulateResult(result, fullText) 把占位窗升级为完整结果窗。
+    /// 这条路径让 ScreenshotPreview → OCR 切换的截图背景"零空窗期"无缝衔接，
+    /// 用户不必等 1~3 秒 OCR 跑完才看到窗体变化。
+    ///
+    /// 返回创建的窗口引用，便于调用方后续调 PopulateResult；如果 UI 线程没有成功创建窗口（极端兜底），返回 null</summary>
+    private OcrResultWindow? ShowInteractiveResult(OcrResult result, OcrImage image, SelectionRect anchorPhysical, string layoutFullText, Action<string> quickFallback, Window? closeAfterLoad = null, bool isLoading = false)
     {
+        OcrResultWindow? created = null;
         WpfApplication.Current.Dispatcher.Invoke(() =>
         {
             var monitor = MonitorQuery.FromRect(
@@ -442,7 +536,8 @@ internal sealed class OcrCaptureCoordinator
                 anchorPhysical.Width,
                 anchorPhysical.Height);
 
-            // 旧窗存在则先关掉，避免叠层
+            // 旧结果窗存在则先关掉，避免叠层（与 closeAfterLoad 互斥：closeAfterLoad 关的是
+            // ScreenshotPreviewWindow 这种"对偶"窗口；这里关的是同类型的"上一个结果窗"）
             if (_resultWindow is not null)
             {
                 try { _resultWindow.Close(); } catch { }
@@ -463,14 +558,46 @@ internal sealed class OcrCaptureCoordinator
                     _resultWindow = null;
                 },
                 // "切到截图预览"回调：复用已识别的 OcrImage（含像素 + PNG 缓存），
-                // 跳过重新拉框 / 重新 CopyFromScreen，让两个窗口形成双向无缝切换
-                switchToScreenshot: () => ShowScreenshotPreviewFromOcr(image, anchorPhysical, "from-ocr-result"));
+                // 跳过重新拉框 / 重新 CopyFromScreen，让两个窗口形成双向无缝切换。
+                // 参数 currentAnchor 是用户在 OCR 结果窗里拖动 / 跨屏后的当前位置，
+                // 拿它作为截图预览窗的 anchor 让两者位置完全对齐
+                switchToScreenshot: currentAnchor =>
+                {
+                    var newRect = ToSelectionRect(currentAnchor);
+                    var pendingClose = _resultWindow;
+                    ShowScreenshotPreviewFromOcr(image, newRect, "from-ocr-result", closeAfterLoad: pendingClose);
+                },
+                reshootOcr: () =>
+                {
+                    var oldWin = _resultWindow;
+                    _resultWindow = null;
+                    try { oldWin?.Close(); } catch { }
+                    ShowSelectionWindow(CapturePurpose.Ocr);
+                },
+                isLoading: isLoading);
             _resultWindow = win;
             win.Closed += (_, _) => { if (ReferenceEquals(_resultWindow, win)) _resultWindow = null; };
+
+            if (closeAfterLoad is not null)
+            {
+                // 关键：Loaded = WPF 完成布局 + PlaceWindowAtAnchorPhysical 已把窗口定位到目标物理像素。
+                // 此时新结果窗已可见，关闭旧 ScreenshotPreviewWindow 不会留下空白屏幕
+                win.Loaded += (_, _) =>
+                {
+                    try { closeAfterLoad.Close(); } catch { }
+                };
+            }
             win.Show();
             win.Activate();
+            created = win;
         });
+        return created;
     }
+
+    /// <summary>WinRectangle → SelectionRect 的简短转换。SelectionRect 用 (Left, Top, Right, Bottom)
+    /// 而 WinRectangle 用 (X, Y, Width, Height)，几个换算点重复出现，抽个静态方法保持简洁</summary>
+    private static SelectionRect ToSelectionRect(Rectangle rect)
+        => new(rect.Left, rect.Top, rect.Right, rect.Bottom);
 
     private static OcrImage CreateOcrImage(Bitmap bitmap, Func<byte[]>? pngFactory = null)
     {

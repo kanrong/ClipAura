@@ -26,8 +26,23 @@ namespace PopClip.App.UI;
 /// GetCursorPos 直接给鼠标物理像素坐标 —— 物理像素 rect 全程不经折算，1:1 对齐屏幕。</summary>
 internal partial class OcrSelectionWindow : Window
 {
+    /// <summary>选区交互状态机：
+    /// Idle — 等待用户第一次按下鼠标；
+    /// Dragging — 用户按住鼠标拖框中（按下到松开期间）；
+    /// WaitingForEnd — 用户在 Dragging 中"按下即松开"几乎没移动，把这次松开点视作起点，
+    ///   等待下一次单击来确定终点。在此状态下鼠标移动会实时更新预览选区，方便用户调整终点。
+    ///
+    /// 设计动机：原版只支持"按住拖框"，对手腕力量小或触控板用户不友好；
+    /// 新增"单击起点 + 再次单击终点"路径让用户可以分两步精确定位选区角点。</summary>
+    private enum SelectionMode { Idle, Dragging, WaitingForEnd }
+
+    /// <summary>把 MouseDown 到 MouseUp 的位移视为"误点 / 单击"的阈值（物理像素）。
+    /// 仅当位移小于此阈值时切到 WaitingForEnd，否则按拖框完成选区。
+    /// 数值 5 既能容忍触控板的轻微抖动，也不会把短拖框误判为单击</summary>
+    private const int ClickMovementThresholdPx = 5;
+
     private readonly ILog _log;
-    private bool _dragging;
+    private SelectionMode _mode = SelectionMode.Idle;
     private WinPoint _dragStartPx;
     private WinPoint _dragCurrentPx;
     private double _dpiScaleX = 1.0;
@@ -90,9 +105,12 @@ internal partial class OcrSelectionWindow : Window
 
     private void OnLoadedInternal(object sender, RoutedEventArgs e)
     {
-        // 初始时整屏铺一层蒙层；用户开始拖框后再切到"四周蒙层"展示模式。
-        // 不预设 HintBorder 位置：xaml 里默认 Collapsed，UpdateHint 在拖出非零选区时才会显示并定位
-        ResetMasks();
+        // 初始把"差集外圈"设为整个全屏蒙层 DIP 区域；内圈选区清零，
+        // 视觉上 = 全屏铺一层 #99000000 蒙层（与旧 ResetMasks 等价但只更新两个 RectangleGeometry）
+        MaskOuterGeometry.Rect = new Rect(0, 0,
+            _virtualWidthPx / _dpiScaleX,
+            _virtualHeightPx / _dpiScaleY);
+        MaskInnerGeometry.Rect = Rect.Empty;
         SelectionRect.Width = 0;
         SelectionRect.Height = 0;
         SelectionRectOuter.Width = 0;
@@ -106,16 +124,29 @@ internal partial class OcrSelectionWindow : Window
         // 一律用 GetCursorPos 取物理像素鼠标坐标：避免 e.GetPosition 在 PerMonitor V2 多屏混合 DPI 下
         // 的 DIP 折算误差。鼠标坐标全程保持物理像素口径，最终给上层的也是物理像素 rect
         if (!NativeMethods.GetCursorPos(out var pt)) return;
-        _dragging = true;
-        _dragStartPx = new WinPoint(pt.X, pt.Y);
-        _dragCurrentPx = _dragStartPx;
+        var currentPx = new WinPoint(pt.X, pt.Y);
+
+        if (_mode == SelectionMode.WaitingForEnd)
+        {
+            // 单击模式第二步：当前点击位置即终点，立刻完成选区
+            _dragCurrentPx = currentPx;
+            FinalizeSelection();
+            return;
+        }
+
+        // 进入 Dragging：等到 MouseUp 才能判断本次是"拖框"还是"单击设起点"
+        _mode = SelectionMode.Dragging;
+        _dragStartPx = currentPx;
+        _dragCurrentPx = currentPx;
         UpdateSelectionVisual();
         CaptureMouse();
     }
 
     private void OnMouseMove(object sender, MouseEventArgs e)
     {
-        if (!_dragging) return;
+        // Dragging 和 WaitingForEnd 都要跟随鼠标实时刷新选区预览，
+        // 单击模式下移动鼠标也能即时看到"起点固定 / 终点跟手"的方框
+        if (_mode == SelectionMode.Idle) return;
         if (!NativeMethods.GetCursorPos(out var pt)) return;
         _dragCurrentPx = new WinPoint(pt.X, pt.Y);
         UpdateSelectionVisual();
@@ -123,21 +154,51 @@ internal partial class OcrSelectionWindow : Window
 
     private void OnMouseUp(object sender, MouseButtonEventArgs e)
     {
-        if (!_dragging) return;
-        _dragging = false;
+        if (_mode != SelectionMode.Dragging) return;
         ReleaseMouseCapture();
         if (NativeMethods.GetCursorPos(out var pt))
         {
             _dragCurrentPx = new WinPoint(pt.X, pt.Y);
         }
+
+        // 位移小于阈值视为单击：保留 _dragStartPx 作为起点，切到 WaitingForEnd 等待第二次单击。
+        // 注意 _dragCurrentPx 此刻已经等于松开点（在原地或附近），UI 会展示一个微小或空选区，
+        // 用户挪动鼠标时 OnMouseMove 会按 currentPx 把另一角带过去
+        int dx = Math.Abs(_dragCurrentPx.X - _dragStartPx.X);
+        int dy = Math.Abs(_dragCurrentPx.Y - _dragStartPx.Y);
+        if (dx < ClickMovementThresholdPx && dy < ClickMovementThresholdPx)
+        {
+            _mode = SelectionMode.WaitingForEnd;
+            UpdateSelectionVisual();
+            return;
+        }
+
+        FinalizeSelection();
+    }
+
+    private void OnRightDown(object sender, MouseButtonEventArgs e)
+    {
+        // 任何模式下右键都立刻取消，包括 WaitingForEnd 时让用户能放弃这次"已设起点"的状态。
+        // 鼠标 capture / mode 重置统一交给 RaiseCancelled 处理
+        RaiseCancelled();
+    }
+
+    /// <summary>真正提交本次选区。Dragging 路径下由 MouseUp 调用，WaitingForEnd 路径下由 MouseDown 调用。
+    /// 内部判断选区尺寸合法性（&lt; 6 px 视为取消），合法则按原 Hide → Dispatcher.Background → Close 顺序
+    /// 把蒙层从合成里彻底移除后再触发 RegionSelected，避免上层 CopyFromScreen 截到半透明黑蒙层</summary>
+    private void FinalizeSelection()
+    {
         var physical = CurrentSelectionPx();
-        // 鼠标按下后误点的微小矩形（< 6×6 px）视为取消，避免空白截图触发 OCR
         if (physical.Width < 6 || physical.Height < 6)
         {
+            // 误操作场景：单击模式下两次点击位置过于接近，或拖框只画了几像素，
+            // 视为放弃本次选区，直接取消并清理状态
+            _mode = SelectionMode.Idle;
             RaiseCancelled();
             return;
         }
 
+        _mode = SelectionMode.Idle;
         // 关键：WPF 的 Close() 仅向消息队列投递 WM_CLOSE，蒙层在屏幕上消失需要等一次 DWM 合成。
         // 必须先把窗口在视觉树上彻底隐藏（Hide + Visibility=Collapsed 让 DWM 跳过合成），
         // 然后用 Dispatcher Background 优先级把截图事件推到下一帧 —— 此时蒙层已不在屏幕上。
@@ -153,16 +214,6 @@ internal partial class OcrSelectionWindow : Window
         }), System.Windows.Threading.DispatcherPriority.Background);
     }
 
-    private void OnRightDown(object sender, MouseButtonEventArgs e)
-    {
-        if (_dragging)
-        {
-            _dragging = false;
-            ReleaseMouseCapture();
-        }
-        RaiseCancelled();
-    }
-
     private void OnKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape)
@@ -174,6 +225,10 @@ internal partial class OcrSelectionWindow : Window
 
     private void RaiseCancelled()
     {
+        // Dragging 中 ESC 没经过 OnMouseUp 释放捕获时会留下 Mouse.Capture 残留，
+        // 影响后续窗口的鼠标事件分发；保险起见显式释放一次
+        if (_mode == SelectionMode.Dragging) ReleaseMouseCapture();
+        _mode = SelectionMode.Idle;
         Close();
         try { Cancelled?.Invoke(); }
         catch (Exception ex) { _log.Warn("ocr cancel callback failed", ("err", ex.Message)); }
@@ -212,39 +267,25 @@ internal partial class OcrSelectionWindow : Window
         Canvas.SetTop(SelectionRect, topDip);
         SelectionRect.Width = widthDip;
         SelectionRect.Height = heightDip;
-        UpdateMasksAround(leftDip, topDip, widthDip, heightDip);
+        UpdateMaskInner(leftDip, topDip, widthDip, heightDip);
         UpdateHint(physical, leftDip, topDip, widthDip, heightDip);
     }
 
-    /// <summary>选区周围的四块蒙层：上方覆盖到选区顶部、下方从选区底部往下、左右两侧填补中央带。
-    /// 这样选区中心是完全透明的，让用户能精确看到要 OCR 的内容</summary>
-    private void UpdateMasksAround(double selX, double selY, double selW, double selH)
+    /// <summary>更新 CombinedGeometry 内圈（选区透明区域）。
+    /// MaskOuterGeometry（全屏）只在 OnLoaded 设置一次后不动，OnMouseMove 频繁路径下
+    /// 只改 MaskInnerGeometry.Rect 一个属性 —— Path 是单个 Visual，不触发任何 element 的
+    /// layout pass，仅 GPU 重新计算 path 差集后 alpha blend。
+    /// 对比旧 4-Rectangle 方案：每帧需要 4 个 element 各自重新 measure / arrange + 大块
+    /// 半透明 GPU 重绘，缩小操作（一侧 mask 大幅扩大）会明显卡顿，鼠标快速移入旧选区
+    /// 内部时框选追不上鼠标。换成 Path 后这两条路径都流畅</summary>
+    private void UpdateMaskInner(double selX, double selY, double selW, double selH)
     {
-        var w = ActualWidth > 0 ? ActualWidth : _virtualWidthPx / _dpiScaleX;
-        var h = ActualHeight > 0 ? ActualHeight : _virtualHeightPx / _dpiScaleY;
-
-        Canvas.SetLeft(MaskTop, 0); Canvas.SetTop(MaskTop, 0);
-        MaskTop.Width = w; MaskTop.Height = Math.Max(0, selY);
-
-        Canvas.SetLeft(MaskBottom, 0); Canvas.SetTop(MaskBottom, selY + selH);
-        MaskBottom.Width = w; MaskBottom.Height = Math.Max(0, h - (selY + selH));
-
-        Canvas.SetLeft(MaskLeft, 0); Canvas.SetTop(MaskLeft, selY);
-        MaskLeft.Width = Math.Max(0, selX); MaskLeft.Height = selH;
-
-        Canvas.SetLeft(MaskRight, selX + selW); Canvas.SetTop(MaskRight, selY);
-        MaskRight.Width = Math.Max(0, w - (selX + selW)); MaskRight.Height = selH;
-    }
-
-    private void ResetMasks()
-    {
-        var w = _virtualWidthPx / _dpiScaleX;
-        var h = _virtualHeightPx / _dpiScaleY;
-        Canvas.SetLeft(MaskTop, 0); Canvas.SetTop(MaskTop, 0);
-        MaskTop.Width = w; MaskTop.Height = h;
-        MaskBottom.Width = 0; MaskBottom.Height = 0;
-        MaskLeft.Width = 0; MaskLeft.Height = 0;
-        MaskRight.Width = 0; MaskRight.Height = 0;
+        if (selW <= 0 || selH <= 0)
+        {
+            MaskInnerGeometry.Rect = Rect.Empty;
+            return;
+        }
+        MaskInnerGeometry.Rect = new Rect(selX, selY, selW, selH);
     }
 
     private void UpdateHint(WinRectangle physical, double selX, double selY, double selW, double selH)
@@ -257,7 +298,12 @@ internal partial class OcrSelectionWindow : Window
             return;
         }
         HintBorder.Visibility = Visibility.Visible;
-        HintText.Text = $"{physical.Width} × {physical.Height} px";
+        // WaitingForEnd 状态下用户已经"单击设了起点"但还没确定终点 —— 这是一个非典型操作，
+        // 第一次使用的用户容易困惑。在尺寸文本后附上"再次单击确认终点"的引导，
+        // 让用户明确知道接下来该做什么。Dragging 状态下保持纯尺寸显示，不打扰
+        HintText.Text = _mode == SelectionMode.WaitingForEnd
+            ? $"{physical.Width} × {physical.Height} px · 再次单击确认终点"
+            : $"{physical.Width} × {physical.Height} px";
         // 提示框跟随选区右下角；超出屏幕时翻到选区上方
         var px = selX + selW + 12;
         var py = selY + selH + 12;

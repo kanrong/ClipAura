@@ -13,9 +13,9 @@
         ShowActivated="False"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
-        MinWidth="240"
+        MinWidth="320"
         MinHeight="160"
-        Width="360"
+        Width="480"
         Height="420"
         Title="OCR 识别文本"
         FontFamily="{DynamicResource ToolbarFontFamily}">

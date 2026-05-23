@@ -45,6 +45,7 @@ internal sealed class AppHost : IDisposable
     private ClipboardHistoryLauncher? _clipHistoryLauncher;
     private OcrProviderRegistry? _ocrRegistry;
     private OcrCaptureCoordinator? _ocrCoordinator;
+    private PinnedScreenshotManager? _pinnedManager;
     private OfflineDictionaryService? _dictionary;
     private HotKeyApplyResult? _lastHotKeyApplyResult;
 
@@ -103,6 +104,7 @@ internal sealed class AppHost : IDisposable
         _tray.OnClipboardHistoryRequested += OpenClipboardHistory;
         _tray.OnLeftClickRequested += HandleTrayLeftClick;
         _tray.OnExitRequested += () => WpfApplication.Current.Shutdown();
+        _tray.OnDelayedScreenshotRequested += seconds => _ocrCoordinator?.TriggerScreenshotDelayed(seconds);
         _tray.Show();
 
         _toolbar = new FloatingToolbar(_log);
@@ -126,7 +128,7 @@ internal sealed class AppHost : IDisposable
             historyStore: _historyStore,
             usage: _usage,
             saveSettings: () => _store?.SaveSettings(_settings));
-        _clipHistoryLauncher = new ClipboardHistoryLauncher(_clipHistory, clipboardWriter, _replacer, clipboardPaste);
+        _clipHistoryLauncher = new ClipboardHistoryLauncher(_clipHistory, clipboardWriter, _replacer, clipboardPaste, clipboardAccess);
         var resultDialog = new SmartResultDialogPresenter();
         var bubblePresenter = new FloatingToolbarBubblePresenter(_log, _toolbar);
         _actionHost = new ActionHost(
@@ -159,11 +161,19 @@ internal sealed class AppHost : IDisposable
         _ocrRegistry = new OcrProviderRegistry(_log,
             preferredIdReader: () => _settings?.OcrProviderId,
             providers: rapidProviders.Concat(new IOcrProvider[] { wechatProvider }));
+        // 钉图管理器先于 OcrCaptureCoordinator 构造：Coordinator 在"截图预览 → 钉到桌面"
+        // 与"钉图双击 → OCR"两条路径上都会用到 manager。manager 的 DoubleClickOcrHandler
+        // 在 Coordinator 构造完成后再回填，因为 OCR 调度逻辑在 Coordinator 里
+        _pinnedManager = new PinnedScreenshotManager(_log, clipboardWriter, _clipHistory);
         _ocrCoordinator = new OcrCaptureCoordinator(_log, _ocrRegistry, _session, clipboardWriter, clipboardAccess, _toolbar,
             _settings, aiTextService,
+            pinnedManager: _pinnedManager,
             bubble: bubblePresenter,
             openSettings: tag => ShowSettingsWindow(tag),
-            saveSettings: () => _store?.SaveSettings(_settings));
+            saveSettings: () => _store?.SaveSettings(_settings),
+            clipHistory: _clipHistory);
+        _pinnedManager.DoubleClickOcrHandler = (window, anchor)
+            => _ocrCoordinator?.RecognizePinnedScreenshotAsync(window, anchor);
         // 暴露给快速启动器用作 OCR 按钮的点击回调
         _session.OcrLauncher = () => _ocrCoordinator?.Trigger();
         _session.ScreenshotLauncher = () => _ocrCoordinator?.TriggerScreenshot();
@@ -174,6 +184,8 @@ internal sealed class AppHost : IDisposable
         _hotkeys.ToolbarRequested += () => _session?.ShowLauncherAtCursor();
         _hotkeys.OcrRequested += () => _ocrCoordinator?.Trigger();
         _hotkeys.ScreenshotRequested += () => _ocrCoordinator?.TriggerScreenshot();
+        _hotkeys.ScreenshotDelayRequested += () =>
+            _ocrCoordinator?.TriggerScreenshotDelayed(_settings?.ScreenshotDelayDefaultSeconds ?? 3);
         _lastHotKeyApplyResult = _hotkeys.Apply(_settings);
 
         // toolbar 构造完成后才能注册依赖它的事件

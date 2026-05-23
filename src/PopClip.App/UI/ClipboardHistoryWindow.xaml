@@ -18,6 +18,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -32,7 +33,22 @@
             </ui:TitleBar.Icon>
         </ui:TitleBar>
 
-        <ui:TextBox Grid.Row="1"
+        <!-- Tab 切换：文本（默认）/ 图片。RadioButton + GroupName 实现单选语义，
+             比 TabControl 更轻量也更贴近列表外观 -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="14,8,14,0">
+            <RadioButton x:Name="TabTextRadio"
+                         GroupName="HistoryTab"
+                         Content="文本"
+                         IsChecked="True"
+                         Margin="0,0,8,0"
+                         Checked="OnTabChanged" />
+            <RadioButton x:Name="TabImageRadio"
+                         GroupName="HistoryTab"
+                         Content="图片"
+                         Checked="OnTabChanged" />
+        </StackPanel>
+
+        <ui:TextBox Grid.Row="2"
                     x:Name="SearchBox"
                     Margin="14,8,14,8"
                     PlaceholderText="搜索历史 (ESC 关闭)"
@@ -40,12 +56,13 @@
                     TextChanged="OnSearchChanged"
                     KeyDown="OnSearchKeyDown" />
 
-        <Border Grid.Row="2"
+        <Border Grid.Row="3"
                 Margin="14,0,14,8"
                 Background="{DynamicResource Settings.Card.Background}"
                 BorderBrush="{DynamicResource Settings.Stroke}"
                 BorderThickness="1"
                 CornerRadius="{StaticResource Settings.Radius.Md}">
+            <Grid>
             <ListBox x:Name="HistoryList"
                      Background="Transparent"
                      BorderThickness="0"
@@ -92,9 +109,58 @@
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
+            <ListBox x:Name="ImageList"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     Visibility="Collapsed"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     MouseDoubleClick="OnImageDoubleClick"
+                     KeyDown="OnImageListKeyDown">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="10,8" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Margin" Value="4,2" />
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="64" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0"
+                                    Width="60" Height="60"
+                                    Background="#22000000"
+                                    CornerRadius="4">
+                                <Image Source="{Binding Thumbnail}"
+                                       Stretch="Uniform" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Header}"
+                                           FontSize="13"
+                                           Foreground="{DynamicResource Settings.Foreground}" />
+                                <TextBlock Text="{Binding MetaLabel}"
+                                           FontSize="11"
+                                           Margin="0,2,0,0"
+                                           Foreground="{DynamicResource Settings.Muted}" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="2"
+                                       Text="{Binding TimeLabel}"
+                                       FontSize="11"
+                                       VerticalAlignment="Top"
+                                       Margin="8,2,0,0"
+                                       Foreground="{DynamicResource Settings.Muted}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+            </Grid>
         </Border>
 
-        <Border Grid.Row="3"
+        <Border Grid.Row="4"
                 BorderBrush="{DynamicResource Settings.Stroke}"
                 BorderThickness="0,1,0,0"
                 Padding="14,8">

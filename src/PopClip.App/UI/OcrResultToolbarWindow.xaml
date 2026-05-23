@@ -121,6 +121,12 @@
                         ToolTip="复制截图到剪贴板">
                     <iconPacks:PackIconMaterialDesign Kind="ImageRound" Width="16" Height="16" />
                 </Button>
+                <Button x:Name="PinToScreenButton"
+                        Style="{StaticResource OcrToolIconButtonStyle}"
+                        Click="OnPinToScreen"
+                        ToolTip="钉到桌面 · 把截图固定到桌面继续参考">
+                    <iconPacks:PackIconMaterialDesign Kind="PushPinRound" Width="16" Height="16" />
+                </Button>
 
                 <Rectangle Style="{StaticResource OcrToolbarSepStyle}" />
 

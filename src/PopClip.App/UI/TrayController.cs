@@ -34,6 +34,10 @@ internal sealed class TrayController : INotificationSink, IDisposable
     public event Action? OnClipboardHistoryRequested;
     public event Action? OnLeftClickRequested;
 
+    /// <summary>用户在托盘菜单点了"延时截图 / Ns"。参数为秒数。
+    /// 由 AppHost 接到 OcrCaptureCoordinator.TriggerScreenshotDelayed</summary>
+    public event Action<int>? OnDelayedScreenshotRequested;
+
     public TrayController(ILog log, PauseState pause)
     {
         _log = log;
@@ -83,6 +87,14 @@ internal sealed class TrayController : INotificationSink, IDisposable
         clipboardItem.Click += (_, _) => OnClipboardHistoryRequested?.Invoke();
         menu.Items.Add(clipboardItem);
 
+        // 延时截图：托盘菜单展开 3s/5s/10s 三档常用预设；
+        // 实现上不读 settings 默认值（菜单是显式选项语义，每个 item 直接写死秒数）
+        var delayedItem = CreateMenuItem("延时截图", Wpf.Ui.Controls.SymbolRegular.Timer24);
+        AddDelayedSubItem(delayedItem, "3 秒后截图", 3);
+        AddDelayedSubItem(delayedItem, "5 秒后截图", 5);
+        AddDelayedSubItem(delayedItem, "10 秒后截图", 10);
+        menu.Items.Add(delayedItem);
+
         menu.Items.Add(new Separator());
 
         var exitItem = CreateMenuItem("退出 ClipAura", Wpf.Ui.Controls.SymbolRegular.Dismiss24);
@@ -131,6 +143,13 @@ internal sealed class TrayController : INotificationSink, IDisposable
 
     private static MenuItem CreateMenuItem(string header, Wpf.Ui.Controls.SymbolRegular symbol)
         => new() { Header = header, Icon = CreateMenuIcon(symbol) };
+
+    private void AddDelayedSubItem(MenuItem parent, string header, int seconds)
+    {
+        var sub = new MenuItem { Header = header };
+        sub.Click += (_, _) => OnDelayedScreenshotRequested?.Invoke(seconds);
+        parent.Items.Add(sub);
+    }
 
     private static Wpf.Ui.Controls.SymbolIcon CreateMenuIcon(Wpf.Ui.Controls.SymbolRegular symbol)
         => new()

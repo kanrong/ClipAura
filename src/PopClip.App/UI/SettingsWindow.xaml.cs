@@ -461,8 +461,86 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
             ScreenshotModeToolbarRadio.IsChecked = _settings.ScreenshotAfterCaptureMode == ScreenshotAfterCaptureMode.Toolbar;
             ScreenshotModeClipboardRadio.IsChecked = _settings.ScreenshotAfterCaptureMode == ScreenshotAfterCaptureMode.Clipboard;
             ScreenshotAutoOcrBox.IsChecked = _settings.ScreenshotAutoOcr;
+            ScreenshotAutoSaveEnabledBox.IsChecked = _settings.ScreenshotAutoSaveEnabled;
+            ScreenshotSaveDirectoryBox.Text = _settings.ScreenshotSaveDirectory;
+            ScreenshotFileNameTemplateBox.Text = _settings.ScreenshotFileNameTemplate;
+            UpdateScreenshotFileNamePreview();
+
+            PrivacyScanEnabledBox.IsChecked = _settings.PrivacyScanEnabled;
+            PrivacyRulePhoneBox.IsChecked = _settings.PrivacyBuiltinPhoneEnabled;
+            PrivacyRuleIdCardBox.IsChecked = _settings.PrivacyBuiltinIdCardEnabled;
+            PrivacyRuleEmailBox.IsChecked = _settings.PrivacyBuiltinEmailEnabled;
+            PrivacyRuleBankCardBox.IsChecked = _settings.PrivacyBuiltinBankCardEnabled;
+            PrivacyRuleApiKeyBox.IsChecked = _settings.PrivacyBuiltinApiKeyEnabled;
+            PrivacyRuleJwtBox.IsChecked = _settings.PrivacyBuiltinJwtEnabled;
+            PrivacyRuleWindowsUserBox.IsChecked = _settings.PrivacyBuiltinWindowsUserEnabled;
+            PrivacyCustomRulesBox.Text = _settings.PrivacyCustomRulesJson;
+            PrivacyMosaicBlockSizeBox.Value = _settings.PrivacyMosaicBlockSize <= 0 ? 12 : _settings.PrivacyMosaicBlockSize;
+            PrivacyMinPixelBox.Value = _settings.PrivacyScanMinPixelEdge;
         }
         finally { _suspendCommit = prev; }
+    }
+
+    /// <summary>把当前模板用一组示例参数渲染成"实际产生的文件名"，
+    /// 让用户在不真截图的情况下也能立刻看到模板效果。
+    /// 示例参数固定为 1920x1080 / 当前 explorer.exe 进程占位，避免预览受真实数据影响</summary>
+    private void UpdateScreenshotFileNamePreview()
+    {
+        try
+        {
+            var template = ScreenshotFileNameTemplateBox?.Text ?? _settings.ScreenshotFileNameTemplate;
+            if (string.IsNullOrWhiteSpace(template))
+            {
+                if (ScreenshotFileNamePreviewText is not null)
+                    ScreenshotFileNamePreviewText.Text = "示例：（模板为空）";
+                return;
+            }
+            var ctx = new ScreenshotAutoSaveContext(1920, 1080, "explorer.exe");
+            var name = ScreenshotAutoSaver.ExpandTemplate(template, ctx, _settings.ScreenshotAutoSaveCounter + 1);
+            if (ScreenshotFileNamePreviewText is not null)
+                ScreenshotFileNamePreviewText.Text = "示例：" + name + ".png";
+        }
+        catch { }
+    }
+
+    private void OnBrowseScreenshotDirClick(object sender, RoutedEventArgs e)
+    {
+        // 用 .NET 8+ 原生的 Microsoft.Win32.OpenFolderDialog，避免拉 UseWindowsForms 依赖。
+        // InitialDirectory 优先指向已有目录，让用户在已有路径基础上微调
+        var dialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "选择截图自动保存目录",
+            Multiselect = false,
+        };
+        try
+        {
+            var current = ScreenshotAutoSaver.ResolveDirectory(_settings.ScreenshotSaveDirectory);
+            if (System.IO.Directory.Exists(current)) dialog.InitialDirectory = current;
+        }
+        catch { }
+        if (dialog.ShowDialog(this) == true)
+        {
+            ScreenshotSaveDirectoryBox.Text = dialog.FolderName;
+            CommitAll();
+        }
+    }
+
+    private void OnOpenScreenshotDirClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dir = ScreenshotAutoSaver.ResolveDirectory(_settings.ScreenshotSaveDirectory);
+            System.IO.Directory.CreateDirectory(dir);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = dir,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            ConsoleLog.Instance.Warn("open screenshot dir failed", ("err", ex.Message));
+        }
     }
 
     private void OnOcrResultModeChanged(object sender, RoutedEventArgs e)
@@ -1308,6 +1386,25 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
             ? ScreenshotAfterCaptureMode.Clipboard
             : ScreenshotAfterCaptureMode.Toolbar;
         _settings.ScreenshotAutoOcr = ScreenshotAutoOcrBox.IsChecked == true;
+        _settings.ScreenshotAutoSaveEnabled = ScreenshotAutoSaveEnabledBox.IsChecked == true;
+        var dirText = ScreenshotSaveDirectoryBox.Text?.Trim();
+        if (!string.IsNullOrEmpty(dirText)) _settings.ScreenshotSaveDirectory = dirText;
+        var nameTpl = ScreenshotFileNameTemplateBox.Text?.Trim();
+        if (!string.IsNullOrEmpty(nameTpl)) _settings.ScreenshotFileNameTemplate = nameTpl;
+        UpdateScreenshotFileNamePreview();
+
+        _settings.PrivacyScanEnabled = PrivacyScanEnabledBox.IsChecked == true;
+        _settings.PrivacyBuiltinPhoneEnabled = PrivacyRulePhoneBox.IsChecked == true;
+        _settings.PrivacyBuiltinIdCardEnabled = PrivacyRuleIdCardBox.IsChecked == true;
+        _settings.PrivacyBuiltinEmailEnabled = PrivacyRuleEmailBox.IsChecked == true;
+        _settings.PrivacyBuiltinBankCardEnabled = PrivacyRuleBankCardBox.IsChecked == true;
+        _settings.PrivacyBuiltinApiKeyEnabled = PrivacyRuleApiKeyBox.IsChecked == true;
+        _settings.PrivacyBuiltinJwtEnabled = PrivacyRuleJwtBox.IsChecked == true;
+        _settings.PrivacyBuiltinWindowsUserEnabled = PrivacyRuleWindowsUserBox.IsChecked == true;
+        _settings.PrivacyCustomRulesJson = PrivacyCustomRulesBox.Text ?? "";
+        _settings.PrivacyMosaicBlockSize = NumberBoxInt(PrivacyMosaicBlockSizeBox, _settings.PrivacyMosaicBlockSize, 4, 64);
+        _settings.PrivacyScanMinPixelEdge = NumberBoxInt(PrivacyMinPixelBox, _settings.PrivacyScanMinPixelEdge, 0, 2000);
+
         SaveAiSettings();
         RefreshToolbarPreview();
     }
@@ -1580,7 +1677,10 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
             DismissOnMouseLeaveBox, DismissOnForegroundChangedBox, DismissOnClickOutsideBox,
             DismissOnEscapeKeyBox, DismissOnNewSelectionBox, DismissOnActionInvokedBox,
             DismissOnTimeoutBox, FollowAccentColor, AiEnabledBox,
-            TranslateInlineBox, ExplainEnabledBox, ScreenshotAutoOcrBox);
+            TranslateInlineBox, ExplainEnabledBox, ScreenshotAutoOcrBox,
+            ScreenshotAutoSaveEnabledBox,
+            PrivacyScanEnabledBox, PrivacyRulePhoneBox, PrivacyRuleIdCardBox, PrivacyRuleEmailBox,
+            PrivacyRuleBankCardBox, PrivacyRuleApiKeyBox, PrivacyRuleJwtBox, PrivacyRuleWindowsUserBox);
         AttachRadio(BlacklistRadio, WhitelistRadio,
             DisplayIconAndText, DisplayIconOnly, DisplayTextOnly,
             SurfaceShadow, SurfaceBorder, SurfaceShadowAndBorder,
@@ -1596,12 +1696,17 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         AttachNumber(MinTextLengthBox, MaxTextLengthBox, PopupDelayBox, HoverDelayBox,
             DismissMouseLeaveDelayBox, DismissTimeoutMsBox,
             CornerRadiusBox, ButtonSpacingBox, ToolbarFontSizeBox, MaxActionsPerRowBox,
-            AiTimeoutBox, AiMaxOutputTokensBox);
+            AiTimeoutBox, AiMaxOutputTokensBox,
+            PrivacyMosaicBlockSizeBox, PrivacyMinPixelBox);
 
         // TextBox / PasswordBox：用 LostFocus 而不是 TextChanged，避免每个键盘字符都触发写盘
         AttachTextLostFocus(SearchEngineName, SearchUrlTemplate,
             PauseHotKeyBox, ToolbarHotKeyBox, OcrHotKeyBox, ScreenshotHotKeyBox,
-            AiBaseUrlBox, AiModelBox, AiDefaultLanguageBox);
+            AiBaseUrlBox, AiModelBox, AiDefaultLanguageBox,
+            ScreenshotSaveDirectoryBox, ScreenshotFileNameTemplateBox,
+            PrivacyCustomRulesBox);
+        // 文件名模板预览随 TextChanged 实时刷新（CommitAll 内会再校准一次）
+        ScreenshotFileNameTemplateBox.TextChanged += (_, _) => UpdateScreenshotFileNamePreview();
         AiApiKeyBox.LostFocus += OnInstantCommit;
 
         // 集合：动作列表 / 进程过滤名单

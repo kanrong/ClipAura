@@ -41,6 +41,38 @@
                        Stretch="None"
                        RenderOptions.BitmapScalingMode="NearestNeighbor"
                        SnapsToDevicePixels="True" />
+                <!-- 标注层：默认 IsHitTestVisible=False 让点击穿透到主图，让用户能照常拖动整窗；
+                     进入标注模式后由 AnnotationCanvasController 改 IsHitTestVisible=True 接管事件 -->
+                <Canvas x:Name="AnnotationCanvas"
+                        Background="Transparent"
+                        IsHitTestVisible="False"
+                        SnapsToDevicePixels="True" />
+                <!-- 隐私扫描提示层：与标注层并列，但完全独立。命中区由 PrivacyScanner 给出，
+                     画成红色虚线框只起视觉提示作用，不进入 AnnotationStore；
+                     用户在工具栏点"一键打码"时再把这些区域转成 Mosaic 写入 store。
+                     IsHitTestVisible=False 让所有交互（拖窗 / 标注）都不被它遮挡 -->
+                <Canvas x:Name="PrivacyHintCanvas"
+                        Background="Transparent"
+                        IsHitTestVisible="False"
+                        SnapsToDevicePixels="True" />
+                <!-- 隐私提示红条：截图顶部 8 DIP 处出现，命中数量随 OCR 完成动态填入。
+                     使用 Border + TextBlock，不放工具栏 —— 工具栏可能被用户拖到任意屏幕位置，
+                     提示必须紧贴截图本身才能让"哪张图有泄露"一目了然 -->
+                <Border x:Name="PrivacyBanner"
+                        VerticalAlignment="Top"
+                        HorizontalAlignment="Center"
+                        Margin="0,8,0,0"
+                        Padding="10,4"
+                        CornerRadius="6"
+                        Background="#E0E53935"
+                        BorderBrush="#FFFFFFFF"
+                        BorderThickness="1"
+                        Visibility="Collapsed"
+                        IsHitTestVisible="False">
+                    <TextBlock x:Name="PrivacyBannerText"
+                               Foreground="White"
+                               FontSize="12" />
+                </Border>
             </Grid>
         </Border>
     </Grid>

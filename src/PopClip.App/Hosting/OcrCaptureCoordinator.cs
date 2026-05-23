@@ -9,6 +9,7 @@ using PopClip.App.Services;
 using PopClip.App.UI;
 using PopClip.Core.Logging;
 using PopClip.Core.Model;
+using PopClip.Hooks;
 using PopClip.Hooks.Interop;
 using PopClip.Hooks.Window;
 using PopClip.Ocr.Layout;
@@ -45,6 +46,23 @@ internal sealed class OcrCaptureCoordinator
     private readonly AiTextService _aiText;
     private readonly Action? _saveSettings;
 
+    /// <summary>截图自动保存到磁盘的辅助器。
+    /// 与"另存为"对话框路径独立，由 ScreenshotAutoSaveEnabled 开关驱动；
+    /// 失败时返回 ScreenshotAutoSaveResult.Failure 并由 Coordinator 决定如何提示</summary>
+    private readonly ScreenshotAutoSaver _autoSaver;
+
+    /// <summary>钉图管理器：把已截好的图像固定到桌面。可空 —— 宿主未注入时退到旧行为。
+    /// 由 ScreenshotPreviewToolbarWindow / OcrResultToolbarWindow 的"钉到桌面"按钮触发</summary>
+    private readonly PinnedScreenshotManager? _pinnedManager;
+
+    /// <summary>截图隐私扫描器：开关 + 命中匹配。在 PreviewWindow 显示后异步触发，
+    /// 完成时把命中结果回填给 PreviewWindow 的红色虚线框 + "一键打码"按钮</summary>
+    private readonly PrivacyScanner _privacyScanner;
+
+    /// <summary>剪贴板历史服务（M6）。可空：宿主未注入时不写图片入库；
+    /// 截图复制 / 钉图 / 自动保存均会调 AppendImage 让历史窗"图片"标签页可回看</summary>
+    private readonly ClipboardHistoryService? _clipHistory;
+
     /// <summary>"打开设置面板并定位到某个分页"的跨层回调。
     /// 由 AppHost 注入，参数为页面 tag（如 "AI" / "Ocr"），方便结果窗里的
     /// "启用 AI / 调整 OCR" 类引导按钮直达对应设置位置。可空：宿主未传入时按钮仅在 Toast 提示</summary>
@@ -53,6 +71,7 @@ internal sealed class OcrCaptureCoordinator
     private OcrSelectionWindow? _currentWindow;
     private OcrResultWindow? _resultWindow;
     private ScreenshotPreviewWindow? _screenshotWindow;
+    private ScreenshotCountdownWindow? _countdownWindow;
 
     private enum CapturePurpose
     {
@@ -75,9 +94,11 @@ internal sealed class OcrCaptureCoordinator
         FloatingToolbar toolbar,
         AppSettings settings,
         AiTextService aiText,
+        PinnedScreenshotManager? pinnedManager = null,
         FloatingToolbarBubblePresenter? bubble = null,
         Action<string>? openSettings = null,
-        Action? saveSettings = null)
+        Action? saveSettings = null,
+        ClipboardHistoryService? clipHistory = null)
     {
         _log = log;
         _registry = registry;
@@ -87,9 +108,22 @@ internal sealed class OcrCaptureCoordinator
         _toolbar = toolbar;
         _settings = settings;
         _aiText = aiText;
+        _pinnedManager = pinnedManager;
         _bubble = bubble;
         _openSettings = openSettings;
         _saveSettings = saveSettings;
+        _clipHistory = clipHistory;
+        _autoSaver = new ScreenshotAutoSaver(log, settings, saveSettings);
+        _privacyScanner = new PrivacyScanner(log, () => new PrivacyScanner.AppSettingsSnapshot(
+            Enabled: _settings.PrivacyScanEnabled,
+            BuiltinPhone: _settings.PrivacyBuiltinPhoneEnabled,
+            BuiltinIdCard: _settings.PrivacyBuiltinIdCardEnabled,
+            BuiltinEmail: _settings.PrivacyBuiltinEmailEnabled,
+            BuiltinBankCard: _settings.PrivacyBuiltinBankCardEnabled,
+            BuiltinApiKey: _settings.PrivacyBuiltinApiKeyEnabled,
+            BuiltinJwt: _settings.PrivacyBuiltinJwtEnabled,
+            BuiltinWindowsUser: _settings.PrivacyBuiltinWindowsUserEnabled,
+            CustomRulesJson: _settings.PrivacyCustomRulesJson));
     }
 
     public void Trigger()
@@ -111,12 +145,72 @@ internal sealed class OcrCaptureCoordinator
         ShowSelectionWindow(CapturePurpose.Screenshot);
     }
 
+    /// <summary>延时截图：先弹倒计时浮层，归零后再进入选区蒙层。
+    /// delaySec ≤ 0 等价于直接调 TriggerScreenshot</summary>
+    public void TriggerScreenshotDelayed(int delaySec)
+    {
+        if (delaySec <= 0)
+        {
+            TriggerScreenshot();
+            return;
+        }
+        WpfApplication.Current.Dispatcher.Invoke(() =>
+        {
+            // 同一时刻只允许一个倒计时（避免叠层 + ESC 取消时不知道关哪个）
+            if (_countdownWindow is not null)
+            {
+                try { _countdownWindow.Activate(); } catch { }
+                return;
+            }
+            var win = new ScreenshotCountdownWindow(
+                delaySec,
+                onElapsed: () =>
+                {
+                    _countdownWindow = null;
+                    TriggerScreenshot();
+                },
+                onCancelled: () =>
+                {
+                    _countdownWindow = null;
+                    _log.Info("delayed screenshot cancelled by user");
+                });
+            _countdownWindow = win;
+            win.Show();
+        });
+    }
+
     public void TriggerClipboardImage(SelectionRect anchorRect)
     {
         var provider = PickActiveOrNotify();
         if (provider is null) return;
         provider.PrewarmInBackground();
         _ = Task.Run(() => RunClipboardImageAsync(anchorRect));
+    }
+
+    /// <summary>钉图窗双击触发的 OCR：用钉图缓存的 PNG 字节解码后跑一次 RecognizeImageAsync。
+    /// PinnedScreenshotManager.DoubleClickOcrHandler 会回调到这里。
+    /// 与剪贴板图片 OCR 类似，但 anchor 来自钉图当前在屏幕上的物理位置，
+    /// 让 OCR 结果窗在钉图原位弹出</summary>
+    public void RecognizePinnedScreenshotAsync(PinnedScreenshotWindow window, Rectangle anchor)
+    {
+        var pngBytes = window.PngBytes;
+        if (pngBytes is null || pngBytes.Length == 0) return;
+        var anchorRect = new SelectionRect(anchor.Left, anchor.Top, anchor.Right, anchor.Bottom);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var ms = new MemoryStream(pngBytes);
+                using var decoded = new Bitmap(ms);
+                using var bitmap = new Bitmap(decoded);
+                var image = CreateOcrImage(bitmap, pngFactory: () => pngBytes);
+                await RecognizeImageAsync(image, anchorRect, "pinned-screenshot").ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("pinned screenshot ocr failed", ("err", ex.Message));
+            }
+        });
     }
 
     private void ShowSelectionWindow(CapturePurpose purpose)
@@ -192,21 +286,156 @@ internal sealed class OcrCaptureCoordinator
 
     private async Task HandleScreenshotCaptureAsync(CapturedImage captured)
     {
+        // 自动保存与 ScreenshotAfterCaptureMode 解耦：可与 Clipboard / Toolbar 任一模式并存。
+        // 用户故事："保存到 D:\Screenshots，同时复制到剪贴板，不打扰预览窗"。
+        // 异步发起但不 await：避免磁盘 IO 阻塞预览窗 / 剪贴板写入的视觉响应
+        Task<ScreenshotAutoSaveResult>? autoSaveTask = null;
+        if (_settings.ScreenshotAutoSaveEnabled)
+        {
+            autoSaveTask = TryAutoSaveScreenshotAsync(captured);
+        }
+
         var copiedDirectly = _settings.ScreenshotAfterCaptureMode == ScreenshotAfterCaptureMode.Clipboard;
         if (copiedDirectly)
         {
+            // ClipboardWriter.SetImagePngBytes 内部已调 NoteSelfWrittenImage，让监听路径忽略本次回环。
+            // 之后再 AppendImage 让"图片复制 → 同时入历史"无需依赖 WM_CLIPBOARDUPDATE 监听
             _clipboard.SetImagePngBytes(captured.PngBytes);
+            TryAppendImageToHistory(captured);
             ShowAnchoredToast("截图已复制", captured.AnchorRect, isError: false, durationMs: 1800);
         }
         else
         {
             ShowScreenshotPreview(captured);
+            // 隐私扫描只在"会进入预览窗"路径下触发：Clipboard 模式没有窗体可视化命中；
+            // Toolbar 模式的预览窗会显示红色虚线框 + 一键打码按钮。
+            // 这里 fire-and-forget，让预览窗先出来再 OCR + 扫描，避免阻塞用户视觉
+            TryStartPrivacyScan(captured);
         }
 
         if (_settings.ScreenshotAutoOcr)
         {
             await RecognizeImageAsync(captured.Image, captured.AnchorRect, captured.Source, closeAfterLoad: null).ConfigureAwait(false);
         }
+
+        if (autoSaveTask is not null)
+        {
+            try
+            {
+                var result = await autoSaveTask.ConfigureAwait(false);
+                if (result.Success)
+                {
+                    var fileName = Path.GetFileName(result.Path!);
+                    // Clipboard 模式下不会有预览窗 toast，这里再补一条；Toolbar 模式 ScreenshotPreviewToolbar 会自己提示，
+                    // 但用户在自动保存场景往往希望"同时看到落盘提示"，所以无论哪个模式都补一条 anchored toast。
+                    // 文案与"截图已复制"协调：复制走预览/剪贴板路径已提示，自动保存路径补 "已保存"
+                    ShowAnchoredToast($"已保存 {fileName}", captured.AnchorRect, isError: false, durationMs: 2400);
+                    // 同步落到图片历史：用户在历史窗里也能看到"自动保存的截图"
+                    TryAppendImageToHistory(captured);
+                }
+                else if (!string.IsNullOrEmpty(result.ErrorMessage))
+                {
+                    ShowAnchoredToast("自动保存失败：" + result.ErrorMessage, captured.AnchorRect, isError: true, durationMs: 3000);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("auto-save unexpected error", ("err", ex.Message));
+            }
+        }
+    }
+
+    /// <summary>把一张已截好的截图 PNG 字节同步到剪贴板图片历史。
+    /// 不依赖剪贴板 API：钉图 / 自动保存路径不会改剪贴板，但仍希望用户在历史窗能回看</summary>
+    private void TryAppendImageToHistory(CapturedImage captured)
+    {
+        if (_clipHistory is null) return;
+        try
+        {
+            var foreground = "";
+            try { foreground = ForegroundWatcher.Snapshot().ProcessName; } catch { }
+            _clipHistory.AppendImage(captured.PngBytes, foreground);
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("append image history failed", ("err", ex.Message));
+        }
+    }
+
+    /// <summary>用配置的最小阈值过滤极小截图，再后台跑一次 OCR + PrivacyScanner，
+    /// 把命中结果交给当前 ScreenshotPreviewWindow 显示。
+    ///
+    /// 设计取舍：
+    /// - 用 active provider 跑 OCR：与正常 OCR 路径同一份代码，避免双重维护；
+    ///   provider 不可用时静默退出，不打扰用户的"普通截图"流程。
+    /// - 不缓存扫描结果：每次截图独立扫描，避免误用旧命中
+    /// - 不阻塞主流程：fire-and-forget。OCR 1~3 秒内完成，预览窗已先出</summary>
+    private void TryStartPrivacyScan(CapturedImage captured)
+    {
+        if (!_settings.PrivacyScanEnabled) return;
+        var minEdge = _settings.PrivacyScanMinPixelEdge;
+        if (minEdge > 0 && (captured.Image.Width < minEdge || captured.Image.Height < minEdge)) return;
+
+        var provider = _registry.PickActive();
+        if (provider is null) return;
+
+        _ = Task.Run(async () =>
+        {
+            OcrResult result;
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                result = await provider.RecognizeAsync(captured.Image, cts.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("privacy scan ocr failed", ("err", ex.Message));
+                return;
+            }
+
+            IReadOnlyList<PrivacyHit> hits;
+            try { hits = _privacyScanner.Scan(result); }
+            catch (Exception ex)
+            {
+                _log.Warn("privacy scan match failed", ("err", ex.Message));
+                return;
+            }
+            if (hits.Count == 0) return;
+
+            _log.Info("privacy scan hits", ("count", hits.Count), ("source", captured.Source));
+
+            WpfApplication.Current.Dispatcher.Invoke(() =>
+            {
+                var win = _screenshotWindow;
+                if (win is null) return;
+                try
+                {
+                    win.ShowPrivacyHints(
+                        hits,
+                        captured.Image.Width,
+                        captured.Image.Height,
+                        _settings.PrivacyMosaicBlockSize);
+                }
+                catch (Exception ex)
+                {
+                    _log.Warn("privacy show hints failed", ("err", ex.Message));
+                }
+            });
+        });
+    }
+
+    /// <summary>把已截好的 PNG 字节走 ScreenshotAutoSaver 落盘。
+    /// 拆出独立方法便于其它路径（钉图入库 / 延时截图）后续复用</summary>
+    private Task<ScreenshotAutoSaveResult> TryAutoSaveScreenshotAsync(CapturedImage captured)
+    {
+        var foreground = "";
+        try { foreground = ForegroundWatcher.Snapshot().ProcessName; }
+        catch (Exception ex) { _log.Warn("get foreground for auto-save failed", ("err", ex.Message)); }
+        var ctx = new ScreenshotAutoSaveContext(
+            Width: captured.Image.Width,
+            Height: captured.Image.Height,
+            ForegroundProcessName: foreground);
+        return _autoSaver.SaveAsync(captured.PngBytes, ctx);
     }
 
     /// <summary>把已识别后的 OcrImage 转换回一个截图 PNG 字节 + Anchor，再走标准 ScreenshotPreview 路径。
@@ -275,6 +504,13 @@ internal sealed class OcrCaptureCoordinator
                     _screenshotWindow = null;
                     try { oldWin?.Close(); } catch { }
                     ShowSelectionWindow(CapturePurpose.Screenshot);
+                },
+                onPinRequested: pinAnchor =>
+                {
+                    // 钉到桌面：原位创建 PinnedScreenshotWindow 接替预览窗的位置；
+                    // 预览窗会在自身 CommandPin 内自行 Close，这里不重复处理
+                    if (_pinnedManager is null) return;
+                    _pinnedManager.Pin(captured.PngBytes, monitor.DpiX, monitor.DpiY, pinAnchor);
                 });
             _screenshotWindow = win;
             win.Closed += (_, _) => { if (ReferenceEquals(_screenshotWindow, win)) _screenshotWindow = null; };
@@ -391,6 +627,23 @@ internal sealed class OcrCaptureCoordinator
             ("len", fullText.Length), ("blocks", result.Blocks.Count),
             ("regions", layout.Regions.Count),
             ("source", source), ("provider", provider.Id));
+
+        // OCR 文本回写图片历史：钉图 / 截图自动保存等场景图片已入库；
+        // 这里用 PNG 字节 hash 反查 clipboard_image_history 并 UPDATE ocr_text。
+        // 找不到记录时 SetImageOcrTextByHash 静默 no-op，无副作用
+        if (_clipHistory is not null && !string.IsNullOrEmpty(fullText))
+        {
+            try
+            {
+                var pngBytes = image.GetPngBytes();
+                if (pngBytes is { Length: > 0 })
+                {
+                    var hash = ClipboardHistoryService.HashImagePngBytes(pngBytes);
+                    _clipHistory.SetImageOcrTextByHash(hash, fullText);
+                }
+            }
+            catch (Exception ex) { _log.Debug("ocr writeback skipped", ("err", ex.Message)); }
+        }
 
         if (string.IsNullOrEmpty(fullText) || result.Blocks.Count == 0)
         {
@@ -573,6 +826,17 @@ internal sealed class OcrCaptureCoordinator
                     _resultWindow = null;
                     try { oldWin?.Close(); } catch { }
                     ShowSelectionWindow(CapturePurpose.Ocr);
+                },
+                pinScreenshot: pinAnchor =>
+                {
+                    if (_pinnedManager is null) return;
+                    // 用 OCR 内部缓存的 PNG 字节钉，避免重新走 RenderTargetBitmap。
+                    // OCR 结果窗本身不关，让用户继续在结果窗交互（同 ScreenshotPreviewWindow.CommandPin 行为不同）
+                    byte[]? pngBytes = null;
+                    try { pngBytes = image.GetPngBytes(); }
+                    catch (Exception ex) { _log.Warn("encode png for pin failed", ("err", ex.Message)); return; }
+                    if (pngBytes is null || pngBytes.Length == 0) return;
+                    _pinnedManager.Pin(pngBytes, monitor.DpiX, monitor.DpiY, pinAnchor);
                 },
                 isLoading: isLoading);
             _resultWindow = win;

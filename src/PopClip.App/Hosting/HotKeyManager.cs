@@ -12,6 +12,7 @@ internal sealed class HotKeyManager : IDisposable
     private const int ToolbarId = 102;
     private const int OcrId = 103;
     private const int ScreenshotId = 104;
+    private const int ScreenshotDelayId = 105;
 
     private readonly ILog _log;
     private bool _listening;
@@ -20,6 +21,7 @@ internal sealed class HotKeyManager : IDisposable
     public event Action? ToolbarRequested;
     public event Action? OcrRequested;
     public event Action? ScreenshotRequested;
+    public event Action? ScreenshotDelayRequested;
 
     public HotKeyManager(ILog log) => _log = log;
 
@@ -39,6 +41,9 @@ internal sealed class HotKeyManager : IDisposable
                 : HotKeyRegistrationStatus.Disabled("未启用"),
             settings.EnableScreenshotHotKey
                 ? Register(ScreenshotId, settings.ScreenshotHotKey)
+                : HotKeyRegistrationStatus.Disabled("未启用"),
+            settings.EnableScreenshotDelayHotKey
+                ? Register(ScreenshotDelayId, settings.ScreenshotDelayHotKey)
                 : HotKeyRegistrationStatus.Disabled("未启用"));
     }
 
@@ -92,6 +97,11 @@ internal sealed class HotKeyManager : IDisposable
         else if (id == ScreenshotId)
         {
             ScreenshotRequested?.Invoke();
+            handled = true;
+        }
+        else if (id == ScreenshotDelayId)
+        {
+            ScreenshotDelayRequested?.Invoke();
             handled = true;
         }
     }
@@ -163,6 +173,7 @@ internal sealed class HotKeyManager : IDisposable
         NativeMethods.UnregisterHotKey(0, ToolbarId);
         NativeMethods.UnregisterHotKey(0, OcrId);
         NativeMethods.UnregisterHotKey(0, ScreenshotId);
+        NativeMethods.UnregisterHotKey(0, ScreenshotDelayId);
     }
 
     public void Dispose()
@@ -180,7 +191,8 @@ public sealed record HotKeyApplyResult(
     HotKeyRegistrationStatus Pause,
     HotKeyRegistrationStatus Toolbar,
     HotKeyRegistrationStatus Ocr,
-    HotKeyRegistrationStatus Screenshot);
+    HotKeyRegistrationStatus Screenshot,
+    HotKeyRegistrationStatus ScreenshotDelay);
 
 public sealed record HotKeyRegistrationStatus(HotKeyRegistrationState State, string Message)
 {

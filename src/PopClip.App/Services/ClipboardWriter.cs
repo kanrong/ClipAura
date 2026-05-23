@@ -35,6 +35,9 @@ internal sealed class ClipboardWriter : IClipboardWriter
     {
         try
         {
+            // 与文本写入对称：先通知历史服务"这是我们自己写的"，再真正写剪贴板，
+            // 避免 WM_CLIPBOARDUPDATE 监听到自己写的内容回头入库
+            _history?.NoteSelfWrittenImage(pngBytes);
             _clipboard.SetImagePngBytes(pngBytes);
         }
         catch (Exception ex) { _log.Warn("clipboard image writer failed", ("err", ex.Message)); }

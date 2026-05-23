@@ -1,3 +1,4 @@
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Windows;
@@ -17,6 +18,21 @@ public sealed record ClipboardEntry(
     DateTime CreatedAtUtc,
     bool Pinned);
 
+/// <summary>剪贴板图片历史的元数据。PngBlob 仅在 ListImages 调用方明确需要时才回填，
+/// 其他场景为 null（避免 ListBox 一次拿 N 张大图导致 UI 卡顿）。
+/// 缩略图按需走 GetImageBlob() 单条拉</summary>
+public sealed record ClipboardImageEntry(
+    long Id,
+    string PngHash,
+    int Width,
+    int Height,
+    int Bytes,
+    string? SourceProcess,
+    string? OcrText,
+    DateTime CreatedAtUtc,
+    bool Pinned,
+    byte[]? PngBlob);
+
 /// <summary>剪贴板历史：用一个隐藏窗口挂 WM_CLIPBOARDUPDATE，
 /// 文本变化时按 hash 去重并落库；保留最近 N 条 + 钉选条目。
 ///
@@ -31,13 +47,23 @@ internal sealed class ClipboardHistoryService : IDisposable
     private const int MaxEntryLength = 32 * 1024;
     private const int MinEntryLength = 2;
 
+    /// <summary>图片历史保留张数；图片占用大，不能像文本那样保留 50+。
+    /// 钉选不计入这个上限</summary>
+    private const int RetainImageEntries = 30;
+
+    /// <summary>单张图片大小硬上限：> 10MB 拒绝入库，避免 GB 截图把库撑爆。
+    /// 现实中 4K 屏全屏 PNG 一般 3~6 MB，10 MB 足够覆盖典型截图</summary>
+    private const int MaxImageBytes = 10 * 1024 * 1024;
+
     private readonly HistoryDatabase _db;
     private readonly ClipboardAccess _clipboard;
     private readonly ILog _log;
     private ClipboardListenerWindow? _listener;
     private string _lastWrittenHash = "";
+    private string _lastWrittenImageHash = "";
 
     public event Action<ClipboardEntry>? EntryAdded;
+    public event Action<ClipboardImageEntry>? ImageEntryAdded;
 
     public ClipboardHistoryService(HistoryDatabase db, ClipboardAccess clipboard, ILog log)
     {
@@ -70,11 +96,40 @@ internal sealed class ClipboardHistoryService : IDisposable
         _lastWrittenHash = HashText(text);
     }
 
+    /// <summary>"我们自己刚写入的剪贴板图片"的等价标记，避免 WM_CLIPBOARDUPDATE 回环</summary>
+    public void NoteSelfWrittenImage(byte[] pngBytes)
+    {
+        if (pngBytes is null || pngBytes.Length == 0) return;
+        _lastWrittenImageHash = HashBytes(pngBytes);
+    }
+
     private void OnClipboardChanged()
     {
         // 切到 STA 线程读剪贴板，避免在 UI 线程上抛 ExternalException
         try
         {
+            // 优先尝试图片：图片场景的剪贴板更新主要由"截图复制 / 应用复制图片"产生，
+            // 文本场景则由文字复制产生。两种格式互斥，先尝试图片避免对图片走"GetText 返回空 → 直接 return"路径
+            byte[]? imageBytes = null;
+            try { imageBytes = _clipboard.GetImagePngBytes(); }
+            catch { /* 旧 Office / 浏览器有时复制时格式残缺，直接走文本路径兜底 */ }
+            if (imageBytes is not null && imageBytes.Length > 0)
+            {
+                if (imageBytes.Length > MaxImageBytes)
+                {
+                    _log.Info("clipboard image too large, skip", ("bytes", imageBytes.Length));
+                    return;
+                }
+                var imgHash = HashBytes(imageBytes);
+                if (imgHash == _lastWrittenImageHash)
+                {
+                    _lastWrittenImageHash = "";
+                    return;
+                }
+                _ = AppendImageAsync(imageBytes, imgHash, sourceProc: null);
+                return;
+            }
+
             var text = _clipboard.GetText();
             if (string.IsNullOrEmpty(text)) return;
             if (text.Length < MinEntryLength) return;
@@ -83,7 +138,6 @@ internal sealed class ClipboardHistoryService : IDisposable
             var hash = HashText(text);
             if (hash == _lastWrittenHash)
             {
-                // 应用自己写出去的内容回环，不入库
                 _lastWrittenHash = "";
                 return;
             }
@@ -97,6 +151,99 @@ internal sealed class ClipboardHistoryService : IDisposable
         catch (Exception ex)
         {
             _log.Debug("clipboard change handle failed", ("err", ex.Message));
+        }
+    }
+
+    private Task AppendImageAsync(byte[] pngBytes, string hash, string? sourceProc)
+        => Task.Run(() => AppendImageInternal(pngBytes, hash, sourceProc));
+
+    /// <summary>对外暴露的"图片入库"入口：钉图 / 截图自动保存等路径调用。
+    /// 与监听路径不同的是这里 sourceProc 通常已知（前台进程名），便于日后做"按应用筛选"</summary>
+    public ClipboardImageEntry? AppendImage(byte[] pngBytes, string? sourceProc)
+    {
+        if (pngBytes is null || pngBytes.Length == 0) return null;
+        if (pngBytes.Length > MaxImageBytes)
+        {
+            _log.Info("AppendImage too large, skip", ("bytes", pngBytes.Length));
+            return null;
+        }
+        var hash = HashBytes(pngBytes);
+        return AppendImageInternal(pngBytes, hash, sourceProc);
+    }
+
+    /// <summary>把已经知道 png_hash 的图片落库；hash 重复时只翻新 created_at 不重复 BLOB。
+    /// 同 AppendInternal 的"翻新"语义，避免库里同一张图重复占空间</summary>
+    private ClipboardImageEntry? AppendImageInternal(byte[] pngBytes, string hash, string? sourceProc)
+    {
+        using var conn = _db.Open();
+        if (conn is null) return null;
+        try
+        {
+            int width = 0, height = 0;
+            try
+            {
+                using var ms = new MemoryStream(pngBytes);
+                var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(
+                    ms,
+                    System.Windows.Media.Imaging.BitmapCreateOptions.IgnoreColorProfile,
+                    System.Windows.Media.Imaging.BitmapCacheOption.OnDemand);
+                if (decoder.Frames.Count > 0)
+                {
+                    width = decoder.Frames[0].PixelWidth;
+                    height = decoder.Frames[0].PixelHeight;
+                }
+            }
+            catch { /* 解 size 失败仍允许入库；图片 ListBox 会按 0×0 过滤掉异常项 */ }
+
+            using (var update = conn.CreateCommand())
+            {
+                update.CommandText = "UPDATE clipboard_image_history SET created_at = $now WHERE png_hash = $h";
+                update.Parameters.AddWithValue("$h", hash);
+                update.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                if (update.ExecuteNonQuery() > 0)
+                {
+                    return null;
+                }
+            }
+
+            using var insert = conn.CreateCommand();
+            insert.CommandText = @"
+                INSERT INTO clipboard_image_history
+                    (png_blob, png_hash, width, height, bytes, source_proc, ocr_text, created_at, pinned)
+                VALUES ($blob, $hash, $w, $h, $sz, $proc, NULL, $now, 0);
+                SELECT last_insert_rowid();";
+            insert.Parameters.AddWithValue("$blob", pngBytes);
+            insert.Parameters.AddWithValue("$hash", hash);
+            insert.Parameters.AddWithValue("$w", width);
+            insert.Parameters.AddWithValue("$h", height);
+            insert.Parameters.AddWithValue("$sz", pngBytes.Length);
+            insert.Parameters.AddWithValue("$proc", (object?)sourceProc ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            var id = Convert.ToInt64(insert.ExecuteScalar() ?? 0L);
+
+            using (var prune = conn.CreateCommand())
+            {
+                prune.CommandText = @"
+                    DELETE FROM clipboard_image_history
+                    WHERE pinned = 0
+                      AND id NOT IN (
+                        SELECT id FROM clipboard_image_history
+                        WHERE pinned = 0
+                        ORDER BY created_at DESC LIMIT $keep);";
+                prune.Parameters.AddWithValue("$keep", RetainImageEntries);
+                prune.ExecuteNonQuery();
+            }
+
+            var entry = new ClipboardImageEntry(
+                id, hash, width, height, pngBytes.Length, sourceProc, null,
+                DateTime.UtcNow, false, null);
+            ImageEntryAdded?.Invoke(entry);
+            return entry;
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("clipboard image append failed", ("err", ex.Message));
+            return null;
         }
     }
 
@@ -157,14 +304,22 @@ internal sealed class ClipboardHistoryService : IDisposable
         using var conn = _db.Open();
         if (conn is null) return Array.Empty<ClipboardEntry>();
         var list = new List<ClipboardEntry>();
+        var trimmed = query?.Trim();
+        var hasQuery = !string.IsNullOrEmpty(trimmed);
         try
         {
+            // 优先走 FTS5：1000 条历史搜索 < 50ms（LIKE 大概 ~500ms）。
+            // FTS5 不可用时退到原 LIKE 路径，行为兼容旧 DB
+            if (hasQuery && _db.FtsAvailable)
+            {
+                if (TryListByFts(conn, trimmed!, limit, list)) return list;
+            }
+
             using var cmd = conn.CreateCommand();
-            var hasQuery = !string.IsNullOrWhiteSpace(query);
             cmd.CommandText = hasQuery
                 ? "SELECT id, text, text_hash, source_proc, created_at, pinned FROM clipboard_history WHERE text LIKE $q ORDER BY pinned DESC, created_at DESC LIMIT $limit"
                 : "SELECT id, text, text_hash, source_proc, created_at, pinned FROM clipboard_history ORDER BY pinned DESC, created_at DESC LIMIT $limit";
-            if (hasQuery) cmd.Parameters.AddWithValue("$q", "%" + query!.Trim() + "%");
+            if (hasQuery) cmd.Parameters.AddWithValue("$q", "%" + trimmed + "%");
             cmd.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 500));
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
@@ -183,6 +338,48 @@ internal sealed class ClipboardHistoryService : IDisposable
             _log.Debug("clipboard list failed", ("err", ex.Message));
         }
         return list;
+    }
+
+    /// <summary>FTS5 搜索路径：把用户输入当 phrase（双引号包裹 + 转义）查询，
+    /// JOIN 回 clipboard_history 取完整字段并按 pinned / created_at 排序。
+    /// 失败返回 false 让调用方退到 LIKE。
+    ///
+    /// FTS5 query 语法：把用户输入完整作为 phrase，避免 OR / AND / NEAR 等语法字符
+    /// 被解释为 FTS5 操作符；用户搜 `is null` 应该匹配整段而不是 `is OR null`。
+    /// 双引号转义：`"a""b"` → 匹配字面量 `a"b`</summary>
+    private bool TryListByFts(SqliteConnection conn, string query, int limit, List<ClipboardEntry> list)
+    {
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT h.id, h.text, h.text_hash, h.source_proc, h.created_at, h.pinned
+                FROM clipboard_history_fts f
+                JOIN clipboard_history h ON h.id = f.rowid
+                WHERE f.text MATCH $q
+                ORDER BY h.pinned DESC, h.created_at DESC
+                LIMIT $limit";
+            cmd.Parameters.AddWithValue("$q", "\"" + query.Replace("\"", "\"\"") + "\"");
+            cmd.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 500));
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                list.Add(new ClipboardEntry(
+                    reader.GetInt64(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetString(3),
+                    DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(4)).UtcDateTime,
+                    reader.GetInt32(5) != 0));
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _log.Debug("fts5 query failed; fallback to LIKE", ("err", ex.Message));
+            list.Clear();
+            return false;
+        }
     }
 
     public bool Delete(long id)
@@ -231,6 +428,136 @@ internal sealed class ClipboardHistoryService : IDisposable
         var bytes = Encoding.UTF8.GetBytes(text);
         var hash = SHA256.HashData(bytes);
         return Convert.ToHexString(hash, 0, 12);
+    }
+
+    private static string HashBytes(byte[] bytes)
+    {
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash);
+    }
+
+    public IReadOnlyList<ClipboardImageEntry> ListImages(int limit, bool includeBlob = false)
+    {
+        using var conn = _db.Open();
+        if (conn is null) return Array.Empty<ClipboardImageEntry>();
+        var list = new List<ClipboardImageEntry>();
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = includeBlob
+                ? "SELECT id, png_hash, width, height, bytes, source_proc, ocr_text, created_at, pinned, png_blob FROM clipboard_image_history ORDER BY pinned DESC, created_at DESC LIMIT $limit"
+                : "SELECT id, png_hash, width, height, bytes, source_proc, ocr_text, created_at, pinned FROM clipboard_image_history ORDER BY pinned DESC, created_at DESC LIMIT $limit";
+            cmd.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 200));
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                byte[]? blob = null;
+                if (includeBlob && !reader.IsDBNull(9))
+                {
+                    using var stream = reader.GetStream(9);
+                    using var ms = new MemoryStream();
+                    stream.CopyTo(ms);
+                    blob = ms.ToArray();
+                }
+                list.Add(new ClipboardImageEntry(
+                    reader.GetInt64(0),
+                    reader.GetString(1),
+                    reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
+                    reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
+                    reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
+                    reader.IsDBNull(5) ? null : reader.GetString(5),
+                    reader.IsDBNull(6) ? null : reader.GetString(6),
+                    DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(7)).UtcDateTime,
+                    reader.GetInt32(8) != 0,
+                    blob));
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.Debug("clipboard image list failed", ("err", ex.Message));
+        }
+        return list;
+    }
+
+    /// <summary>按 id 取出单张图片的原始 PNG 字节。
+    /// 用于"用户在历史窗点击图片项 → 复制到剪贴板"等需要 BLOB 的延迟路径，
+    /// 避免 ListImages 一次性把所有 BLOB 都拉出来撑爆内存</summary>
+    public byte[]? GetImageBlob(long id)
+    {
+        using var conn = _db.Open();
+        if (conn is null) return null;
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT png_blob FROM clipboard_image_history WHERE id = $id";
+            cmd.Parameters.AddWithValue("$id", id);
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read() || reader.IsDBNull(0)) return null;
+            using var stream = reader.GetStream(0);
+            using var ms = new MemoryStream();
+            stream.CopyTo(ms);
+            return ms.ToArray();
+        }
+        catch { return null; }
+    }
+
+    public bool DeleteImage(long id)
+    {
+        using var conn = _db.Open();
+        if (conn is null) return false;
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "DELETE FROM clipboard_image_history WHERE id = $id";
+            cmd.Parameters.AddWithValue("$id", id);
+            return cmd.ExecuteNonQuery() > 0;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>把已识别的 OCR 文本回写到 clipboard_image_history.ocr_text，
+    /// 让历史窗"图片"标签页能展示截图内的文字摘要，且后续可以做"按 OCR 文本搜索图片"。
+    /// 若库内没有该 hash（未入库的临时截图）静默 no-op</summary>
+    public void SetImageOcrTextByHash(string pngHash, string ocrText)
+    {
+        if (string.IsNullOrEmpty(pngHash)) return;
+        using var conn = _db.Open();
+        if (conn is null) return;
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE clipboard_image_history SET ocr_text = $t WHERE png_hash = $h";
+            cmd.Parameters.AddWithValue("$t", (object?)ocrText ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$h", pngHash);
+            cmd.ExecuteNonQuery();
+        }
+        catch (Exception ex)
+        {
+            _log.Debug("set image ocr text failed", ("err", ex.Message));
+        }
+    }
+
+    /// <summary>把 PNG 字节计算成与入库一致的 hash 字符串，便于上层 OCR 完成后用同一份字节回写。
+    /// 与 HashBytes 私有方法等价，但暴露为静态便于 Coordinator 直接调</summary>
+    public static string HashImagePngBytes(byte[] pngBytes)
+    {
+        if (pngBytes is null || pngBytes.Length == 0) return "";
+        var hash = SHA256.HashData(pngBytes);
+        return Convert.ToHexString(hash);
+    }
+
+    public void TogglePinnedImage(long id)
+    {
+        using var conn = _db.Open();
+        if (conn is null) return;
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE clipboard_image_history SET pinned = 1 - pinned WHERE id = $id";
+            cmd.Parameters.AddWithValue("$id", id);
+            cmd.ExecuteNonQuery();
+        }
+        catch { }
     }
 
     public void Dispose()

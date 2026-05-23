@@ -18,6 +18,11 @@ internal sealed class HistoryDatabase
     private readonly string _connectionString;
     public bool IsAvailable { get; private set; }
 
+    /// <summary>SQLite 编译版本是否启用了 FTS5；不可用时调用方应退到 LIKE 路径。
+    /// Microsoft.Data.Sqlite 默认包含的 SQLitePCLRaw.bundle_e_sqlite3 是带 FTS5 编译的，
+    /// 但用户自定义部署或精简版本可能缺，因此运行期探测一次更稳妥</summary>
+    public bool FtsAvailable { get; private set; }
+
     public HistoryDatabase(ILog log)
     {
         _log = log;
@@ -73,10 +78,27 @@ internal sealed class HistoryDatabase
                 );
                 CREATE INDEX IF NOT EXISTS idx_clip_hash ON clipboard_history(text_hash);
                 CREATE INDEX IF NOT EXISTS idx_clip_created ON clipboard_history(created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS clipboard_image_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    png_blob BLOB NOT NULL,
+                    png_hash TEXT NOT NULL UNIQUE,
+                    width INTEGER, height INTEGER, bytes INTEGER,
+                    source_proc TEXT,
+                    ocr_text TEXT,
+                    created_at INTEGER NOT NULL,
+                    pinned INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_clip_img_created ON clipboard_image_history(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_clip_img_hash ON clipboard_image_history(png_hash);
             ";
             cmd.ExecuteNonQuery();
+
+            TryEnableFts5(conn);
+
             IsAvailable = true;
-            _log.Info("history db ready", ("path", ConfigPaths.HistoryDbFile));
+            FtsAvailable = ProbeFtsAvailable(conn);
+            _log.Info("history db ready", ("path", ConfigPaths.HistoryDbFile), ("fts5", FtsAvailable));
         }
         catch (Exception ex)
         {
@@ -105,5 +127,69 @@ internal sealed class HistoryDatabase
         pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
         pragma.ExecuteNonQuery();
         return conn;
+    }
+
+    /// <summary>探测当前 SQLite 是否带 FTS5 编译。失败一次后调用方走 LIKE 路径，
+    /// 但表的 schema 仍存在（不影响下次升级或换 SQLite 后启用 FTS5）</summary>
+    private static bool ProbeFtsAvailable(SqliteConnection conn)
+    {
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='clipboard_history_fts'";
+            var name = cmd.ExecuteScalar() as string;
+            return !string.IsNullOrEmpty(name);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>建立 FTS5 虚表 + 触发器，并把现有 clipboard_history 一次性 reindex。
+    /// 使用 unicode61 分词器：默认按 Unicode codepoint 切分，对中英混合 90% 场景够用；
+    /// CJK 字段被切到字符级，搜索时仍能命中（虽然没有"分词"语义，但用户搜的是包含字而非短语，
+    /// codepoint 级匹配实际很贴近期望）。
+    ///
+    /// 失败时只写日志：本应用所有持久化能力都遵循"DB 故障不阻塞主流程"原则，
+    /// FTS5 故障只是搜索路径退化为 LIKE，使用体验可接受</summary>
+    private void TryEnableFts5(SqliteConnection conn)
+    {
+        try
+        {
+            using var ft = conn.CreateCommand();
+            ft.CommandText = @"
+                CREATE VIRTUAL TABLE IF NOT EXISTS clipboard_history_fts USING fts5(
+                    text,
+                    content='clipboard_history',
+                    content_rowid='id',
+                    tokenize='unicode61');
+
+                -- 同步触发器：clipboard_history 增 / 删 / 改时把记录写到 fts 镜像
+                CREATE TRIGGER IF NOT EXISTS clipboard_history_ai AFTER INSERT ON clipboard_history BEGIN
+                    INSERT INTO clipboard_history_fts(rowid, text) VALUES (new.id, new.text);
+                END;
+                CREATE TRIGGER IF NOT EXISTS clipboard_history_ad AFTER DELETE ON clipboard_history BEGIN
+                    INSERT INTO clipboard_history_fts(clipboard_history_fts, rowid, text)
+                    VALUES('delete', old.id, old.text);
+                END;
+                CREATE TRIGGER IF NOT EXISTS clipboard_history_au AFTER UPDATE ON clipboard_history BEGIN
+                    INSERT INTO clipboard_history_fts(clipboard_history_fts, rowid, text)
+                    VALUES('delete', old.id, old.text);
+                    INSERT INTO clipboard_history_fts(rowid, text) VALUES (new.id, new.text);
+                END;";
+            ft.ExecuteNonQuery();
+
+            // 已有的历史数据一次性 backfill 到 fts。INSERT IGNORE 风格用 EXCEPT 避免重插：
+            // 第一次建表时 fts 为空，全部塞入；下次启动时 fts 已与 clipboard_history 同步，
+            // EXCEPT 子查询返回空集，实际写入 0 行
+            using var seed = conn.CreateCommand();
+            seed.CommandText = @"
+                INSERT INTO clipboard_history_fts(rowid, text)
+                SELECT id, text FROM clipboard_history
+                WHERE id NOT IN (SELECT rowid FROM clipboard_history_fts);";
+            seed.ExecuteNonQuery();
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("fts5 init failed; falling back to LIKE", ("err", ex.Message));
+        }
     }
 }

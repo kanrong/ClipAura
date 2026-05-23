@@ -14,18 +14,21 @@ internal sealed class ClipboardHistoryLauncher : IClipboardHistoryLauncher
     private readonly IClipboardWriter _writer;
     private readonly ITextReplacer _replacer;
     private readonly ClipboardPaste _paste;
+    private readonly ClipboardAccess _clipboardAccess;
     private ClipboardHistoryWindow? _current;
 
     public ClipboardHistoryLauncher(
         ClipboardHistoryService history,
         IClipboardWriter writer,
         ITextReplacer replacer,
-        ClipboardPaste paste)
+        ClipboardPaste paste,
+        ClipboardAccess clipboardAccess)
     {
         _history = history;
         _writer = writer;
         _replacer = replacer;
         _paste = paste;
+        _clipboardAccess = clipboardAccess;
     }
 
     public void Open(SelectionContext? anchorContext = null)
@@ -37,7 +40,7 @@ internal sealed class ClipboardHistoryLauncher : IClipboardHistoryLauncher
                 _current.Activate();
                 return;
             }
-            _current = new ClipboardHistoryWindow(_history, _writer, _replacer, anchorContext, _paste);
+            _current = new ClipboardHistoryWindow(_history, _writer, _replacer, anchorContext, _paste, _clipboardAccess);
             _current.Closed += (_, _) => _current = null;
             _current.Show();
             _current.Activate();

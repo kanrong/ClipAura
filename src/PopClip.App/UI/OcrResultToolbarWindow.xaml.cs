@@ -137,6 +137,7 @@ internal partial class OcrResultToolbarWindow : Window
     private void OnCopySelected(object sender, RoutedEventArgs e) => _host.CommandCopySelected(ShowLocalToast);
     private void OnCopyAll(object sender, RoutedEventArgs e) => _host.CommandCopyAll(ShowLocalToast);
     private void OnCopyScreenshot(object sender, RoutedEventArgs e) => _host.CommandCopyScreenshot(ShowLocalToast);
+    private void OnPinToScreen(object sender, RoutedEventArgs e) => _host.CommandPinToScreen();
     private void OnToggleTranslation(object sender, RoutedEventArgs e) => _host.CommandToggleTranslation(ShowLocalToast);
     private void OnSwitchToQuick(object sender, RoutedEventArgs e) => _host.CommandSwitchToQuick();
     private void OnSwitchToScreenshot(object sender, RoutedEventArgs e) => _host.CommandSwitchToScreenshot();
@@ -153,4 +154,7 @@ internal partial class OcrResultToolbarWindow : Window
     /// <summary>host 调用：当 Coordinator 未注入"重新识别"回调时把按钮置灰。
     /// 与 SetSwitchToScreenshotEnabled 走同一套兜底保护</summary>
     public void SetReshootOcrEnabled(bool enabled) => ReshootOcrButton.IsEnabled = enabled;
+
+    /// <summary>host 调用：未注入 PinnedScreenshotManager 时把"钉到桌面"按钮置灰</summary>
+    public void SetPinToScreenEnabled(bool enabled) => PinToScreenButton.IsEnabled = enabled;
 }

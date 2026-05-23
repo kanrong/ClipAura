@@ -225,6 +225,67 @@ public sealed class AppSettings
     public ScreenshotAfterCaptureMode ScreenshotAfterCaptureMode { get; set; } = ScreenshotAfterCaptureMode.Toolbar;
     public bool ScreenshotAutoOcr { get; set; } = false;
 
+    /// <summary>是否在截图完成时自动保存到磁盘。
+    /// 与 ScreenshotAfterCaptureMode 解耦：可与 Toolbar / Clipboard 任一模式并存。
+    /// 默认关闭，避免新用户被默默写盘。开启后高频用户能省去每次另存为对话框</summary>
+    public bool ScreenshotAutoSaveEnabled { get; set; } = false;
+
+    /// <summary>截图自动保存目录，支持 %USERPROFILE% 等环境变量。
+    /// 启动 / 保存时按需展开 + Directory.CreateDirectory 兜底；
+    /// 创建失败则降级到原"另存为"对话框，避免用户截了图找不到</summary>
+    public string ScreenshotSaveDirectory { get; set; } = "%USERPROFILE%\\Pictures\\ClipAura";
+
+    /// <summary>自动保存的文件名模板（不含扩展名）。
+    /// 支持变量：{date}=2026-05-24 / {time}=14-30-22 / {datetime}=20260524-143022 /
+    /// {counter}=当日累计第 N 张 / {app}=截图时前台进程名 / {w} {h}=截图宽高像素。
+    /// 模板展开后若与已存在文件冲突，自动追加 -2 / -3 兜底</summary>
+    public string ScreenshotFileNameTemplate { get; set; } = "ClipAura-{date}-{time}";
+
+    /// <summary>{counter} 模板变量的当前日。yyyy-MM-dd 字符串；
+    /// 与 ScreenshotAutoSaveCounter 配套，跨天时计数器重置</summary>
+    public string ScreenshotAutoSaveCounterDate { get; set; } = "";
+
+    /// <summary>{counter} 模板变量的当日累计值。
+    /// 每次截图自动保存成功后 +1；ScreenshotAutoSaveCounterDate 不匹配时先归 0 再 +1</summary>
+    public int ScreenshotAutoSaveCounter { get; set; }
+
+    // ================== 截图隐私自动识别 + 一键马赛克（M4） ==================
+    // 开启后，截图完成时后台跑一次 OCR + 正则规则集，命中文本块以红色虚线框提示在预览窗内，
+    // 用户在工具栏点"一键打码"批量将命中区写入标注层（mosaic）。默认关闭：避免每次截图都跑 OCR 增加 1~2 秒延迟
+
+    public bool PrivacyScanEnabled { get; set; } = false;
+
+    /// <summary>开启时仅当截图区域 ≥ 此像素阈值才扫描，避免极小截图浪费 OCR 时间。
+    /// 100 是经验值：再小的区域基本是图标 / 角标，不太可能含敏感信息</summary>
+    public int PrivacyScanMinPixelEdge { get; set; } = 100;
+
+    /// <summary>"一键打码"使用的马赛克像素块大小，与标注层 Mosaic 默认值保持一致；
+    /// 数字越大像素化越粗、越不可逆。默认 12 兼顾观感与隐私</summary>
+    public int PrivacyMosaicBlockSize { get; set; } = 12;
+
+    /// <summary>是否启用"延时截图"全局热键。</summary>
+    public bool EnableScreenshotDelayHotKey { get; set; } = true;
+
+    /// <summary>"延时截图"热键。按下后弹倒计时浮层，归零自动进入截图蒙层。
+    /// 默认 Ctrl+Alt+Shift+T，与现有四个热键配套，留余量给后续</summary>
+    public string ScreenshotDelayHotKey { get; set; } = "Ctrl+Alt+Shift+T";
+
+    /// <summary>"延时截图"默认延时秒数（托盘 / 热键不指定时使用）。</summary>
+    public int ScreenshotDelayDefaultSeconds { get; set; } = 3;
+
+    public bool PrivacyBuiltinPhoneEnabled { get; set; } = true;
+    public bool PrivacyBuiltinIdCardEnabled { get; set; } = true;
+    public bool PrivacyBuiltinEmailEnabled { get; set; } = true;
+    public bool PrivacyBuiltinBankCardEnabled { get; set; } = true;
+    public bool PrivacyBuiltinApiKeyEnabled { get; set; } = true;
+    public bool PrivacyBuiltinJwtEnabled { get; set; } = true;
+    public bool PrivacyBuiltinWindowsUserEnabled { get; set; } = false;
+
+    /// <summary>用户自定义隐私规则的 JSON 字符串。格式为
+    /// `[{"Name":"工号","Regex":"E\\d{6}","Enabled":true}, ...]`。
+    /// 空字符串表示未自定义；解析失败仅写日志、不影响内置规则</summary>
+    public string PrivacyCustomRulesJson { get; set; } = "";
+
     // ================== 浮窗自动消失触发条件 ==================
     // 鼠标离开浮窗一段时间后自动关闭
     public bool DismissOnMouseLeave { get; set; } = true;

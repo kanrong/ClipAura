@@ -78,6 +78,11 @@ internal partial class OcrResultWindow : Window
     /// 与"切到截图"按钮的区别：reshoot 不复用当前截图，会真正进入选区让用户重新框选 OCR 区域。
     /// null 时按钮置灰</summary>
     private readonly Action? _reshootOcr;
+
+    /// <summary>"钉到桌面"按钮触发：参数为当前结果窗截图区域的物理像素 rect。
+    /// Coordinator 据此让 PinnedScreenshotManager 创建 PinnedScreenshotWindow。
+    /// null 时按钮置灰</summary>
+    private readonly Action<WinRectangle>? _pinScreenshot;
     private readonly Action? _saveSettings;
 
     /// <summary>"打开设置某一分页"的跨层回调（如 "AI" / "Ocr"）。
@@ -180,6 +185,7 @@ internal partial class OcrResultWindow : Window
         Action? onCloseRequested = null,
         Action<WinRectangle>? switchToScreenshot = null,
         Action? reshootOcr = null,
+        Action<WinRectangle>? pinScreenshot = null,
         bool isLoading = false)
     {
         _log = log;
@@ -196,6 +202,7 @@ internal partial class OcrResultWindow : Window
         _onCloseRequested = onCloseRequested;
         _switchToScreenshot = switchToScreenshot;
         _reshootOcr = reshootOcr;
+        _pinScreenshot = pinScreenshot;
         _anchorPhysical = anchorPhysical;
         _anchorDpiX = anchorDpiX == 0 ? 96 : anchorDpiX;
         _anchorDpiY = anchorDpiY == 0 ? 96 : anchorDpiY;
@@ -336,6 +343,7 @@ internal partial class OcrResultWindow : Window
         // 宿主未注入"切到截图"回调时把按钮置灰，避免点击无反应造成困惑
         _toolbarWindow.SetSwitchToScreenshotEnabled(_switchToScreenshot is not null);
         _toolbarWindow.SetReshootOcrEnabled(_reshootOcr is not null);
+        _toolbarWindow.SetPinToScreenEnabled(_pinScreenshot is not null);
         // 工具条 SizeToContent=WidthAndHeight，必须先 Show 一次让它测出 ActualWidth/Height
         _toolbarWindow.Show();
         PositionToolbarInitially();
@@ -1185,6 +1193,18 @@ internal partial class OcrResultWindow : Window
             _reshootOcr();
         }
         catch (Exception ex) { _log.Warn("reshoot ocr failed", ("err", ex.Message)); }
+    }
+
+    /// <summary>工具栏"钉到桌面"按钮入口：把当前 OCR 结果底层的截图复制一份到 PinnedScreenshotWindow。
+    /// 与"切到截图预览"的差别：钉图不在乎 OCR 结果，只复用截图像素；OCR 结果窗本身保留不动，
+    /// 让用户能继续在结果窗交互而钉图独立漂浮在桌面。
+    /// 重复点击会创建多个钉图实例，符合"工作台多张截图"使用直觉</summary>
+    public void CommandPinToScreen()
+    {
+        if (_pinScreenshot is null) return;
+        var anchor = GetCurrentImagePhysicalRect();
+        try { _pinScreenshot(anchor); }
+        catch (Exception ex) { _log.Warn("pin-to-screen failed", ("err", ex.Message)); }
     }
 
     /// <summary>读取当前结果图在屏幕上的物理像素位置。

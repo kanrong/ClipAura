@@ -1363,24 +1363,8 @@
                                     <TextBlock Style="{StaticResource Settings.HintText}" TextWrapping="Wrap" Margin="0,0,0,12"
                                                Text="开启后截图完成时后台跑一次 OCR + 正则规则匹配，命中文本块以红色虚线框提示，可一键打码。" />
                                     <ui:ToggleSwitch x:Name="PrivacyScanEnabledBox" Content="开启截图隐私扫描" Margin="0,0,0,8" />
-
-                                    <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="启用规则" Margin="0,8,0,4" />
-                                    <ui:ToggleSwitch x:Name="PrivacyRulePhoneBox" Content="手机号（中国大陆 11 位）" />
-                                    <ui:ToggleSwitch x:Name="PrivacyRuleIdCardBox" Content="身份证号（18 位）" />
-                                    <ui:ToggleSwitch x:Name="PrivacyRuleEmailBox" Content="电子邮箱" />
-                                    <ui:ToggleSwitch x:Name="PrivacyRuleBankCardBox" Content="银行卡号（13~19 位 + Luhn 校验）" />
-                                    <ui:ToggleSwitch x:Name="PrivacyRuleApiKeyBox" Content="API Key（sk- / ghp_ / xoxb- 等前缀）" />
-                                    <ui:ToggleSwitch x:Name="PrivacyRuleJwtBox" Content="JWT Token（eyJ.xxx.yyy）" />
-                                    <ui:ToggleSwitch x:Name="PrivacyRuleWindowsUserBox" Content="Windows 路径中的用户名（C:\Users\xxx）" />
-
-                                    <TextBlock Style="{StaticResource Settings.FieldLabel}" Text="自定义规则（JSON）" Margin="0,16,0,4" />
-                                    <TextBlock Style="{StaticResource Settings.HintText}" TextWrapping="Wrap" Margin="0,0,0,8"
-                                               Text="格式：[{&quot;Name&quot;:&quot;工号&quot;,&quot;Regex&quot;:&quot;E\\d{6}&quot;,&quot;Enabled&quot;:true}]。Regex 编译失败的整条规则会被跳过。" />
-                                    <ui:TextBox x:Name="PrivacyCustomRulesBox"
-                                                AcceptsReturn="True"
-                                                TextWrapping="Wrap"
-                                                MinHeight="80"
-                                                FontFamily="Consolas" />
+                                    <TextBlock Style="{StaticResource Settings.HintText}" TextWrapping="Wrap" Margin="0,0,0,4"
+                                               Text="内置规则：手机号 / 身份证 / 邮箱 / 银行卡（带 Luhn 校验） / API Key / JWT / Windows 路径用户名。识别后红框提示，可一键打码。" />
 
                                     <Grid Margin="0,12,0,0">
                                         <Grid.ColumnDefinitions>

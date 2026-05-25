@@ -467,14 +467,6 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
             UpdateScreenshotFileNamePreview();
 
             PrivacyScanEnabledBox.IsChecked = _settings.PrivacyScanEnabled;
-            PrivacyRulePhoneBox.IsChecked = _settings.PrivacyBuiltinPhoneEnabled;
-            PrivacyRuleIdCardBox.IsChecked = _settings.PrivacyBuiltinIdCardEnabled;
-            PrivacyRuleEmailBox.IsChecked = _settings.PrivacyBuiltinEmailEnabled;
-            PrivacyRuleBankCardBox.IsChecked = _settings.PrivacyBuiltinBankCardEnabled;
-            PrivacyRuleApiKeyBox.IsChecked = _settings.PrivacyBuiltinApiKeyEnabled;
-            PrivacyRuleJwtBox.IsChecked = _settings.PrivacyBuiltinJwtEnabled;
-            PrivacyRuleWindowsUserBox.IsChecked = _settings.PrivacyBuiltinWindowsUserEnabled;
-            PrivacyCustomRulesBox.Text = _settings.PrivacyCustomRulesJson;
             PrivacyMosaicBlockSizeBox.Value = _settings.PrivacyMosaicBlockSize <= 0 ? 12 : _settings.PrivacyMosaicBlockSize;
             PrivacyMinPixelBox.Value = _settings.PrivacyScanMinPixelEdge;
         }
@@ -1394,14 +1386,6 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         UpdateScreenshotFileNamePreview();
 
         _settings.PrivacyScanEnabled = PrivacyScanEnabledBox.IsChecked == true;
-        _settings.PrivacyBuiltinPhoneEnabled = PrivacyRulePhoneBox.IsChecked == true;
-        _settings.PrivacyBuiltinIdCardEnabled = PrivacyRuleIdCardBox.IsChecked == true;
-        _settings.PrivacyBuiltinEmailEnabled = PrivacyRuleEmailBox.IsChecked == true;
-        _settings.PrivacyBuiltinBankCardEnabled = PrivacyRuleBankCardBox.IsChecked == true;
-        _settings.PrivacyBuiltinApiKeyEnabled = PrivacyRuleApiKeyBox.IsChecked == true;
-        _settings.PrivacyBuiltinJwtEnabled = PrivacyRuleJwtBox.IsChecked == true;
-        _settings.PrivacyBuiltinWindowsUserEnabled = PrivacyRuleWindowsUserBox.IsChecked == true;
-        _settings.PrivacyCustomRulesJson = PrivacyCustomRulesBox.Text ?? "";
         _settings.PrivacyMosaicBlockSize = NumberBoxInt(PrivacyMosaicBlockSizeBox, _settings.PrivacyMosaicBlockSize, 4, 64);
         _settings.PrivacyScanMinPixelEdge = NumberBoxInt(PrivacyMinPixelBox, _settings.PrivacyScanMinPixelEdge, 0, 2000);
 
@@ -1679,8 +1663,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
             DismissOnTimeoutBox, FollowAccentColor, AiEnabledBox,
             TranslateInlineBox, ExplainEnabledBox, ScreenshotAutoOcrBox,
             ScreenshotAutoSaveEnabledBox,
-            PrivacyScanEnabledBox, PrivacyRulePhoneBox, PrivacyRuleIdCardBox, PrivacyRuleEmailBox,
-            PrivacyRuleBankCardBox, PrivacyRuleApiKeyBox, PrivacyRuleJwtBox, PrivacyRuleWindowsUserBox);
+            PrivacyScanEnabledBox);
         AttachRadio(BlacklistRadio, WhitelistRadio,
             DisplayIconAndText, DisplayIconOnly, DisplayTextOnly,
             SurfaceShadow, SurfaceBorder, SurfaceShadowAndBorder,
@@ -1703,8 +1686,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         AttachTextLostFocus(SearchEngineName, SearchUrlTemplate,
             PauseHotKeyBox, ToolbarHotKeyBox, OcrHotKeyBox, ScreenshotHotKeyBox,
             AiBaseUrlBox, AiModelBox, AiDefaultLanguageBox,
-            ScreenshotSaveDirectoryBox, ScreenshotFileNameTemplateBox,
-            PrivacyCustomRulesBox);
+            ScreenshotSaveDirectoryBox, ScreenshotFileNameTemplateBox);
         // 文件名模板预览随 TextChanged 实时刷新（CommitAll 内会再校准一次）
         ScreenshotFileNameTemplateBox.TextChanged += (_, _) => UpdateScreenshotFileNamePreview();
         AiApiKeyBox.LostFocus += OnInstantCommit;

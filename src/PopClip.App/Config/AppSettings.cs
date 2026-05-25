@@ -273,19 +273,6 @@ public sealed class AppSettings
     /// <summary>"延时截图"默认延时秒数（托盘 / 热键不指定时使用）。</summary>
     public int ScreenshotDelayDefaultSeconds { get; set; } = 3;
 
-    public bool PrivacyBuiltinPhoneEnabled { get; set; } = true;
-    public bool PrivacyBuiltinIdCardEnabled { get; set; } = true;
-    public bool PrivacyBuiltinEmailEnabled { get; set; } = true;
-    public bool PrivacyBuiltinBankCardEnabled { get; set; } = true;
-    public bool PrivacyBuiltinApiKeyEnabled { get; set; } = true;
-    public bool PrivacyBuiltinJwtEnabled { get; set; } = true;
-    public bool PrivacyBuiltinWindowsUserEnabled { get; set; } = false;
-
-    /// <summary>用户自定义隐私规则的 JSON 字符串。格式为
-    /// `[{"Name":"工号","Regex":"E\\d{6}","Enabled":true}, ...]`。
-    /// 空字符串表示未自定义；解析失败仅写日志、不影响内置规则</summary>
-    public string PrivacyCustomRulesJson { get; set; } = "";
-
     // ================== 浮窗自动消失触发条件 ==================
     // 鼠标离开浮窗一段时间后自动关闭
     public bool DismissOnMouseLeave { get; set; } = true;

@@ -115,15 +115,7 @@ internal sealed class OcrCaptureCoordinator
         _clipHistory = clipHistory;
         _autoSaver = new ScreenshotAutoSaver(log, settings, saveSettings);
         _privacyScanner = new PrivacyScanner(log, () => new PrivacyScanner.AppSettingsSnapshot(
-            Enabled: _settings.PrivacyScanEnabled,
-            BuiltinPhone: _settings.PrivacyBuiltinPhoneEnabled,
-            BuiltinIdCard: _settings.PrivacyBuiltinIdCardEnabled,
-            BuiltinEmail: _settings.PrivacyBuiltinEmailEnabled,
-            BuiltinBankCard: _settings.PrivacyBuiltinBankCardEnabled,
-            BuiltinApiKey: _settings.PrivacyBuiltinApiKeyEnabled,
-            BuiltinJwt: _settings.PrivacyBuiltinJwtEnabled,
-            BuiltinWindowsUser: _settings.PrivacyBuiltinWindowsUserEnabled,
-            CustomRulesJson: _settings.PrivacyCustomRulesJson));
+            Enabled: _settings.PrivacyScanEnabled));
     }
 
     public void Trigger()

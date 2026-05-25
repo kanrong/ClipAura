@@ -17,7 +17,13 @@ namespace PopClip.App.UI;
 /// 独立 Window 一次性解决撑图 / 跨屏 / 拖动诉求，与 OcrResultToolbarWindow 走同一套路径。
 ///
 /// 状态文案（DimensionText）由 host 推送过来；按钮回调全部委托给 host（CommandCopy/Save/Ocr/Close）。
-/// 工具条只是显示层，所有数据 / 副作用都在主窗内</summary>
+/// 工具条只是显示层，所有数据 / 副作用都在主窗内。
+///
+/// 标注语义 v2（与 v1 区别）：
+/// - 基本绘制工具按钮（矩形 / 椭圆 / 直线 / 箭头 / 涂鸦 / 文本 / 马赛克 / 模糊 / 遮挡）
+///   不再藏在"编辑"子条里，而是直接放在主条第一行，点任一按钮即自动进入标注模式；
+/// - "编辑"按钮的语义改为"展开高级选项"（颜色 / 粗细 / Undo / Redo / 清空 / 完成），
+///   与"标注模式是否激活"解耦 —— 标注模式由点击工具按钮自动进入，由"完成 / ESC"退出</summary>
 internal partial class ScreenshotPreviewToolbarWindow : Window
 {
     private readonly ScreenshotPreviewWindow _host;
@@ -34,7 +40,6 @@ internal partial class ScreenshotPreviewToolbarWindow : Window
         // 不会冒泡到 Border，所以点按钮不会误触发拖动。
         // 不用 Window.DragMove() —— 它走 SC_MOVE，受 Aero Snap 影响把工具条弹回工作区
         ToolbarBorder.MouseLeftButtonDown += OnBorderMouseDown;
-        AnnotationBarBorder.MouseLeftButtonDown += OnBorderMouseDown;
 
         // 标注工具按钮的双击切换"实心 / 空心"：当前简化为单击切换，矩形 / 椭圆按钮的语义额外支持"长按 / 双击"
         ToolRectButton.MouseDoubleClick += (_, _) => ToggleFilledMode();
@@ -95,35 +100,59 @@ internal partial class ScreenshotPreviewToolbarWindow : Window
 
     private void OnPrivacyMosaicClicked(object sender, RoutedEventArgs e)
     {
-        // host 持有 AppSettings 引用？这里走 host 接口而不是直接读 settings：
-        // 让 host 决定 blockSize（来自 settings.PrivacyMosaicBlockSize）保持单一职责
+        // host 端读 settings.PrivacyMosaicBlockSize 后再调底层 Command，保持单一职责
         _host.RequestApplyPrivacyMosaic();
     }
 
     // ============= 标注模式 =============
 
+    /// <summary>"编辑"按钮：仅 toggle 第二行高级面板（颜色 / 粗细 / Undo / Redo / 清空 / 完成）的可见性。
+    /// 不影响标注模式 —— 用户点任意绘制工具按钮就能直接画</summary>
     private void OnEditAnnotationClicked(object sender, RoutedEventArgs e)
     {
-        // 进入 / 退出标注模式由 host 统一管理，host 会回调 SetAnnotationMode 让 UI 同步
-        _host.SetAnnotationMode(!_host.AnnotationMode);
+        bool willShow = AdvancedRow.Visibility != Visibility.Visible;
+        AdvancedRow.Visibility = willShow ? Visibility.Visible : Visibility.Collapsed;
+        SyncAnnotationOptionsUI();
     }
 
-    private void OnDoneClicked(object sender, RoutedEventArgs e) => _host.SetAnnotationMode(false);
+    /// <summary>"完成"按钮：取消当前工具激活（退出标注模式），同时把高级面板收回去</summary>
+    private void OnDoneClicked(object sender, RoutedEventArgs e)
+    {
+        _host.SetAnnotationMode(false);
+        AdvancedRow.Visibility = Visibility.Collapsed;
+        SyncAnnotationOptionsUI();
+    }
 
     private void OnUndoClicked(object sender, RoutedEventArgs e) => _host.AnnotationStore.Undo();
     private void OnRedoClicked(object sender, RoutedEventArgs e) => _host.AnnotationStore.Redo();
     private void OnClearClicked(object sender, RoutedEventArgs e) => _host.AnnotationStore.Clear();
 
+    /// <summary>绘制工具按钮（矩形 / 椭圆 / 直线 / 箭头 / 涂鸦 / 文本 / 马赛克 / 模糊 / 遮挡）。
+    /// 点任意一个都会自动进入标注模式（让 AnnotationCanvas 拦截输入并响应绘制）；
+    /// 同一个按钮再点一次：退出标注模式，回到可拖窗状态</summary>
     private void OnToolButtonClicked(object sender, RoutedEventArgs e)
     {
         if (sender is not Button b) return;
         var tag = b.Tag as string;
         if (string.IsNullOrEmpty(tag)) return;
-        if (Enum.TryParse<AnnotationKind>(tag, out var kind))
+        if (!Enum.TryParse<AnnotationKind>(tag, out var kind)) return;
+
+        var opts = _host.AnnotationOptions;
+        bool sameTool = _host.AnnotationMode
+            && (opts.Kind == kind
+                || (kind == AnnotationKind.Rectangle && opts.Kind == AnnotationKind.FilledRectangle)
+                || (kind == AnnotationKind.Ellipse && opts.Kind == AnnotationKind.FilledEllipse));
+        if (sameTool)
         {
-            _host.AnnotationOptions.Kind = kind;
-            SyncAnnotationOptionsUI();
+            // 再点一次相同工具 → 退出标注模式
+            _host.SetAnnotationMode(false);
         }
+        else
+        {
+            opts.Kind = kind;
+            _host.SetAnnotationMode(true);
+        }
+        SyncAnnotationOptionsUI();
     }
 
     private void OnColorClicked(object sender, RoutedEventArgs e)
@@ -150,28 +179,32 @@ internal partial class ScreenshotPreviewToolbarWindow : Window
         }
     }
 
-    /// <summary>由 host 在 SetAnnotationMode 切换时调用，更新 UI 显隐 + 焦点。
-    /// 退出标注模式时清掉所有"当前选中"的视觉强调，避免下次进入时旧高亮残留</summary>
+    /// <summary>由 host 在 SetAnnotationMode 切换时调用，仅刷新视觉强调。
+    /// 注意：v2 起本方法不再控制"高级面板"可见性 —— 高级面板由"编辑"按钮独立 toggle</summary>
     public void SetAnnotationMode(bool enabled)
     {
-        AnnotationBarBorder.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
         SyncAnnotationOptionsUI();
     }
 
-    /// <summary>把当前 ToolOptions 同步到工具按钮的视觉强调（背景色 / Opacity）。
-    /// v1 视觉简化：选中按钮 Background 改为 ToolbarAccentSoft，避免单独写 IsChecked 状态机</summary>
+    /// <summary>把当前 ToolOptions + 标注模式状态同步到工具按钮 / 颜色 / 粗细按钮的视觉强调。
+    /// 工具按钮的"选中"只有"标注模式开启 + Kind 匹配"才显示，避免没激活时还残留高亮</summary>
     private void SyncAnnotationOptionsUI()
     {
         var opts = _host.AnnotationOptions;
-        SetSelected(ToolRectButton, opts.Kind is AnnotationKind.Rectangle or AnnotationKind.FilledRectangle);
-        SetSelected(ToolEllipseButton, opts.Kind is AnnotationKind.Ellipse or AnnotationKind.FilledEllipse);
-        SetSelected(ToolLineButton, opts.Kind == AnnotationKind.Line);
-        SetSelected(ToolArrowButton, opts.Kind == AnnotationKind.Arrow);
-        SetSelected(ToolFreehandButton, opts.Kind == AnnotationKind.Freehand);
-        SetSelected(ToolTextButton, opts.Kind == AnnotationKind.Text);
-        SetSelected(ToolMosaicButton, opts.Kind == AnnotationKind.Mosaic);
-        SetSelected(ToolBlurButton, opts.Kind == AnnotationKind.Blur);
-        SetSelected(ToolMaskButton, opts.Kind == AnnotationKind.Mask);
+        bool mode = _host.AnnotationMode;
+
+        SetSelected(ToolRectButton, mode && opts.Kind is AnnotationKind.Rectangle or AnnotationKind.FilledRectangle);
+        SetSelected(ToolEllipseButton, mode && opts.Kind is AnnotationKind.Ellipse or AnnotationKind.FilledEllipse);
+        SetSelected(ToolLineButton, mode && opts.Kind == AnnotationKind.Line);
+        SetSelected(ToolArrowButton, mode && opts.Kind == AnnotationKind.Arrow);
+        SetSelected(ToolFreehandButton, mode && opts.Kind == AnnotationKind.Freehand);
+        SetSelected(ToolTextButton, mode && opts.Kind == AnnotationKind.Text);
+        SetSelected(ToolMosaicButton, mode && opts.Kind == AnnotationKind.Mosaic);
+        SetSelected(ToolBlurButton, mode && opts.Kind == AnnotationKind.Blur);
+        SetSelected(ToolMaskButton, mode && opts.Kind == AnnotationKind.Mask);
+
+        // "编辑"按钮：展开时给它一个 selected 视觉，与第一行视觉规则一致
+        SetSelected(EditAnnotationButton, AdvancedRow.Visibility == Visibility.Visible);
 
         SetSelected(ThinButton, Math.Abs(opts.StrokeThickness - 1) < 0.01);
         SetSelected(MidButton, Math.Abs(opts.StrokeThickness - 2) < 0.01);
@@ -184,7 +217,6 @@ internal partial class ScreenshotPreviewToolbarWindow : Window
         SetSelected(ColorBlackButton, ColorEquals(opts.Color, "#FF000000"));
         SetSelected(ColorWhiteButton, ColorEquals(opts.Color, "#FFFFFFFF"));
 
-        // Filled / 空心模式仅对矩形 / 椭圆有效，矩形按钮 ToolTip 加状态字
         ToolRectButton.ToolTip = "矩形（双击切换 " + (opts.Filled ? "实心" : "空心") + "）";
         ToolEllipseButton.ToolTip = "椭圆（双击切换 " + (opts.Filled ? "实心" : "空心") + "）";
     }

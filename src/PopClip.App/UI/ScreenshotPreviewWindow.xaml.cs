@@ -30,7 +30,11 @@ namespace PopClip.App.UI;
 internal partial class ScreenshotPreviewWindow : Window
 {
     private readonly ILog _log;
-    private readonly byte[] _pngBytes;
+    /// <summary>PNG 字节的延迟取值器：仅在用户点"复制 / 保存"或"无标注的钉图"时才真正编码。
+    /// 之前的实现是在 ctor 入参里直接接受 byte[] pngBytes，意味着 OcrCaptureCoordinator 在弹窗前
+    /// 就必须强制走一次 PNG 编码 —— 全屏 1080p 时这一步阻塞 ~30ms，4K 时 ~100ms+。
+    /// 改成 Lazy provider 后，BGRA32 原始像素直接构造 BitmapSource 显示，PNG 编码移到"真的需要字节流"的时机</summary>
+    private readonly Func<byte[]> _pngBytesProvider;
     private readonly WinRectangle _anchorPhysical;
     private readonly uint _anchorDpiX;
     private readonly uint _anchorDpiY;
@@ -71,7 +75,8 @@ internal partial class ScreenshotPreviewWindow : Window
 
     public ScreenshotPreviewWindow(
         ILog log,
-        byte[] pngBytes,
+        BitmapSource imageSource,
+        Func<byte[]> pngBytesProvider,
         WinRectangle anchorPhysical,
         uint anchorDpiX,
         uint anchorDpiY,
@@ -81,7 +86,7 @@ internal partial class ScreenshotPreviewWindow : Window
         Action<WinRectangle, byte[]>? onPinRequested = null)
     {
         _log = log;
-        _pngBytes = pngBytes;
+        _pngBytesProvider = pngBytesProvider;
         _anchorPhysical = anchorPhysical;
         _anchorDpiX = anchorDpiX == 0 ? 96 : anchorDpiX;
         _anchorDpiY = anchorDpiY == 0 ? 96 : anchorDpiY;
@@ -100,7 +105,10 @@ internal partial class ScreenshotPreviewWindow : Window
         Top = -32000;
         SizeToContent = SizeToContent.WidthAndHeight;
 
-        PreviewImage.Source = LoadBitmap(_pngBytes, _anchorDpiX, _anchorDpiY);
+        // imageSource 由调用方用 OcrImage 的 BGRA32 像素直接 BitmapSource.Create 构造，
+        // 已经 Freeze 且带 anchor monitor 的 effective DPI，DIP × 屏幕 DPI = 物理像素，
+        // 与 Image Stretch="None" 配合实现 1:1 显示。这里只赋值，避免重复 PNG 解码
+        PreviewImage.Source = imageSource;
 
         Loaded += OnLoaded;
         Closed += OnClosed;
@@ -110,45 +118,6 @@ internal partial class ScreenshotPreviewWindow : Window
         // 标注画布控制器：在 Loaded 之前可以创建，但 Repaint 依赖 PreviewImage.ActualWidth；
         // 进入标注模式之前不会触发任何重绘，所以这里构造没问题
         _annotationController = new AnnotationCanvasController(AnnotationCanvas, PreviewImage, _annotationStore, _annotationOptions);
-    }
-
-    /// <summary>把 PNG 字节解码为带 anchor DPI 标记的 BitmapSource。
-    ///
-    /// 为什么不直接用 BitmapImage：BitmapImage 默认 DPI 为 96（或读 PNG metadata 的 96），
-    /// 让 Image 控件 DIP 大小 = PixelWidth；当目标显示 DIP 大小不等于 PixelWidth 时
-    /// WPF 会做缩放（Stretch="Fill" 也会触发），即使 BitmapScalingMode=NearestNeighbor 也可能
-    /// 因亚像素对齐产生模糊。把 BitmapSource 的 DPI 设为 anchor monitor 的 effective DPI，
-    /// DIP 大小 = PixelWidth × 96 / anchorDpi = anchorPhysical / dpiScale，
-    /// 与 Image 控件 Stretch="None" 时的 desired size 完全一致，绘制时 1 物理像素对 1 source 像素。</summary>
-    private static BitmapSource LoadBitmap(byte[] pngBytes, uint dpiX, uint dpiY)
-    {
-        using var ms = new MemoryStream(pngBytes);
-        var decoder = BitmapDecoder.Create(ms, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
-        var frame = decoder.Frames[0];
-
-        BitmapSource source = frame;
-        if (frame.Format != System.Windows.Media.PixelFormats.Bgra32 &&
-            frame.Format != System.Windows.Media.PixelFormats.Bgr32 &&
-            frame.Format != System.Windows.Media.PixelFormats.Pbgra32)
-        {
-            source = new FormatConvertedBitmap(frame, System.Windows.Media.PixelFormats.Bgra32, null, 0);
-        }
-
-        int stride = source.PixelWidth * (source.Format.BitsPerPixel / 8);
-        var pixels = new byte[stride * source.PixelHeight];
-        source.CopyPixels(pixels, stride, 0);
-
-        var bmp = BitmapSource.Create(
-            source.PixelWidth,
-            source.PixelHeight,
-            dpiX,
-            dpiY,
-            source.Format,
-            null,
-            pixels,
-            stride);
-        bmp.Freeze();
-        return bmp;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -426,15 +395,24 @@ internal partial class ScreenshotPreviewWindow : Window
     }
 
     /// <summary>把 PreviewImage + AnnotationCanvas 合成为带标注的最终 PNG。
-    /// 无标注时直接复用原 _pngBytes，避免无谓的编解码消耗。
+    /// 无标注时直接走 _pngBytesProvider（Lazy 编码 / 第一次会触发后台编码，命中缓存近零开销），
+    /// 避免合成路径无谓的 RenderTargetBitmap + PNG 编码两次开销。
     ///
     /// 必须从 UI 线程调用：RenderTargetBitmap.Render 访问 Visual 树。
     /// Render 完成后 RenderTargetBitmap 已 Freeze，可安全跨线程；PngBitmapEncoder.Save 切到
     /// Task.Run 后台线程，让 UI 在编码期间继续响应（鼠标拖动 / Hover 反馈不冻结）</summary>
     private async Task<byte[]> ResolveOutputPngBytesAsync()
     {
-        if (_annotationStore.Items.Count == 0 || _annotationController is null) return _pngBytes;
-        if (PreviewImage.Source is not BitmapSource source) return _pngBytes;
+        if (_annotationStore.Items.Count == 0 || _annotationController is null)
+        {
+            // Lazy provider 首次调用触发实际编码：切到后台线程跑，避免阻塞 UI；
+            // 已编码过则命中缓存几乎零成本
+            return await Task.Run(_pngBytesProvider).ConfigureAwait(true);
+        }
+        if (PreviewImage.Source is not BitmapSource source)
+        {
+            return await Task.Run(_pngBytesProvider).ConfigureAwait(true);
+        }
 
         var bmp = _annotationController.RenderComposite(source);
         return await Task.Run(() =>
@@ -509,7 +487,7 @@ internal partial class ScreenshotPreviewWindow : Window
         try
         {
             var anchor = GetCurrentImagePhysicalRect();
-            // ResolveOutputPngBytesAsync 在无标注时直接返回原 _pngBytes（零拷贝快路径），
+            // ResolveOutputPngBytesAsync 在无标注时走 Lazy provider（首次触发后台 PNG 编码，已编码则命中缓存），
             // 有标注时走 RenderTargetBitmap 合成 + 后台线程 PngEncode，让 UI 在编码期间不卡顿
             var bytes = await ResolveOutputPngBytesAsync().ConfigureAwait(true);
             _onPinRequested!(anchor, bytes);

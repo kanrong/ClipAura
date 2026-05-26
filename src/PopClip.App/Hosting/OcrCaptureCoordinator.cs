@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using PopClip.App.Config;
 using PopClip.App.Ocr;
 using PopClip.App.Services;
@@ -228,24 +230,41 @@ internal sealed class OcrCaptureCoordinator
     private async Task RunCaptureAsync(Rectangle physical, CapturePurpose purpose)
     {
         if (physical.Width <= 0 || physical.Height <= 0) return;
+        // 性能埋点：sw 从"RegionSelected 抵达 Coordinator"开始计时，
+        // 与 OcrSelectionWindow 的"mouseup -> bg dispatch"埋点拼起来覆盖整条"松手 → 预览出现"链路
+        var sw = Stopwatch.StartNew();
         try
         {
             // 等 DWM 消化选区窗 Hide/Close 对桌面合成的影响，再截屏。
-            // 比固定 sleep 80ms 更快；如果 DwmFlush 在异常环境失败，退回短延迟兜底。
-            await WaitForSelectionOverlayToDisappearAsync().ConfigureAwait(false);
+            //
+            // 严格模式由 purpose 决定：OCR 路径必须严格，否则截到半透明蒙层会让 OCR 输出乱码；
+            // Screenshot 路径放宽 —— OcrSelectionWindow.FinalizeSelection 里已经 Hide + Dispatcher.Background
+            // 等过一帧 DWM 合成，这里再 DwmFlush 是冗余的双重保险，对 OCR 必要、对截图预览没价值（偶尔
+            // 截到一点蒙层用户能立刻发现并重截）。砍掉这一段在 1080p 上能省 ~16ms 的"松手 → 预览出现"延迟
+            var strictFlush = purpose == CapturePurpose.Ocr;
+            await WaitForSelectionOverlayToDisappearAsync(strictFlush).ConfigureAwait(false);
+            var afterFlushMs = sw.ElapsedMilliseconds;
 
             // RegionSelected 回调在 UI 线程触发；WaitForSelectionOverlayToDisappearAsync 命中
             // DwmFlush==0 立即成功路径时 async 链是同步完成的，await 不会真正 yield，
             // 后续若直接 CaptureRegion 会在 UI 线程跑 CopyFromScreen + LockBits + Marshal.Copy，
             // 全屏截图能阻塞 100~300ms。强制 Task.Run 入池让 UI 线程在等待截图期间仍能处理消息
             var captured = await Task.Run(() => CaptureRegion(physical)).ConfigureAwait(false);
+            var afterCaptureMs = sw.ElapsedMilliseconds;
+
+            _log.Info("screenshot timing capture",
+                ("flushMs", afterFlushMs),
+                ("captureMs", afterCaptureMs - afterFlushMs),
+                ("size", $"{physical.Width}x{physical.Height}"),
+                ("purpose", purpose.ToString()));
+
             if (purpose == CapturePurpose.Ocr)
             {
                 await RecognizeImageAsync(captured.Image, captured.AnchorRect, captured.Source, closeAfterLoad: null).ConfigureAwait(false);
             }
             else
             {
-                await HandleScreenshotCaptureAsync(captured).ConfigureAwait(false);
+                await HandleScreenshotCaptureAsync(captured, sw).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -278,7 +297,7 @@ internal sealed class OcrCaptureCoordinator
         return new CapturedImage(image, anchorRect, $"{physical.Width}x{physical.Height}");
     }
 
-    private async Task HandleScreenshotCaptureAsync(CapturedImage captured)
+    private async Task HandleScreenshotCaptureAsync(CapturedImage captured, Stopwatch? timing = null)
     {
         // 自动保存与 ScreenshotAfterCaptureMode 解耦：可与 Clipboard / Toolbar 任一模式并存。
         // 用户故事："保存到 D:\Screenshots，同时复制到剪贴板，不打扰预览窗"。
@@ -302,7 +321,7 @@ internal sealed class OcrCaptureCoordinator
         }
         else
         {
-            ShowScreenshotPreview(captured);
+            ShowScreenshotPreview(captured, timing: timing);
         }
 
         if (_settings.ScreenshotAutoOcr)
@@ -383,22 +402,47 @@ internal sealed class OcrCaptureCoordinator
         ShowScreenshotPreview(captured, closeAfterLoad);
     }
 
-    private void ShowScreenshotPreview(CapturedImage captured, Window? closeAfterLoad = null)
+    private void ShowScreenshotPreview(CapturedImage captured, Window? closeAfterLoad = null, Stopwatch? timing = null)
     {
-        // 关键：在切回 UI 线程之前先取一次 PngBytes，让 Lazy<byte[]> 的 EncodePngFromBgra32 在调用线程
-        // （RunCaptureAsync 的线程池线程 / OCR 结果窗的 UI 线程）跑完。否则 LoadBitmap 在 ScreenshotPreviewWindow
-        // ctor 里强制走 PNG 编码，全屏 4M 像素的 PNG 编码会卡 UI 线程几百 ms。
-        // 从 UI 线程切过来的路径（OcrResult → switch screenshot）image 通常已编码缓存，二次走缓存近零开销
-        byte[] pngBytes;
-        try { pngBytes = captured.Image.GetPngBytes(); }
+        // 旧实现这里阻塞调用 captured.Image.GetPngBytes() —— PNG 编码 1080p 大约 30ms、4K 100ms+，
+        // 把"松手 → 预览出现"的延迟撑大。新实现改成"BGRA32 像素直接构造 BitmapSource"，
+        // 完全绕开"BGRA32 → PNG → BGRA32"这趟来回，预览只为显示存在，不需要 PNG 字节。
+        // PNG 字节仍走 OcrImage.GetPngBytes 的 Lazy 路径，在用户点复制 / 保存 / 钉图时才编码
+        var beforeBuildMs = timing?.ElapsedMilliseconds ?? 0;
+        BitmapSource imageSource;
+        try
+        {
+            // BitmapSource.Create 直接吃 BGRA32 像素 + stride + anchor monitor DPI 构造，
+            // DPI 选用 anchor monitor 的 effective DPI 是为了让 Image Stretch="None" 时
+            // DIP × 屏幕 DPI = 物理像素，绘制走 NearestNeighbor 1:1
+            var monitorForSource = MonitorQuery.FromRect(
+                captured.AnchorRect.Left, captured.AnchorRect.Top,
+                captured.AnchorRect.Right, captured.AnchorRect.Bottom);
+            imageSource = System.Windows.Media.Imaging.BitmapSource.Create(
+                captured.Image.Width,
+                captured.Image.Height,
+                monitorForSource.DpiX,
+                monitorForSource.DpiY,
+                System.Windows.Media.PixelFormats.Bgra32,
+                null,
+                captured.Image.Pixels,
+                captured.Image.Stride);
+            imageSource.Freeze();
+        }
         catch (Exception ex)
         {
-            _log.Warn("encode png for screenshot preview failed", ("err", ex.Message));
+            _log.Warn("build bitmapsource for screenshot preview failed", ("err", ex.Message));
             return;
         }
+        var afterBuildMs = timing?.ElapsedMilliseconds ?? 0;
+
+        // 给 ScreenshotPreviewWindow 用的 PNG 字节延迟取值器：直接复用 OcrImage 内部已经做好的 Lazy 路径。
+        // 用户点"复制 / 保存 / 无标注钉图"时才真正编码，且第二次取同一张图走缓存零成本
+        Func<byte[]> pngBytesProvider = captured.Image.GetPngBytes;
 
         WpfApplication.Current.Dispatcher.Invoke(() =>
         {
+            var inUiMs = timing?.ElapsedMilliseconds ?? 0;
             // closeAfterLoad 不为空时表示"切换路径"，旧窗由新窗 Loaded 后关闭以保持视觉连续，
             // 不能在这里 pre-close。其他路径（快捷键 / 托盘）保留原行为：直接关闭已有的预览窗
             if (closeAfterLoad is null && _screenshotWindow is not null)
@@ -418,7 +462,8 @@ internal sealed class OcrCaptureCoordinator
 
             var win = new ScreenshotPreviewWindow(
                 _log,
-                pngBytes,
+                imageSource,
+                pngBytesProvider,
                 anchorRectangle,
                 monitor.DpiX,
                 monitor.DpiY,
@@ -447,14 +492,15 @@ internal sealed class OcrCaptureCoordinator
                     // 钉到桌面：原位创建 PinnedScreenshotWindow 接替预览窗的位置；
                     // 预览窗会在自身 CommandPin 内自行 Close，这里不重复处理。
                     // finalPngBytes 由 ScreenshotPreviewWindow 异步合成 —— 用户加过的标注（矩形 / 文字 / 马赛克 等）
-                    // 会一并烧进钉图位图，钉到桌面的内容与预览里看到的完全一致；无标注场景下 finalPngBytes
-                    // 等同 _pngBytes（快路径），不重复编码
+                    // 会一并烧进钉图位图；无标注场景下 finalPngBytes 来自 OcrImage Lazy 编码，二次走缓存零成本
                     if (_pinnedManager is null) return;
-                    var bytesToPin = finalPngBytes is { Length: > 0 } ? finalPngBytes : pngBytes;
+                    var bytesToPin = finalPngBytes is { Length: > 0 } ? finalPngBytes : pngBytesProvider();
                     _pinnedManager.Pin(bytesToPin, monitor.DpiX, monitor.DpiY, pinAnchor);
                 });
             _screenshotWindow = win;
             win.Closed += (_, _) => { if (ReferenceEquals(_screenshotWindow, win)) _screenshotWindow = null; };
+
+            var afterCtorMs = timing?.ElapsedMilliseconds ?? 0;
 
             if (closeAfterLoad is not null)
             {
@@ -465,13 +511,35 @@ internal sealed class OcrCaptureCoordinator
                     try { closeAfterLoad.Close(); } catch { }
                 };
             }
+            if (timing is not null)
+            {
+                // 在 Loaded 触发时输出整段链路：encode = PNG 编码、dispatchEnter = 后台 → UI 线程切换、
+                // ctor = ScreenshotPreviewWindow 构造 + 测量、loaded = Show -> Loaded 的渲染等待。
+                // totalMs 是从 Coordinator 收到 RegionSelected 到预览窗 Loaded 的整段时间，
+                // 与 OcrSelectionWindow 输出的 "mouseup -> bg dispatch" 拼起来即为整条用户感知链路
+                win.Loaded += (_, _) =>
+                {
+                    var loadedMs = timing.ElapsedMilliseconds;
+                    _log.Info("screenshot timing preview",
+                        ("buildSrcMs", afterBuildMs - beforeBuildMs),
+                        ("dispatchEnterMs", inUiMs - afterBuildMs),
+                        ("ctorMs", afterCtorMs - inUiMs),
+                        ("loadedMs", loadedMs - afterCtorMs),
+                        ("totalMs", loadedMs));
+                };
+            }
             win.Show();
             win.Activate();
         });
     }
 
-    private static async Task WaitForSelectionOverlayToDisappearAsync()
+    /// <summary>等待选区蒙层从屏幕合成里彻底消失。
+    /// strict=true：OCR 路径走 DwmFlush 严格等待；DwmFlush 失败退回 32ms 短延迟兜底。
+    /// strict=false：截图预览路径跳过 DwmFlush —— OcrSelectionWindow 已经 Hide + Dispatcher.Background
+    /// 等过一帧合成，这里不再叠等。截图预览偶尔截到蒙层一角用户也能看出来重截，OCR 则必须严格</summary>
+    private static async Task WaitForSelectionOverlayToDisappearAsync(bool strict)
     {
+        if (!strict) return;
         var hr = NativeMethods.DwmFlush();
         if (hr == 0) return;
 

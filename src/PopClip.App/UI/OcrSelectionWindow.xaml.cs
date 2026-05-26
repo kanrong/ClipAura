@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -212,11 +213,17 @@ internal partial class OcrSelectionWindow : Window
         // 然后用 Dispatcher Background 优先级把截图事件推到下一帧 —— 此时蒙层已不在屏幕上。
         // 之前直接 Close() + Invoke 会让 CopyFromScreen 截到半透明黑色蒙层，
         // detector 还能看出文字框轮廓但 recognizer 拿到的颜色全被压暗 → 输出乱码
+        //
+        // 性能埋点：sw 起点 = 用户松开鼠标的瞬间；Dispatcher Background 回调执行时 log 耗时，
+        // 让上层能区分"蒙层消失等待"与"后续截屏 / 编码 / 窗口创建"两段开销
+        var sw = Stopwatch.StartNew();
         Hide();
         Visibility = Visibility.Collapsed;
         Dispatcher.BeginInvoke(new Action(() =>
         {
+            var dispatchMs = sw.ElapsedMilliseconds;
             Close();
+            _log.Debug("screenshot timing: selection mouseup -> bg dispatch", ("ms", dispatchMs));
             try { RegionSelected?.Invoke(physical); }
             catch (Exception ex) { _log.Warn("ocr region callback failed", ("err", ex.Message)); }
         }), System.Windows.Threading.DispatcherPriority.Background);

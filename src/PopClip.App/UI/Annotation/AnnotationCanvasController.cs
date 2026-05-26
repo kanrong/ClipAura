@@ -30,9 +30,19 @@ internal sealed class AnnotationCanvasController
     private List<Point>? _draftFreehandPoints;
     private FrameworkElement? _draftElement;
 
+    /// <summary>自由涂鸦 draft 阶段缓存的 Polyline 引用。
+    /// 用同一份 Polyline + 同一个 PointCollection，MouseMove 直接 Add 新点即可，
+    /// 避免每次都重建 PointCollection 把所有点重新 Add 一遍（旧实现累计 O(n²)）。
+    /// MouseUp 提交完真实 Annotation 后置 null，下次按下再创建</summary>
+    private System.Windows.Shapes.Polyline? _draftFreehandPolyline;
+
     /// <summary>文本工具浮层 TextBox：用户在画布上单击空白处，会立刻显示一个空 TextBox 让用户键入。
     /// Enter / 失焦时把内容固化为 Annotation；ESC 取消则丢弃。同一时刻最多一个文本浮层</summary>
     private TextBox? _textInput;
+
+    /// <summary>当前 _textInput 正在"二次编辑"的旧 Text Annotation。
+    /// 提交时用 _editingTarget 找到原条目并整体替换，让历史栈不会出现"新旧两条文字叠在一起"</summary>
+    private Annotation? _editingTarget;
 
     public AnnotationCanvasController(Canvas canvas, System.Windows.Controls.Image sourceImage, AnnotationStore store, AnnotationToolOptions options)
     {
@@ -136,15 +146,27 @@ internal sealed class AnnotationCanvasController
     private void OnMouseDown(object sender, MouseButtonEventArgs e)
     {
         if (!_active) return;
-        // 文本浮层激活中：让 TextBox 自己处理事件
-        if (_textInput is not null && _textInput.IsKeyboardFocused) return;
-        // 用户点空白处：先提交可能存在的旧文本浮层，再处理本次按下
+        // 当鼠标点击落到 TextBox 内部时，TextBox 自身会 Handled=true 处理（移动 caret 等），
+        // 事件不会冒泡到 Canvas → 此 handler 不会触发。所以走到这里几乎都是"点击 TextBox 外部的
+        // Canvas 区域"，应该把当前浮层固化为 Annotation，再继续按当前工具处理本次点击 ——
+        // 不能在这里 return，否则点击会被吞掉、文本浮层永远不结束（这是先前 v2 的 bug）
         CommitTextInputIfAny();
 
         var p = e.GetPosition(_canvas);
         if (_options.Kind == AnnotationKind.Text)
         {
-            ShowTextInputAt(p);
+            // 优先看是否点中已落地的 Text 标注：命中则进入"二次编辑"模式，
+            // 否则才在该位置开新文本框。命中检测自己用 Bounds 包含点判定，
+            // 避免依赖 VisualTreeHelper.HitTest（TextBlock 渲染后 ActualWidth 可能 0）
+            var hit = HitTestExistingText(p);
+            if (hit is not null)
+            {
+                BeginEditExistingText(hit);
+            }
+            else
+            {
+                ShowTextInputAt(p);
+            }
             e.Handled = true;
             return;
         }
@@ -159,6 +181,40 @@ internal sealed class AnnotationCanvasController
         e.Handled = true;
     }
 
+    /// <summary>遍历 store 找出包含点 p 的 Text Annotation。
+    /// 倒序遍历让"后画的覆盖先画的"——与 Z-order 视觉一致。
+    /// Bounds 是文本框的 DIP 矩形，与 AnnotationRenderer.CreateText 的位置对齐</summary>
+    private Annotation? HitTestExistingText(Point p)
+    {
+        var items = _store.Items;
+        for (int i = items.Count - 1; i >= 0; i--)
+        {
+            var a = items[i];
+            if (a.Kind != AnnotationKind.Text) continue;
+            // 文字 Annotation 的 Bounds 是初次提交时 TextBox 的尺寸；ActualWidth/Height 可能为 0
+            // （例如 redo 后渲染前），那时候用一个最小命中半径兜底
+            var b = a.Bounds;
+            double w = b.Width > 0 ? b.Width : 80;
+            double h = b.Height > 0 ? b.Height : Math.Max(16, a.FontSize <= 0 ? 16 : a.FontSize);
+            var rect = new Rect(b.X, b.Y, w, h);
+            if (rect.Contains(p)) return a;
+        }
+        return null;
+    }
+
+    /// <summary>把已落地的 Text Annotation 切换为浮层 TextBox 让用户继续编辑。
+    /// 实现策略：暂时从 store 中移除原条目（避免编辑期间渲染层叠原文字 + 输入框），
+    /// 编辑完成时按 Replace 语义重新写入；用户 ESC 取消则把原条目回滚回去</summary>
+    private void BeginEditExistingText(Annotation target)
+    {
+        _editingTarget = target;
+        // 暂时从 store 移除：让 Repaint 不再绘制旧文字。Remove 也会触发 Repaint
+        _store.Remove(target);
+
+        var p = new Point(target.Bounds.X, target.Bounds.Y);
+        ShowTextInputAt(p, target.Text, target.Color, target.FontSize <= 0 ? _options.FontSize : target.FontSize);
+    }
+
     private void OnMouseMove(object sender, MouseEventArgs e)
     {
         if (!_active || !_drawing) return;
@@ -166,11 +222,93 @@ internal sealed class AnnotationCanvasController
         if (_options.Kind == AnnotationKind.Freehand && _draftFreehandPoints is not null)
         {
             _draftFreehandPoints.Add(p);
-            ReplaceDraft(BuildDraftFreehand(_draftFreehandPoints));
+            AppendFreehandDraftPoint(p);
+            return;
+        }
+
+        // Shift 按住时对矩形 / 椭圆做"强制正方形 / 正圆"约束。约束在 draft 阶段就生效，
+        // 让用户实时看到调整后的形状，与 Photoshop / Snipaste 习惯一致
+        p = ApplyShiftConstraint(_draftStart, p, _options.Kind);
+
+        // 马赛克 draft 阶段不渲染真实像素化效果：BuildMosaicBitmap 走 CroppedBitmap + CopyPixels
+        // + 双层循环求块平均，大区域拖动会按 MouseMove 频次（60~120 Hz）跑这条耗时路径，明显掉帧。
+        // 拖动期间只画一个半透明灰色占位框给用户位置反馈，MouseUp 时 store.Add 触发 Repaint
+        // 再走一次真实的 BuildMosaicBitmap —— 只算一次，开销可接受
+        if (_options.Kind == AnnotationKind.Mosaic)
+        {
+            ReplaceDraft(BuildMosaicDraftPlaceholder(_draftStart, p));
             return;
         }
 
         ReplaceDraft(BuildDraftFromBounds(_draftStart, p));
+    }
+
+    /// <summary>当按住 Shift 时把 end 折算为"以 start 为锚 + 边长 = min(|dx|, |dy|) 的正方形对角点"，
+    /// 让矩形 / 椭圆强制成正方形 / 正圆。仅对 Rectangle / Ellipse 生效，其它工具保留自由拖动。
+    ///
+    /// 实现要点：保留 dx / dy 的符号 —— 用户从右下往左上拖时也能得到反方向的正方形；
+    /// 边长取 min(|dx|, |dy|) 而不是 max，让"用户实际拖出的区域不被强行放大"，
+    /// 与 Photoshop / Figma 的 Shift-Lock 行为一致</summary>
+    private static Point ApplyShiftConstraint(Point start, Point end, AnnotationKind kind)
+    {
+        if (kind is not AnnotationKind.Rectangle and not AnnotationKind.Ellipse) return end;
+        if (!Keyboard.IsKeyDown(Key.LeftShift) && !Keyboard.IsKeyDown(Key.RightShift)) return end;
+        var dx = end.X - start.X;
+        var dy = end.Y - start.Y;
+        var size = Math.Min(Math.Abs(dx), Math.Abs(dy));
+        var sx = dx >= 0 ? 1 : -1;
+        var sy = dy >= 0 ? 1 : -1;
+        return new Point(start.X + sx * size, start.Y + sy * size);
+    }
+
+    /// <summary>给 Mosaic 拖拽时画一个半透明灰底 + 虚线边框的占位矩形。
+    /// 视觉上提示"这里会变成马赛克"，与最终落地的像素块效果完全不同，避免用户误以为这就是结果。
+    /// 选用虚线 + 中性灰色，与已落地的实色 / 高对比标注分隔，让"未确定"的状态一目了然</summary>
+    private FrameworkElement BuildMosaicDraftPlaceholder(Point a, Point b)
+    {
+        double x = Math.Min(a.X, b.X);
+        double y = Math.Min(a.Y, b.Y);
+        double w = Math.Abs(a.X - b.X);
+        double h = Math.Abs(a.Y - b.Y);
+        var rect = new System.Windows.Shapes.Rectangle
+        {
+            Width = w,
+            Height = h,
+            Fill = new SolidColorBrush(Color.FromArgb(0x66, 0x88, 0x88, 0x88)),
+            Stroke = new SolidColorBrush(Color.FromArgb(0xCC, 0x44, 0x44, 0x44)),
+            StrokeThickness = 1,
+            StrokeDashArray = new DoubleCollection { 4, 3 },
+            IsHitTestVisible = false,
+        };
+        Canvas.SetLeft(rect, x);
+        Canvas.SetTop(rect, y);
+        return rect;
+    }
+
+    /// <summary>把 draft Polyline 的 PointCollection 追加一个点。
+    /// 首次调用（_draftFreehandPolyline 为 null）创建 Polyline 并加入 Canvas，
+    /// 后续调用只追加点到现有 PointCollection —— WPF 内部会重新计算 path geometry，
+    /// 但不需要重建 PointCollection 或重新遍历历史点</summary>
+    private void AppendFreehandDraftPoint(Point p)
+    {
+        if (_draftFreehandPolyline is null)
+        {
+            var line = new System.Windows.Shapes.Polyline
+            {
+                Stroke = new SolidColorBrush(_options.Color),
+                StrokeThickness = _options.StrokeThickness,
+                StrokeLineJoin = PenLineJoin.Round,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                IsHitTestVisible = false,
+            };
+            line.Points = new PointCollection();
+            foreach (var pt in _draftFreehandPoints!) line.Points.Add(pt);
+            _draftFreehandPolyline = line;
+            ReplaceDraft(line);
+            return;
+        }
+        _draftFreehandPolyline.Points.Add(p);
     }
 
     private void OnMouseUp(object sender, MouseButtonEventArgs e)
@@ -194,9 +332,13 @@ internal sealed class AnnotationCanvasController
             }
             finalAnn = Annotation.CreateFreehand(_draftFreehandPoints, _options.Color, _options.StrokeThickness);
             _draftFreehandPoints = null;
+            _draftFreehandPolyline = null;
         }
         else
         {
+            // MouseUp 时按当前 Shift 状态再约束一次：与 Photoshop 行为一致 ——
+            // 抬起前若仍按住 Shift 就锁定正方形，否则放手即解锁，落地形状跟随用户最终意图
+            p = ApplyShiftConstraint(_draftStart, p, _options.Kind);
             finalAnn = BuildAnnotationFromBounds(_draftStart, p);
         }
 
@@ -251,15 +393,6 @@ internal sealed class AnnotationCanvasController
         return AnnotationRenderer.Render(ann, src, w, h);
     }
 
-    private FrameworkElement BuildDraftFreehand(List<Point> points)
-    {
-        var ann = Annotation.CreateFreehand(points, _options.Color, _options.StrokeThickness);
-        var src = _sourceImage.Source as BitmapSource;
-        var w = _sourceImage.ActualWidth > 0 ? _sourceImage.ActualWidth : _sourceImage.Width;
-        var h = _sourceImage.ActualHeight > 0 ? _sourceImage.ActualHeight : _sourceImage.Height;
-        return AnnotationRenderer.Render(ann, src, w, h);
-    }
-
     private Annotation? BuildAnnotationFromBounds(Point start, Point end)
     {
         var bounds = new Rect(
@@ -272,7 +405,6 @@ internal sealed class AnnotationCanvasController
             AnnotationKind.Line => Annotation.CreateLine(start, end, _options.Color, _options.StrokeThickness),
             AnnotationKind.Arrow => Annotation.CreateArrow(start, end, _options.Color, _options.StrokeThickness),
             AnnotationKind.Mosaic => Annotation.CreateMosaic(bounds, _options.MosaicBlockSize),
-            AnnotationKind.Blur => Annotation.CreateBlur(bounds, _options.BlurRadius),
             AnnotationKind.Mask => Annotation.CreateMask(bounds, _options.Color),
             _ => null,
         };
@@ -290,27 +422,42 @@ internal sealed class AnnotationCanvasController
         if (_draftElement is not null) _canvas.Children.Remove(_draftElement);
         _draftElement = null;
         _draftFreehandPoints = null;
+        _draftFreehandPolyline = null;
         if (_canvas.IsMouseCaptured) _canvas.ReleaseMouseCapture();
     }
 
     // ============= 文本工具浮层 =============
 
+    /// <summary>初始空文本框；颜色 / 字号取自当前 ToolOptions</summary>
     private void ShowTextInputAt(Point p)
+        => ShowTextInputAt(p, initialText: "", color: _options.Color, fontSize: _options.FontSize);
+
+    /// <summary>显示文字浮层 TextBox。initialText 不为空时会预填，用于"二次编辑已有文字"场景。
+    ///
+    /// 视觉规则：浮层与最终落地文字保持一致 —— 透明背景、不带边框、字号 / 颜色继承当前选项；
+    /// 仅靠系统插入符（Caret）让用户感知输入位置。这样用户提交后视觉上"原地保留为不带框的纯文字"，
+    /// 与之前的"黑底浮层 → 黑底标注"差异完全消除。
+    ///
+    /// 字体策略：显式绑定到 Application.Resources["ToolbarFontFamily"]（即设置窗里的"浮窗字体"）
+    /// 而不是依赖 Window 继承 —— 这样保证浮层 TextBox 与最终 TextBlock 用同一个字体族，
+    /// 不会因为某层覆写 FontFamily 出现"输入态与提交后视觉跳变"。
+    /// FontWeight 走 Bold：标注语义下需要在原图上"压得住"，SemiBold 实测在 1080p 下偏纤细</summary>
+    private void ShowTextInputAt(Point p, string initialText, Color color, double fontSize)
     {
-        // 文本工具的浮层：让用户键入后 Enter / 失焦提交。
-        // 字号 / 颜色取自当前 ToolOptions；TextBox 的 Foreground 与最终渲染颜色一致，避免预期差
         _textInput = new TextBox
         {
-            Background = new SolidColorBrush(Color.FromArgb(0xC0, 0, 0, 0)),
-            Foreground = new SolidColorBrush(_options.Color),
-            BorderBrush = new SolidColorBrush(_options.Color),
-            BorderThickness = new Thickness(1),
-            FontSize = _options.FontSize,
-            FontWeight = FontWeights.SemiBold,
-            CaretBrush = new SolidColorBrush(_options.Color),
-            MinWidth = 60,
-            Padding = new Thickness(4, 1, 4, 1),
+            Background = System.Windows.Media.Brushes.Transparent,
+            Foreground = new SolidColorBrush(color),
+            BorderBrush = System.Windows.Media.Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            FontFamily = ResolveAnnotationFontFamily(),
+            FontSize = fontSize <= 0 ? _options.FontSize : fontSize,
+            FontWeight = FontWeights.Regular,
+            CaretBrush = new SolidColorBrush(color),
+            MinWidth = 40,
+            Padding = new Thickness(0),
             AcceptsReturn = false,
+            Text = initialText ?? "",
         };
         Canvas.SetLeft(_textInput, p.X);
         Canvas.SetTop(_textInput, p.Y);
@@ -319,6 +466,28 @@ internal sealed class AnnotationCanvasController
         _canvas.Children.Add(_textInput);
         _textInput.Focus();
         Keyboard.Focus(_textInput);
+        if (!string.IsNullOrEmpty(initialText))
+        {
+            // 二次编辑：把光标放到末尾，方便继续输入；不全选避免误删
+            _textInput.CaretIndex = initialText.Length;
+        }
+    }
+
+    /// <summary>从 Application.Resources 拿"浮窗字体"作为标注文字的字体族；
+    /// 任何主题切换后只要 ThemeManager 把 ToolbarFontFamily 重写过，下一次新建文本框就会用新字体。
+    /// 取不到（应用未初始化主题）时退回到内置中文 UI 字体回退链</summary>
+    private static FontFamily ResolveAnnotationFontFamily()
+    {
+        var app = System.Windows.Application.Current;
+        if (app is not null)
+        {
+            try
+            {
+                if (app.Resources["ToolbarFontFamily"] is FontFamily ff) return ff;
+            }
+            catch { }
+        }
+        return new FontFamily("Microsoft YaHei UI, Microsoft YaHei, 微软雅黑, PingFang SC, Segoe UI");
     }
 
     private void OnTextInputKeyDown(object sender, KeyEventArgs e)
@@ -350,12 +519,32 @@ internal sealed class AnnotationCanvasController
         var text = tb.Text ?? "";
         var x = Canvas.GetLeft(tb);
         var y = Canvas.GetTop(tb);
-        var bounds = new Rect(double.IsFinite(x) ? x : 0, double.IsFinite(y) ? y : 0, tb.ActualWidth, tb.ActualHeight);
+        // ActualWidth/Height 没准时（首次输入时可能为 0），fallback 到字符串估算 + FontSize 推导，
+        // 让 HitTestExistingText 的命中区在二次编辑模式也能工作
+        double w = tb.ActualWidth > 0 ? tb.ActualWidth : Math.Max(40, (text?.Length ?? 0) * tb.FontSize * 0.6);
+        double h = tb.ActualHeight > 0 ? tb.ActualHeight : Math.Max(16, tb.FontSize * 1.4);
+        var bounds = new Rect(double.IsFinite(x) ? x : 0, double.IsFinite(y) ? y : 0, w, h);
+        var color = (tb.Foreground as SolidColorBrush)?.Color ?? _options.Color;
+        var fontSize = tb.FontSize;
         _canvas.Children.Remove(tb);
         _textInput = null;
 
-        if (string.IsNullOrWhiteSpace(text)) return;
-        _store.Add(Annotation.CreateText(bounds, text.Trim(), _options.Color, _options.FontSize));
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            // 空文本提交 = 删除：
+            // 1) 二次编辑场景：旧条目已经从 store 移除，丢弃即等价于"清空文字"；
+            // 2) 新建场景：本来就没东西，等价于不落地。
+            _editingTarget = null;
+            return;
+        }
+
+        var newAnn = Annotation.CreateText(bounds, text.Trim(), color, fontSize);
+        if (_editingTarget is not null)
+        {
+            // 二次编辑：原条目已 Remove，这里直接 Add 让最新状态可 Undo
+            _editingTarget = null;
+        }
+        _store.Add(newAnn);
     }
 
     private void DiscardTextInputIfAny()
@@ -366,5 +555,13 @@ internal sealed class AnnotationCanvasController
         tb.LostKeyboardFocus -= OnTextInputLostFocus;
         _canvas.Children.Remove(tb);
         _textInput = null;
+
+        // 二次编辑模式 ESC：把原 annotation 还回去，让用户感觉是"取消修改 / 回到原状"
+        if (_editingTarget is not null)
+        {
+            var restored = _editingTarget;
+            _editingTarget = null;
+            _store.Add(restored);
+        }
     }
 }

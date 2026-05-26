@@ -16,13 +16,12 @@ internal enum AnnotationKind
     Freehand,         // 自由涂鸦（折线）
     Text,             // 可拖动文本框
     Mosaic,           // 像素化遮罩
-    Blur,             // 高斯模糊遮罩
     Mask,             // 实心遮挡（纯色填充）
 }
 
 /// <summary>不可变的标注实体。
 /// 字段语义按 Kind 不同：
-/// - Rectangle / FilledRectangle / Ellipse / FilledEllipse / Mosaic / Blur / Mask：
+/// - Rectangle / FilledRectangle / Ellipse / FilledEllipse / Mosaic / Mask：
 ///   Bounds 表示矩形包围盒（DIP，相对 PreviewImage 左上）
 /// - Line / Arrow：Points 含 2 个点（起点 / 终点）
 /// - Freehand：Points 包含全部折线点（&gt;=2）
@@ -42,7 +41,6 @@ internal sealed class Annotation
 
     /// <summary>遮罩档位：
     /// - Mosaic: 8 / 12 / 16（像素块大小）
-    /// - Blur: 8 / 16 / 32（BlurEffect Radius）
     /// - 其他类型忽略</summary>
     public int MaskLevel { get; }
 
@@ -81,9 +79,6 @@ internal sealed class Annotation
 
     public static Annotation CreateMosaic(Rect bounds, int blockSize)
         => new(AnnotationKind.Mosaic, bounds, Array.Empty<Point>(), Colors.Transparent, 0, "", 0, blockSize);
-
-    public static Annotation CreateBlur(Rect bounds, int radius)
-        => new(AnnotationKind.Blur, bounds, Array.Empty<Point>(), Colors.Transparent, 0, "", 0, radius);
 
     public static Annotation CreateMask(Rect bounds, Color color)
         => new(AnnotationKind.Mask, bounds, Array.Empty<Point>(), color, 0, "", 0, 0);
@@ -154,6 +149,35 @@ internal sealed class AnnotationStore
         _redoStack.Clear();
         Changed?.Invoke();
     }
+
+    /// <summary>把指定位置的 annotation 替换为新的，用于"文字编辑"路径：
+    /// 用户再次点击已落地的 Text 标注，浮层提交后用新文本覆盖原条目。
+    /// 这条路径不进 redo 栈，也不当作"新增"清空 redo —— 视觉上是同一条标注被改写。
+    /// 失败兜底：找不到原 annotation 时退化为 Add，保证文字最终能保存</summary>
+    public void Replace(Annotation oldOne, Annotation newOne)
+    {
+        if (oldOne is null || newOne is null) return;
+        int idx = _items.IndexOf(oldOne);
+        if (idx < 0)
+        {
+            Add(newOne);
+            return;
+        }
+        _items[idx] = newOne;
+        Changed?.Invoke();
+    }
+
+    /// <summary>移除指定 annotation。用于文字编辑场景"先把旧条目藏起来浮层编辑，
+    /// 用户取消则放弃，提交则用 Add 重新落地"，让取消路径不污染历史</summary>
+    public bool Remove(Annotation a)
+    {
+        if (a is null) return false;
+        int idx = _items.IndexOf(a);
+        if (idx < 0) return false;
+        _items.RemoveAt(idx);
+        Changed?.Invoke();
+        return true;
+    }
 }
 
 /// <summary>当前标注工具状态：工具类型 + 颜色 + 粗细 + 文字字号。
@@ -167,7 +191,6 @@ internal sealed class AnnotationToolOptions
     private double _strokeThickness = 2.0;
     private double _fontSize = 16.0;
     private int _mosaicBlockSize = 12;
-    private int _blurRadius = 16;
 
     public event Action? Changed;
 
@@ -195,11 +218,6 @@ internal sealed class AnnotationToolOptions
     {
         get => _mosaicBlockSize;
         set { if (_mosaicBlockSize != value) { _mosaicBlockSize = Math.Max(2, value); Changed?.Invoke(); } }
-    }
-    public int BlurRadius
-    {
-        get => _blurRadius;
-        set { if (_blurRadius != value) { _blurRadius = Math.Max(1, value); Changed?.Invoke(); } }
     }
 
     /// <summary>实心 / 空心模式：仅对矩形 / 椭圆有效，由工具栏单独切换。

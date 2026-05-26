@@ -55,10 +55,6 @@ internal sealed class OcrCaptureCoordinator
     /// 由 ScreenshotPreviewToolbarWindow / OcrResultToolbarWindow 的"钉到桌面"按钮触发</summary>
     private readonly PinnedScreenshotManager? _pinnedManager;
 
-    /// <summary>截图隐私扫描器：开关 + 命中匹配。在 PreviewWindow 显示后异步触发，
-    /// 完成时把命中结果回填给 PreviewWindow 的红色虚线框 + "一键打码"按钮</summary>
-    private readonly PrivacyScanner _privacyScanner;
-
     /// <summary>剪贴板历史服务（M6）。可空：宿主未注入时不写图片入库；
     /// 截图复制 / 钉图 / 自动保存均会调 AppendImage 让历史窗"图片"标签页可回看</summary>
     private readonly ClipboardHistoryService? _clipHistory;
@@ -79,11 +75,13 @@ internal sealed class OcrCaptureCoordinator
         Screenshot,
     }
 
+    /// <summary>一次截图采集的结果。PngBytes 不直接持有 —— 改走 OcrImage.GetPngBytes 的 Lazy 路径，
+    /// 让 OCR-only / 用户未触发任何"需要 PNG 的动作"时彻底跳过 PNG 编码。
+    /// 任何消费方需要字节流时统一调 Image.GetPngBytes() 即可，二次调用走缓存零成本</summary>
     private sealed record CapturedImage(
         OcrImage Image,
         SelectionRect AnchorRect,
-        string Source,
-        byte[] PngBytes);
+        string Source);
 
     public OcrCaptureCoordinator(
         ILog log,
@@ -114,8 +112,6 @@ internal sealed class OcrCaptureCoordinator
         _saveSettings = saveSettings;
         _clipHistory = clipHistory;
         _autoSaver = new ScreenshotAutoSaver(log, settings, saveSettings);
-        _privacyScanner = new PrivacyScanner(log, () => new PrivacyScanner.AppSettingsSnapshot(
-            Enabled: _settings.PrivacyScanEnabled));
     }
 
     public void Trigger()
@@ -238,7 +234,11 @@ internal sealed class OcrCaptureCoordinator
             // 比固定 sleep 80ms 更快；如果 DwmFlush 在异常环境失败，退回短延迟兜底。
             await WaitForSelectionOverlayToDisappearAsync().ConfigureAwait(false);
 
-            var captured = CaptureRegion(physical);
+            // RegionSelected 回调在 UI 线程触发；WaitForSelectionOverlayToDisappearAsync 命中
+            // DwmFlush==0 立即成功路径时 async 链是同步完成的，await 不会真正 yield，
+            // 后续若直接 CaptureRegion 会在 UI 线程跑 CopyFromScreen + LockBits + Marshal.Copy，
+            // 全屏截图能阻塞 100~300ms。强制 Task.Run 入池让 UI 线程在等待截图期间仍能处理消息
+            var captured = await Task.Run(() => CaptureRegion(physical)).ConfigureAwait(false);
             if (purpose == CapturePurpose.Ocr)
             {
                 await RecognizeImageAsync(captured.Image, captured.AnchorRect, captured.Source, closeAfterLoad: null).ConfigureAwait(false);
@@ -270,10 +270,12 @@ internal sealed class OcrCaptureCoordinator
             g.CopyFromScreen(physical.Left, physical.Top, 0, 0, bitmap.Size);
         }
 
+        // 这里不再立刻 image.GetPngBytes()：OcrImage 的 Lazy<byte[]> 在真正需要 PNG 的消费方
+        // （剪贴板 / 自动保存 / 预览窗 / 历史入库）首次取值时编码并缓存，避免 OCR-only 路径
+        // 多一次 16~64 MB 的全图 PNG 编码
         var image = CreateOcrImage(bitmap);
-        var pngBytes = image.GetPngBytes();
         var anchorRect = new SelectionRect(physical.Left, physical.Top, physical.Right, physical.Bottom);
-        return new CapturedImage(image, anchorRect, $"{physical.Width}x{physical.Height}", pngBytes);
+        return new CapturedImage(image, anchorRect, $"{physical.Width}x{physical.Height}");
     }
 
     private async Task HandleScreenshotCaptureAsync(CapturedImage captured)
@@ -291,18 +293,16 @@ internal sealed class OcrCaptureCoordinator
         if (copiedDirectly)
         {
             // ClipboardWriter.SetImagePngBytes 内部已调 NoteSelfWrittenImage，让监听路径忽略本次回环。
-            // 之后再 AppendImage 让"图片复制 → 同时入历史"无需依赖 WM_CLIPBOARDUPDATE 监听
-            _clipboard.SetImagePngBytes(captured.PngBytes);
+            // 之后再 AppendImage 让"图片复制 → 同时入历史"无需依赖 WM_CLIPBOARDUPDATE 监听。
+            // 这里首次 GetPngBytes 触发 Lazy 编码（仍在后台线程，因 HandleScreenshotCaptureAsync
+            // 整链路 ConfigureAwait(false)），不会阻塞 UI
+            _clipboard.SetImagePngBytes(captured.Image.GetPngBytes());
             TryAppendImageToHistory(captured);
             ShowAnchoredToast("截图已复制", captured.AnchorRect, isError: false, durationMs: 1800);
         }
         else
         {
             ShowScreenshotPreview(captured);
-            // 隐私扫描只在"会进入预览窗"路径下触发：Clipboard 模式没有窗体可视化命中；
-            // Toolbar 模式的预览窗会显示红色虚线框 + 一键打码按钮。
-            // 这里 fire-and-forget，让预览窗先出来再 OCR + 扫描，避免阻塞用户视觉
-            TryStartPrivacyScan(captured);
         }
 
         if (_settings.ScreenshotAutoOcr)
@@ -346,74 +346,12 @@ internal sealed class OcrCaptureCoordinator
         {
             var foreground = "";
             try { foreground = ForegroundWatcher.Snapshot().ProcessName; } catch { }
-            _clipHistory.AppendImage(captured.PngBytes, foreground);
+            _clipHistory.AppendImage(captured.Image.GetPngBytes(), foreground);
         }
         catch (Exception ex)
         {
             _log.Warn("append image history failed", ("err", ex.Message));
         }
-    }
-
-    /// <summary>用配置的最小阈值过滤极小截图，再后台跑一次 OCR + PrivacyScanner，
-    /// 把命中结果交给当前 ScreenshotPreviewWindow 显示。
-    ///
-    /// 设计取舍：
-    /// - 用 active provider 跑 OCR：与正常 OCR 路径同一份代码，避免双重维护；
-    ///   provider 不可用时静默退出，不打扰用户的"普通截图"流程。
-    /// - 不缓存扫描结果：每次截图独立扫描，避免误用旧命中
-    /// - 不阻塞主流程：fire-and-forget。OCR 1~3 秒内完成，预览窗已先出</summary>
-    private void TryStartPrivacyScan(CapturedImage captured)
-    {
-        if (!_settings.PrivacyScanEnabled) return;
-        var minEdge = _settings.PrivacyScanMinPixelEdge;
-        if (minEdge > 0 && (captured.Image.Width < minEdge || captured.Image.Height < minEdge)) return;
-
-        var provider = _registry.PickActive();
-        if (provider is null) return;
-
-        _ = Task.Run(async () =>
-        {
-            OcrResult result;
-            try
-            {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-                result = await provider.RecognizeAsync(captured.Image, cts.Token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _log.Warn("privacy scan ocr failed", ("err", ex.Message));
-                return;
-            }
-
-            IReadOnlyList<PrivacyHit> hits;
-            try { hits = _privacyScanner.Scan(result); }
-            catch (Exception ex)
-            {
-                _log.Warn("privacy scan match failed", ("err", ex.Message));
-                return;
-            }
-            if (hits.Count == 0) return;
-
-            _log.Info("privacy scan hits", ("count", hits.Count), ("source", captured.Source));
-
-            WpfApplication.Current.Dispatcher.Invoke(() =>
-            {
-                var win = _screenshotWindow;
-                if (win is null) return;
-                try
-                {
-                    win.ShowPrivacyHints(
-                        hits,
-                        captured.Image.Width,
-                        captured.Image.Height,
-                        _settings.PrivacyMosaicBlockSize);
-                }
-                catch (Exception ex)
-                {
-                    _log.Warn("privacy show hints failed", ("err", ex.Message));
-                }
-            });
-        });
     }
 
     /// <summary>把已截好的 PNG 字节走 ScreenshotAutoSaver 落盘。
@@ -427,7 +365,7 @@ internal sealed class OcrCaptureCoordinator
             Width: captured.Image.Width,
             Height: captured.Image.Height,
             ForegroundProcessName: foreground);
-        return _autoSaver.SaveAsync(captured.PngBytes, ctx);
+        return _autoSaver.SaveAsync(captured.Image.GetPngBytes(), ctx);
     }
 
     /// <summary>把已识别后的 OcrImage 转换回一个截图 PNG 字节 + Anchor，再走标准 ScreenshotPreview 路径。
@@ -439,19 +377,26 @@ internal sealed class OcrCaptureCoordinator
     /// 让"OCR 结果窗 → 截图预览窗"切换时两窗在同一位置短暂共存，截图区域背景视觉无缝衔接</summary>
     private void ShowScreenshotPreviewFromOcr(OcrImage image, SelectionRect anchorRect, string source, Window? closeAfterLoad = null)
     {
-        byte[] pngBytes;
-        try { pngBytes = image.GetPngBytes(); }
-        catch (Exception ex)
-        {
-            _log.Warn("encode png for switch-to-screenshot failed", ("err", ex.Message));
-            return;
-        }
-        var captured = new CapturedImage(image, anchorRect, source, pngBytes);
+        // OCR 已识别完成的 image 在结果窗内一定调过 GetPngBytes（hash 回写或工具栏按钮）二次走缓存，
+        // 不需要再单独 try/catch 预热；下游 ShowScreenshotPreview 会在切回 UI 线程前显式触发 Lazy 编码
+        var captured = new CapturedImage(image, anchorRect, source);
         ShowScreenshotPreview(captured, closeAfterLoad);
     }
 
     private void ShowScreenshotPreview(CapturedImage captured, Window? closeAfterLoad = null)
     {
+        // 关键：在切回 UI 线程之前先取一次 PngBytes，让 Lazy<byte[]> 的 EncodePngFromBgra32 在调用线程
+        // （RunCaptureAsync 的线程池线程 / OCR 结果窗的 UI 线程）跑完。否则 LoadBitmap 在 ScreenshotPreviewWindow
+        // ctor 里强制走 PNG 编码，全屏 4M 像素的 PNG 编码会卡 UI 线程几百 ms。
+        // 从 UI 线程切过来的路径（OcrResult → switch screenshot）image 通常已编码缓存，二次走缓存近零开销
+        byte[] pngBytes;
+        try { pngBytes = captured.Image.GetPngBytes(); }
+        catch (Exception ex)
+        {
+            _log.Warn("encode png for screenshot preview failed", ("err", ex.Message));
+            return;
+        }
+
         WpfApplication.Current.Dispatcher.Invoke(() =>
         {
             // closeAfterLoad 不为空时表示"切换路径"，旧窗由新窗 Loaded 后关闭以保持视觉连续，
@@ -473,7 +418,7 @@ internal sealed class OcrCaptureCoordinator
 
             var win = new ScreenshotPreviewWindow(
                 _log,
-                captured.PngBytes,
+                pngBytes,
                 anchorRectangle,
                 monitor.DpiX,
                 monitor.DpiY,
@@ -497,12 +442,16 @@ internal sealed class OcrCaptureCoordinator
                     try { oldWin?.Close(); } catch { }
                     ShowSelectionWindow(CapturePurpose.Screenshot);
                 },
-                onPinRequested: pinAnchor =>
+                onPinRequested: (pinAnchor, finalPngBytes) =>
                 {
                     // 钉到桌面：原位创建 PinnedScreenshotWindow 接替预览窗的位置；
-                    // 预览窗会在自身 CommandPin 内自行 Close，这里不重复处理
+                    // 预览窗会在自身 CommandPin 内自行 Close，这里不重复处理。
+                    // finalPngBytes 由 ScreenshotPreviewWindow 异步合成 —— 用户加过的标注（矩形 / 文字 / 马赛克 等）
+                    // 会一并烧进钉图位图，钉到桌面的内容与预览里看到的完全一致；无标注场景下 finalPngBytes
+                    // 等同 _pngBytes（快路径），不重复编码
                     if (_pinnedManager is null) return;
-                    _pinnedManager.Pin(captured.PngBytes, monitor.DpiX, monitor.DpiY, pinAnchor);
+                    var bytesToPin = finalPngBytes is { Length: > 0 } ? finalPngBytes : pngBytes;
+                    _pinnedManager.Pin(bytesToPin, monitor.DpiX, monitor.DpiY, pinAnchor);
                 });
             _screenshotWindow = win;
             win.Closed += (_, _) => { if (ReferenceEquals(_screenshotWindow, win)) _screenshotWindow = null; };
@@ -865,27 +814,34 @@ internal sealed class OcrCaptureCoordinator
         var data = source.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
         try
         {
+            // 关键：把 width / height 抽到局部 int 变量再交给 lambda 捕获。
+            // pngFactory 改成 Lazy<byte[]> 延迟执行后，闭包里若直接写 source.Width，
+            // 实际属性访问会推迟到 GetPngBytes 第一次调用时才发生 —— 那时 bitmap / source 已经被
+            // 外层 CaptureRegion 的 using 释放，访问被 Dispose 的 Bitmap 会抛
+            // ArgumentException("Parameter is not valid.")，让"截图复制 / 预览 / OCR 写历史"全部炸掉
+            int width = source.Width;
+            int height = source.Height;
             var stride = Math.Abs(data.Stride);
-            var pixels = new byte[stride * source.Height];
+            var pixels = new byte[stride * height];
             if (data.Stride > 0)
             {
                 Marshal.Copy(data.Scan0, pixels, 0, pixels.Length);
             }
             else
             {
-                for (var y = 0; y < source.Height; y++)
+                for (var y = 0; y < height; y++)
                 {
                     var row = IntPtr.Add(data.Scan0, data.Stride * y);
                     Marshal.Copy(row, pixels, y * stride, stride);
                 }
             }
             return new OcrImage(
-                source.Width,
-                source.Height,
+                width,
+                height,
                 OcrImagePixelFormat.Bgra32,
                 pixels,
                 stride,
-                pngFactory ?? (() => EncodePngFromBgra32(source.Width, source.Height, pixels, stride)));
+                pngFactory ?? (() => EncodePngFromBgra32(width, height, pixels, stride)));
         }
         finally
         {

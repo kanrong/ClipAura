@@ -1,11 +1,9 @@
 using System.IO;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Shapes;
 using Microsoft.Win32;
 using PopClip.App.Services;
 using PopClip.App.UI.Annotation;
@@ -13,7 +11,6 @@ using PopClip.Core.Logging;
 using PopClip.Hooks.Interop;
 using PopClip.Hooks.Window;
 using WinRectangle = System.Drawing.Rectangle;
-using WpfRectangle = System.Windows.Shapes.Rectangle;
 
 namespace PopClip.App.UI;
 
@@ -49,9 +46,11 @@ internal partial class ScreenshotPreviewWindow : Window
     /// null 表示宿主未注入该能力（向后兼容场景），UI 上按钮会置灰</summary>
     private readonly Action? _onReshootRequested;
 
-    /// <summary>"钉到桌面"按钮的回调：参数为当前图像在屏幕上的物理像素 rect。
+    /// <summary>"钉到桌面"按钮的回调：参数为当前图像在屏幕上的物理像素 rect + 已合成的 PNG 字节。
+    /// 字节内容是 PreviewImage + AnnotationCanvas 合成后的最终图像 —— 用户加过的标注（矩形 / 箭头 / 马赛克 / 文字…）
+    /// 会被一起钉到桌面，避免出现"截图预览里看到带标注，钉到桌面却变回原图"的视觉断层。
     /// Coordinator 据此创建 PinnedScreenshotWindow 并定位。null 时按钮置灰</summary>
-    private readonly Action<WinRectangle>? _onPinRequested;
+    private readonly Action<WinRectangle, byte[]>? _onPinRequested;
 
     private readonly string _dimensionText;
 
@@ -70,14 +69,6 @@ internal partial class ScreenshotPreviewWindow : Window
     /// 进入：工具栏"编辑"按钮；退出：再次按按钮 / ESC（标注模式下 ESC 不关窗）</summary>
     private bool _annotationMode;
 
-    /// <summary>当前未处理的隐私扫描命中点（图像像素坐标系）。
-    /// 为 null = 未扫描或无命中；非空时 PrivacyHintCanvas 上画红色虚线框，
-    /// 工具栏的"一键打码"按钮亮起。打码后调用方设回 null 同步视觉</summary>
-    private IReadOnlyList<PrivacyHit>? _privacyHits;
-
-    /// <summary>"一键打码"使用的马赛克像素块大小，由 Coordinator 在 ShowPrivacyHints 时同步</summary>
-    private int _privacyMosaicBlockSize = 12;
-
     public ScreenshotPreviewWindow(
         ILog log,
         byte[] pngBytes,
@@ -87,7 +78,7 @@ internal partial class ScreenshotPreviewWindow : Window
         ClipboardWriter clipboard,
         Action<WinRectangle> onOcrRequested,
         Action? onReshootRequested = null,
-        Action<WinRectangle>? onPinRequested = null)
+        Action<WinRectangle, byte[]>? onPinRequested = null)
     {
         _log = log;
         _pngBytes = pngBytes;
@@ -286,8 +277,43 @@ internal partial class ScreenshotPreviewWindow : Window
         if (e.ChangedButton != MouseButton.Left) return;
         // 不用 Window.DragMove() —— 它走 WM_SYSCOMMAND + SC_MOVE，受 Aero Snap 干预，
         // 窗口顶部拖到屏幕上沿时 OS 会把它"贴边 / 弹回"工作区，无法把截图上半部分推到屏幕外。
-        // WindowDragHelper.BeginDrag 直接 SetWindowPos，让位移 1:1 跟随鼠标
-        WindowDragHelper.BeginDrag(this);
+        // WindowDragHelper.BeginDrag 直接 SetWindowPos，让位移 1:1 跟随鼠标。
+        // 主窗每次 SetWindowPos 后通过 onMoved 把工具栏窗口按同样的 (dx, dy) 推过去，
+        // 让"图片 + 工具条"作为一个整体跟手，避免拖远后工具条还停在原地的视觉断层
+        _toolbarStartRectCaptured = false;
+        WindowDragHelper.BeginDrag(this, onMoved: (dx, dy) =>
+        {
+            if (_toolbarWindow is null) return;
+            ApplyToolbarFollowOffset(_toolbarWindow, dx, dy);
+        });
+    }
+
+    /// <summary>主窗拖动时同步把工具条挪过去。
+    ///
+    /// 用拖动起点缓存的 startRect 而不是当前 GetWindowRect 累加 —— 前者保证累计位移精确，
+    /// 后者会因为拖动期间各种事件抢调度产生漂移；这里在第一次回调时缓存一次起点 rect，
+    /// 之后每次都按 (start + delta) 重置，避免错位扩散</summary>
+    private NativeMethods.RECT _toolbarStartRectForDrag;
+    private bool _toolbarStartRectCaptured;
+
+    private void ApplyToolbarFollowOffset(ScreenshotPreviewToolbarWindow tb, int dx, int dy)
+    {
+        var hwnd = new WindowInteropHelper(tb).Handle;
+        if (hwnd == IntPtr.Zero) return;
+
+        if (!_toolbarStartRectCaptured)
+        {
+            if (!NativeMethods.GetWindowRect(hwnd, out var rect)) return;
+            _toolbarStartRectForDrag = rect;
+            _toolbarStartRectCaptured = true;
+        }
+        NativeMethods.SetWindowPos(
+            hwnd,
+            IntPtr.Zero,
+            _toolbarStartRectForDrag.Left + dx,
+            _toolbarStartRectForDrag.Top + dy,
+            0, 0,
+            NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)
@@ -337,12 +363,24 @@ internal partial class ScreenshotPreviewWindow : Window
 
     /// <summary>工具栏按钮触发：写入剪贴板。toastSink 由工具条传入自己的 ShowLocalToast，
     /// 让反馈贴近按钮位置而不是飘到主窗中央；null 时静默成功，仅在异常时记日志。
-    /// 有标注时合成 PreviewImage + AnnotationCanvas 再编码为 PNG；无标注时走原 PNG 字节，零开销</summary>
+    /// 有标注时合成 PreviewImage + AnnotationCanvas 再编码为 PNG；无标注时走原 PNG 字节，零开销。
+    ///
+    /// 异步路径拆分：
+    /// 1) UI 线程跑 RenderTargetBitmap.Render —— Visual 树访问必须 UI 线程，无法卸载；
+    /// 2) Freeze 让 BitmapSource 跨线程安全后切到 Task.Run；
+    /// 3) 后台线程 PngBitmapEncoder.Save 把字节编出来；
+    /// 4) 回 UI 线程写剪贴板 + toast。
+    /// 这样大图 + 大量标注时 PngEncode 不再阻塞 UI</summary>
     public void CommandCopy(Action<string>? toastSink = null)
+    {
+        _ = CommandCopyAsync(toastSink);
+    }
+
+    private async Task CommandCopyAsync(Action<string>? toastSink)
     {
         try
         {
-            var bytes = ResolveOutputPngBytes();
+            var bytes = await ResolveOutputPngBytesAsync().ConfigureAwait(true);
             _clipboard.SetImagePngBytes(bytes);
             toastSink?.Invoke("截图已复制");
         }
@@ -354,7 +392,9 @@ internal partial class ScreenshotPreviewWindow : Window
     }
 
     /// <summary>工具栏按钮触发：弹保存对话框。
-    /// 注意：SaveFileDialog 是模态对话框，Owner 给 this 即可保证置顶位置不偏</summary>
+    /// 注意：SaveFileDialog 是模态对话框，Owner 给 this 即可保证置顶位置不偏。
+    /// 落盘路径：UI 线程 RenderTargetBitmap → 后台 PngEncode + WriteAllBytesAsync → UI toast，
+    /// 避免大图 PngEncode + 文件写入阻塞 UI</summary>
     public void CommandSave(Action<string>? toastSink = null)
     {
         var dialog = new SaveFileDialog
@@ -367,11 +407,15 @@ internal partial class ScreenshotPreviewWindow : Window
         };
 
         if (dialog.ShowDialog(this) != true) return;
+        _ = CommandSaveAsync(dialog.FileName, toastSink);
+    }
 
+    private async Task CommandSaveAsync(string filePath, Action<string>? toastSink)
+    {
         try
         {
-            var bytes = ResolveOutputPngBytes();
-            File.WriteAllBytes(dialog.FileName, bytes);
+            var bytes = await ResolveOutputPngBytesAsync().ConfigureAwait(true);
+            await File.WriteAllBytesAsync(filePath, bytes).ConfigureAwait(true);
             toastSink?.Invoke("截图已保存");
         }
         catch (Exception ex)
@@ -382,18 +426,25 @@ internal partial class ScreenshotPreviewWindow : Window
     }
 
     /// <summary>把 PreviewImage + AnnotationCanvas 合成为带标注的最终 PNG。
-    /// 无标注时直接复用原 _pngBytes，避免无谓的编解码消耗</summary>
-    private byte[] ResolveOutputPngBytes()
+    /// 无标注时直接复用原 _pngBytes，避免无谓的编解码消耗。
+    ///
+    /// 必须从 UI 线程调用：RenderTargetBitmap.Render 访问 Visual 树。
+    /// Render 完成后 RenderTargetBitmap 已 Freeze，可安全跨线程；PngBitmapEncoder.Save 切到
+    /// Task.Run 后台线程，让 UI 在编码期间继续响应（鼠标拖动 / Hover 反馈不冻结）</summary>
+    private async Task<byte[]> ResolveOutputPngBytesAsync()
     {
         if (_annotationStore.Items.Count == 0 || _annotationController is null) return _pngBytes;
         if (PreviewImage.Source is not BitmapSource source) return _pngBytes;
 
         var bmp = _annotationController.RenderComposite(source);
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(bmp));
-        using var ms = new MemoryStream();
-        encoder.Save(ms);
-        return ms.ToArray();
+        return await Task.Run(() =>
+        {
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bmp));
+            using var ms = new MemoryStream();
+            encoder.Save(ms);
+            return ms.ToArray();
+        }).ConfigureAwait(false);
     }
 
     /// <summary>工具栏按钮触发：切换到 OCR 识别。
@@ -440,14 +491,37 @@ internal partial class ScreenshotPreviewWindow : Window
 
     /// <summary>工具栏按钮触发：把当前预览的截图钉到桌面。
     /// 钉成功后关闭本预览窗，让"截图预览 → 钉图"切换在视觉上像是"原地变成钉图"。
-    /// Coordinator 通过 onPinRequested 回调拿到当前图像物理 rect，创建 PinnedScreenshotWindow 并定位</summary>
+    /// Coordinator 通过 onPinRequested 回调拿到当前图像物理 rect + 已合成 PNG 字节，
+    /// 创建 PinnedScreenshotWindow 并定位</summary>
     public void CommandPin()
     {
         if (_onPinRequested is null) return;
-        var anchor = GetCurrentImagePhysicalRect();
-        try { _onPinRequested(anchor); }
-        catch (Exception ex) { _log.Warn("screenshot pin request failed", ("err", ex.Message)); return; }
-        // 钉图已在原位创建，关掉本预览避免两个一模一样的窗口叠在一起
+        _ = CommandPinAsync();
+    }
+
+    /// <summary>异步路径：先把 PreviewImage + AnnotationCanvas 合成成最终 PNG（含所有已绘标注），
+    /// 再回调创建 PinnedScreenshotWindow。这样钉到桌面的图像与预览里看到的内容完全一致。
+    ///
+    /// 拆 async 方法是因为 CommandPin 由按钮 Click 同步调用，不能直接 await ——
+    /// fire-and-forget 调度让按钮点击立即返回，UI 不会因为大图 PngEncode 卡住</summary>
+    private async Task CommandPinAsync()
+    {
+        try
+        {
+            var anchor = GetCurrentImagePhysicalRect();
+            // ResolveOutputPngBytesAsync 在无标注时直接返回原 _pngBytes（零拷贝快路径），
+            // 有标注时走 RenderTargetBitmap 合成 + 后台线程 PngEncode，让 UI 在编码期间不卡顿
+            var bytes = await ResolveOutputPngBytesAsync().ConfigureAwait(true);
+            _onPinRequested!(anchor, bytes);
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("screenshot pin request failed", ("err", ex.Message));
+            return;
+        }
+        // 钉图已在原位创建，关掉本预览避免两个一模一样的窗口叠在一起。
+        // Close 必须在合成 + 回调完成之后做：合成走 RenderTargetBitmap 依赖 PreviewImage Visual 树，
+        // 先 Close 会让 Visual 进入 Unloaded 状态，下游合成路径会读到空图
         Close();
     }
 
@@ -474,101 +548,6 @@ internal partial class ScreenshotPreviewWindow : Window
     public AnnotationToolOptions AnnotationOptions => _annotationOptions;
     public AnnotationStore AnnotationStore => _annotationStore;
     public bool AnnotationMode => _annotationMode;
-
-    // ============= 隐私扫描提示接口（M4） =============
-
-    /// <summary>由 OcrCaptureCoordinator 在后台 OCR + PrivacyScanner 完成后调用：
-    /// 用红色虚线框在 PrivacyHintCanvas 上提示命中区，并把工具栏的"一键打码"按钮变为可用状态。
-    /// 提示坐标系：hits 给的是图像像素坐标（左上原点），需要按 PreviewImage DIP 比例换算。
-    /// 没有命中时不调用本方法即可（PrivacyBanner 默认 Collapsed）</summary>
-    public void ShowPrivacyHints(
-        IReadOnlyList<PrivacyHit> hits,
-        int sourceImagePixelWidth,
-        int sourceImagePixelHeight,
-        int mosaicBlockSize)
-    {
-        if (hits is null || hits.Count == 0)
-        {
-            ClearPrivacyHints();
-            return;
-        }
-        _privacyHits = hits;
-        _privacyMosaicBlockSize = mosaicBlockSize <= 0 ? 12 : mosaicBlockSize;
-
-        PrivacyHintCanvas.Children.Clear();
-        // 把图像像素 → DIP：PreviewImage 的 DIP 大小由 BitmapSource 自带 DPI 决定，
-        // 等价于 sourceImagePixelWidth × 96 / dpiX。这里用 ActualWidth 直接换算更稳，
-        // 避免 BitmapSource DPI 与 anchorDpi 同步脱节
-        double dipW = PreviewImage.ActualWidth > 0 ? PreviewImage.ActualWidth : sourceImagePixelWidth;
-        double dipH = PreviewImage.ActualHeight > 0 ? PreviewImage.ActualHeight : sourceImagePixelHeight;
-        double scaleX = sourceImagePixelWidth <= 0 ? 1 : dipW / sourceImagePixelWidth;
-        double scaleY = sourceImagePixelHeight <= 0 ? 1 : dipH / sourceImagePixelHeight;
-
-        foreach (var h in hits)
-        {
-            var rect = new WpfRectangle
-            {
-                Width = Math.Max(1, h.Width * scaleX),
-                Height = Math.Max(1, h.Height * scaleY),
-                Stroke = new SolidColorBrush(Color.FromArgb(0xFF, 0xE5, 0x39, 0x35)),
-                StrokeThickness = 2,
-                StrokeDashArray = new DoubleCollection { 4, 2 },
-                Fill = new SolidColorBrush(Color.FromArgb(0x30, 0xE5, 0x39, 0x35)),
-                IsHitTestVisible = false,
-            };
-            Canvas.SetLeft(rect, h.Left * scaleX);
-            Canvas.SetTop(rect, h.Top * scaleY);
-            PrivacyHintCanvas.Children.Add(rect);
-        }
-
-        PrivacyBannerText.Text = $"⚠ 检测到 {hits.Count} 处疑似敏感信息，可一键打码";
-        PrivacyBanner.Visibility = Visibility.Visible;
-        _toolbarWindow?.SetPrivacyMosaicEnabled(true);
-    }
-
-    /// <summary>清掉隐私提示画面 + 让工具栏一键打码按钮回到 disabled。
-    /// 在用户已"一键打码"或主动忽略后调用</summary>
-    public void ClearPrivacyHints()
-    {
-        _privacyHits = null;
-        PrivacyHintCanvas.Children.Clear();
-        PrivacyBanner.Visibility = Visibility.Collapsed;
-        _toolbarWindow?.SetPrivacyMosaicEnabled(false);
-    }
-
-    /// <summary>把当前所有隐私命中区作为 Mosaic 标注批量加入 AnnotationStore。
-    /// 加入后清空隐私提示状态：用户能用 Ctrl+Z 撤销（每个命中区独立一条 Annotation，撤销逐条回退）。
-    /// 工具栏调用此方法</summary>
-    public void CommandApplyPrivacyMosaic(int blockSize)
-    {
-        if (_privacyHits is null || _privacyHits.Count == 0) return;
-        if (PreviewImage.Source is not BitmapSource src) return;
-
-        double dipW = PreviewImage.ActualWidth > 0 ? PreviewImage.ActualWidth : src.PixelWidth;
-        double dipH = PreviewImage.ActualHeight > 0 ? PreviewImage.ActualHeight : src.PixelHeight;
-        double scaleX = src.PixelWidth <= 0 ? 1 : dipW / src.PixelWidth;
-        double scaleY = src.PixelHeight <= 0 ? 1 : dipH / src.PixelHeight;
-
-        // 为了能 Ctrl+Z 单独撤销每条命中，逐条 Add 到 store。Mosaic 渲染由 AnnotationRenderer
-        // 负责（裁剪源图像 → 缩小再用 NearestNeighbor 拉回 → ImageBrush 填充矩形）
-        var bs = blockSize <= 0 ? 12 : blockSize;
-        foreach (var h in _privacyHits)
-        {
-            var bounds = new Rect(
-                h.Left * scaleX,
-                h.Top * scaleY,
-                Math.Max(1, h.Width * scaleX),
-                Math.Max(1, h.Height * scaleY));
-            _annotationStore.Add(global::PopClip.App.UI.Annotation.Annotation.CreateMosaic(bounds, bs));
-        }
-
-        ClearPrivacyHints();
-    }
-
-    public bool HasPrivacyHits => _privacyHits is not null && _privacyHits.Count > 0;
-
-    /// <summary>由工具栏 OnPrivacyMosaicClicked 调用：用 host 缓存的 blockSize 应用到所有命中区</summary>
-    public void RequestApplyPrivacyMosaic() => CommandApplyPrivacyMosaic(_privacyMosaicBlockSize);
 
     /// <summary>读取当前截图图像在屏幕上的物理像素位置。
     /// 用 GetWindowRect 取窗口物理矩形，再加上 PreviewImage 相对 Window 的 DIP 偏移（含 4 DIP Margin + 2 DIP Frame BorderThickness），

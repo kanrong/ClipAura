@@ -465,10 +465,6 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
             ScreenshotSaveDirectoryBox.Text = _settings.ScreenshotSaveDirectory;
             ScreenshotFileNameTemplateBox.Text = _settings.ScreenshotFileNameTemplate;
             UpdateScreenshotFileNamePreview();
-
-            PrivacyScanEnabledBox.IsChecked = _settings.PrivacyScanEnabled;
-            PrivacyMosaicBlockSizeBox.Value = _settings.PrivacyMosaicBlockSize <= 0 ? 12 : _settings.PrivacyMosaicBlockSize;
-            PrivacyMinPixelBox.Value = _settings.PrivacyScanMinPixelEdge;
         }
         finally { _suspendCommit = prev; }
     }
@@ -1385,10 +1381,6 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         if (!string.IsNullOrEmpty(nameTpl)) _settings.ScreenshotFileNameTemplate = nameTpl;
         UpdateScreenshotFileNamePreview();
 
-        _settings.PrivacyScanEnabled = PrivacyScanEnabledBox.IsChecked == true;
-        _settings.PrivacyMosaicBlockSize = NumberBoxInt(PrivacyMosaicBlockSizeBox, _settings.PrivacyMosaicBlockSize, 4, 64);
-        _settings.PrivacyScanMinPixelEdge = NumberBoxInt(PrivacyMinPixelBox, _settings.PrivacyScanMinPixelEdge, 0, 2000);
-
         SaveAiSettings();
         RefreshToolbarPreview();
     }
@@ -1662,8 +1654,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
             DismissOnEscapeKeyBox, DismissOnNewSelectionBox, DismissOnActionInvokedBox,
             DismissOnTimeoutBox, FollowAccentColor, AiEnabledBox,
             TranslateInlineBox, ExplainEnabledBox, ScreenshotAutoOcrBox,
-            ScreenshotAutoSaveEnabledBox,
-            PrivacyScanEnabledBox);
+            ScreenshotAutoSaveEnabledBox);
         AttachRadio(BlacklistRadio, WhitelistRadio,
             DisplayIconAndText, DisplayIconOnly, DisplayTextOnly,
             SurfaceShadow, SurfaceBorder, SurfaceShadowAndBorder,
@@ -1679,8 +1670,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         AttachNumber(MinTextLengthBox, MaxTextLengthBox, PopupDelayBox, HoverDelayBox,
             DismissMouseLeaveDelayBox, DismissTimeoutMsBox,
             CornerRadiusBox, ButtonSpacingBox, ToolbarFontSizeBox, MaxActionsPerRowBox,
-            AiTimeoutBox, AiMaxOutputTokensBox,
-            PrivacyMosaicBlockSizeBox, PrivacyMinPixelBox);
+            AiTimeoutBox, AiMaxOutputTokensBox);
 
         // TextBox / PasswordBox：用 LostFocus 而不是 TextChanged，避免每个键盘字符都触发写盘
         AttachTextLostFocus(SearchEngineName, SearchUrlTemplate,

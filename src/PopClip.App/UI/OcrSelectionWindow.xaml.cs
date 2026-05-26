@@ -52,6 +52,14 @@ internal partial class OcrSelectionWindow : Window
     private int _virtualWidthPx;
     private int _virtualHeightPx;
 
+    /// <summary>缓存上一次 UpdateHint 时的尺寸文本三元组（宽 / 高 / 模式），让 60~120 Hz 的 MouseMove
+    /// 中实际像素未变化的帧跳过 TextBlock.Text 赋值 —— TextBlock.Text 改写会走 PropertyChanged / 
+    /// 文字测量重新计算，即便最终字符串完全一致也会触发布局，是 hot path 上不必要的开销。
+    /// SelectionMode 也参与判断，因为 WaitingForEnd 后缀会改变文本内容</summary>
+    private int _lastHintWidth = int.MinValue;
+    private int _lastHintHeight = int.MinValue;
+    private SelectionMode _lastHintMode = SelectionMode.Idle;
+
     /// <summary>选区完成事件：参数为物理像素矩形（包含 Left/Top/Width/Height）。
     /// 取消（ESC / 右键）时不触发；调用方应同时订阅 Cancelled 以做清理</summary>
     public event Action<WinRectangle>? RegionSelected;
@@ -298,13 +306,21 @@ internal partial class OcrSelectionWindow : Window
             return;
         }
         HintBorder.Visibility = Visibility.Visible;
+
+        // 仅在 (宽, 高, 模式) 三元组变化时才改 HintText.Text。
         // WaitingForEnd 状态下用户已经"单击设了起点"但还没确定终点 —— 这是一个非典型操作，
         // 第一次使用的用户容易困惑。在尺寸文本后附上"再次单击确认终点"的引导，
         // 让用户明确知道接下来该做什么。Dragging 状态下保持纯尺寸显示，不打扰
-        HintText.Text = _mode == SelectionMode.WaitingForEnd
-            ? $"{physical.Width} × {physical.Height} px · 再次单击确认终点"
-            : $"{physical.Width} × {physical.Height} px";
-        // 提示框跟随选区右下角；超出屏幕时翻到选区上方
+        if (physical.Width != _lastHintWidth || physical.Height != _lastHintHeight || _mode != _lastHintMode)
+        {
+            HintText.Text = $"{physical.Width} × {physical.Height}";
+            _lastHintWidth = physical.Width;
+            _lastHintHeight = physical.Height;
+            _lastHintMode = _mode;
+        }
+
+        // 提示框跟随选区右下角；超出屏幕时翻到选区上方。
+        // 位置必须每帧更新（鼠标移动选区右下角就变），无法靠相等性优化
         var px = selX + selW + 12;
         var py = selY + selH + 12;
         if (px + 200 > ActualWidth) px = Math.Max(8, selX);

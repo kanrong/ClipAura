@@ -18,7 +18,9 @@ namespace PopClip.App.UI;
 ///
 /// 与 ScreenshotPreviewWindow 的差异：
 /// - 不抢焦点：ShowActivated=False + WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW，不进 Alt+Tab；
-/// - 不依赖键盘 ESC 关闭：避免用户在前台编辑时误触；改用 Shift+ESC 或右键菜单关；
+/// - ESC 关闭：单 ESC 触发 Close。难点是 WS_EX_NOACTIVATE 阻塞键盘消息送到本窗的消息队列 ——
+///   解决办法是在用户主动点击钉图时临时摘掉该样式 + SetForegroundWindow，让窗口能收到 WM_KEYDOWN；
+///   失焦时（Deactivated）立刻把样式还回去，避免污染 Alt+Tab、避免抢前台
 /// - 多窗口共存：由 PinnedScreenshotManager 持有，关一个不影响其他实例；
 /// - 双击图像 → 触发 OCR 回调（与 ScreenshotPreviewWindow 的 CommandOcr 同款链路）；
 /// - Ctrl+滚轮缩放，10% ~ 400%；右键菜单提供 透明度 / 置顶 / 缩放 / 编辑 等。
@@ -84,11 +86,13 @@ internal partial class PinnedScreenshotWindow : Window
         // 初始位置在屏外，等 Loaded 后由 ShowAnchored 决定
         Left = -32000;
         Top = -32000;
+        SizeToContent = SizeToContent.WidthAndHeight;
 
         SourceInitialized += OnSourceInitialized;
         Loaded += OnLoaded;
         Closed += OnClosedInternal;
         KeyDown += OnKeyDown;
+        Deactivated += OnWindowDeactivated;
         Frame.MouseLeftButtonDown += OnFrameLeftButtonDown;
         PreviewImage.MouseLeftButtonDown += OnImageLeftButtonDown;
         MouseEnter += OnWindowMouseEnter;
@@ -144,6 +148,7 @@ internal partial class PinnedScreenshotWindow : Window
             Top = -32000;
             base.Show();
             UpdateLayout();
+            SizeToContent = SizeToContent.Manual;
         }
 
         var hwnd = new WindowInteropHelper(this).Handle;
@@ -156,8 +161,9 @@ internal partial class PinnedScreenshotWindow : Window
         int imageOffsetPxX = (int)Math.Round(imageOffsetDip.X * dpiScaleX);
         int imageOffsetPxY = (int)Math.Round(imageOffsetDip.Y * dpiScaleY);
 
-        int winWidthPx = (int)Math.Ceiling(ActualWidth * dpiScaleX);
-        int winHeightPx = (int)Math.Ceiling(ActualHeight * dpiScaleY);
+        var windowSizeDip = MeasureContentWindowSizeDip();
+        int winWidthPx = (int)Math.Ceiling(windowSizeDip.Width * dpiScaleX);
+        int winHeightPx = (int)Math.Ceiling(windowSizeDip.Height * dpiScaleY);
         int winLeftPx = anchorPhysical.Left - imageOffsetPxX;
         int winTopPx = anchorPhysical.Top - imageOffsetPxY;
 
@@ -174,6 +180,7 @@ internal partial class PinnedScreenshotWindow : Window
     private void OnFrameLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left) return;
+        EnsureKeyboardFocusable();
         WindowDragHelper.BeginDrag(this);
     }
 
@@ -188,14 +195,16 @@ internal partial class PinnedScreenshotWindow : Window
             CommandOcr();
             return;
         }
+        EnsureKeyboardFocusable();
         WindowDragHelper.BeginDrag(this);
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)
     {
-        // 按键传到本窗的前提是窗口拿到了焦点（被点击 / 右键菜单关闭后等场景）。
-        // Shift+Esc 关闭：避免与编辑应用的 Esc 冲突；普通 Esc 不响应
-        if (e.Key == Key.Escape && Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+        // 键盘消息能到这里的前提是用户刚点过钉图：EnsureKeyboardFocusable 把 WS_EX_NOACTIVATE 暂时摘了，
+        // SetForegroundWindow 让本窗成为前台 → WM_KEYDOWN 才会派发过来。失焦时由 OnWindowDeactivated
+        // 把样式加回去，保持"不进 Alt+Tab、不抢前台"的钉图初衷
+        if (e.Key == Key.Escape)
         {
             e.Handled = true;
             Close();
@@ -204,6 +213,51 @@ internal partial class PinnedScreenshotWindow : Window
         {
             e.Handled = true;
             CommandCopy();
+        }
+    }
+
+    /// <summary>把当前是否处于"已临时获得键盘焦点"的状态记下来。
+    /// true = WS_EX_NOACTIVATE 已被摘掉、窗口可接收键盘消息；false = 仍然是不可激活态。
+    /// 用 bool 而不是每次读 GWL_EXSTYLE，是因为 SetWindowLong 多次重复设置同样的值会触发
+    /// WM_STYLECHANGED / 重新计算非客户区，开销小但没必要</summary>
+    private bool _keyboardFocusedTemporarily;
+
+    /// <summary>临时把钉图窗升级为"可激活"，让 OS 把键盘消息送过来。
+    /// 实现路径：摘掉 WS_EX_NOACTIVATE → SetForegroundWindow → Focus()。这条路径只在用户主动
+    /// 点击钉图时触发，不会主动抢其它前台应用的焦点</summary>
+    private void EnsureKeyboardFocusable()
+    {
+        if (_keyboardFocusedTemporarily) return;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == 0) return;
+
+        var ex = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
+        if ((ex & NativeMethods.WS_EX_NOACTIVATE) != 0)
+        {
+            NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE, ex & ~NativeMethods.WS_EX_NOACTIVATE);
+        }
+        // SetForegroundWindow 在严格条件下才会成功（前台进程必须是当前进程 / 用户输入触发），
+        // 这里是用户鼠标点击场景，满足"输入驱动"条件，调用一般会成功
+        NativeMethods.SetForegroundWindow(hwnd);
+        Activate();
+        Focus();
+        _keyboardFocusedTemporarily = true;
+    }
+
+    /// <summary>窗口失去焦点（点到桌面 / 其他应用 / 别的钉图）时立刻恢复 WS_EX_NOACTIVATE：
+    /// 让钉图回到"不进 Alt+Tab、点击其他窗口时不抢焦"的默认行为。
+    /// 不在 LostKeyboardFocus 而在 Deactivated 上做：前者只跟踪 WPF 内部键盘焦点，会被弹出菜单等触发，
+    /// 后者只在 Win32 层窗口真的失活时触发，更准</summary>
+    private void OnWindowDeactivated(object? sender, EventArgs e)
+    {
+        if (!_keyboardFocusedTemporarily) return;
+        _keyboardFocusedTemporarily = false;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == 0) return;
+        var ex = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
+        if ((ex & NativeMethods.WS_EX_NOACTIVATE) == 0)
+        {
+            NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE, ex | NativeMethods.WS_EX_NOACTIVATE);
         }
     }
 
@@ -236,12 +290,47 @@ internal partial class PinnedScreenshotWindow : Window
         var clamped = Math.Max(0.1, Math.Min(4.0, newScale));
         _scale = clamped;
         // PreviewImage 控件大小：1:1 物理像素 = pixelWidth * 96 / dpi DIP；缩放再乘 _scale。
-        // SizeToContent=Manual + Window 自动跟随 Image 大小（外层 Border 没有 Width 显式约束，
-        // 渲染时 Border 会按内容 desired size 测量，Window 也跟着 grow）
         var dipW = _imagePixelWidth * 96.0 / _anchorDpiX * _scale;
         var dipH = _imagePixelHeight * 96.0 / _anchorDpiY * _scale;
         PreviewImage.Width = dipW;
         PreviewImage.Height = dipH;
+
+        // 缩放改 Image.Width/Height 后让 Window hwnd 跟随内容收缩 / 扩张。
+        // 不调这一步的话 hwnd 还停留在最初 ShowAtAnchor 设的大小，Frame 看着是紧贴图片
+        // （HorizontalAlignment / VerticalAlignment = Center），但 hwnd 未占用区域既显示透明
+        // 又能被点击穿透到桌面，给用户"边框上下有多余的细线、空白处鼠标穿过去"的错觉
+        SyncWindowSizeToContent();
+    }
+
+    /// <summary>把 hwnd 物理尺寸刷成"内容 desired size × DPI"，保持窗口左上不变。
+    /// 拖动 / 跨屏后窗口仍按原 anchorDpi 换算，与"图像 1:1 显示"的语义一致。</summary>
+    private void SyncWindowSizeToContent()
+    {
+        if (!IsLoaded) return;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == 0) return;
+        if (!NativeMethods.GetWindowRect(hwnd, out var rect)) return;
+
+        double dpiScaleX = _anchorDpiX / 96.0;
+        double dpiScaleY = _anchorDpiY / 96.0;
+        var windowSizeDip = MeasureContentWindowSizeDip();
+        int winWidthPx = (int)Math.Ceiling(windowSizeDip.Width * dpiScaleX);
+        int winHeightPx = (int)Math.Ceiling(windowSizeDip.Height * dpiScaleY);
+        WindowStyleHelper.ShowNoActivate(hwnd, rect.Left, rect.Top, Math.Max(1, winWidthPx), Math.Max(1, winHeightPx));
+    }
+
+    /// <summary>按内容重新测量钉图窗口尺寸，避免透明 hwnd 沿用旧的大尺寸。</summary>
+    private Size MeasureContentWindowSizeDip()
+    {
+        RootChrome.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var desired = RootChrome.DesiredSize;
+        if (desired.Width > 0 && desired.Height > 0) return desired;
+
+        var border = Frame.BorderThickness;
+        var margin = RootChrome.Margin;
+        return new Size(
+            PreviewImage.Width + border.Left + border.Right + margin.Left + margin.Right,
+            PreviewImage.Height + border.Top + border.Bottom + margin.Top + margin.Bottom);
     }
 
     private void ApplyOpacity()

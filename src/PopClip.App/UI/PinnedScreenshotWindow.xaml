@@ -29,13 +29,17 @@
         </Style>
     </Window.Resources>
 
-    <!-- 外层 4 DIP 阴影边距与 ScreenshotPreviewWindow 对齐 -->
-    <Grid Margin="4">
+    <!-- 外层 4 DIP 阴影边距与 ScreenshotPreviewWindow 对齐。
+         Frame 同时设置 HorizontalAlignment / VerticalAlignment = Center —— 让 Border 严格紧贴
+         PreviewImage 内容尺寸：当 Window hwnd 实际大小 > 内容时，Border 不再被两侧拉伸，
+         避免出现"图上下有多余边框线、空白区鼠标穿透"的视觉断层 -->
+    <Grid x:Name="RootChrome" Margin="4">
         <Border x:Name="Frame"
                 BorderBrush="{DynamicResource ToolbarAccentSoft}"
                 BorderThickness="2"
                 Background="Transparent"
                 HorizontalAlignment="Center"
+                VerticalAlignment="Center"
                 Cursor="SizeAll">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="6" ShadowDepth="1.5" Direction="270" Opacity="0.28" Color="Black" />
@@ -68,7 +72,7 @@
                                 <MenuItem x:Name="MenuScale400"  Header="400%"  IsCheckable="True" Click="OnScaleClicked" Tag="4.0" Style="{StaticResource PinnedMenuItemStyle}" />
                             </MenuItem>
                             <Separator />
-                            <MenuItem x:Name="MenuClose" Header="关闭 (Shift+Esc)" Click="OnMenuCloseClicked" Style="{StaticResource PinnedMenuItemStyle}" />
+                            <MenuItem x:Name="MenuClose" Header="关闭 (Esc)" Click="OnMenuCloseClicked" Style="{StaticResource PinnedMenuItemStyle}" />
                         </ContextMenu>
                     </Image.ContextMenu>
                 </Image>

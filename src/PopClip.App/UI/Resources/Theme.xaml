@@ -8,7 +8,9 @@
     <!-- 细边框颜色与主体背景同色相近，避免圆角处对比过强产生"硬切感" -->
     <SolidColorBrush x:Key="ToolbarLightBorder" Color="#D9DEE6" Opacity="1" />
     <SolidColorBrush x:Key="ToolbarLightForeground" Color="#1E2329" />
-    <SolidColorBrush x:Key="ToolbarLightHover" Color="#EEF2F6" />
+    <!-- Hover 与 ToastBackground / Background 的色差刻意拉到 ~15% 明度档，
+         旧值 #EEF2F6 与 toast #EFF6FF 只差几位 RGB，hover 反馈几乎不可见 -->
+    <SolidColorBrush x:Key="ToolbarLightHover" Color="#DCE5F0" />
     <SolidColorBrush x:Key="ToolbarLightAccentSoft" Color="#DCEAFF" />
     <SolidColorBrush x:Key="ToolbarLightToastBackground" Color="#EFF6FF" />
     <SolidColorBrush x:Key="ToolbarLightSeparator" Color="#D9DEE6" />
@@ -18,7 +20,9 @@
     <!-- 深色圆角边缘不能用高对比实线，否则 WPF 的圆角抗锯齿像素会显得发硬。 -->
     <SolidColorBrush x:Key="ToolbarDarkBorder" Color="#3F4650" Opacity="0.82" />
     <SolidColorBrush x:Key="ToolbarDarkForeground" Color="#F2F4F7" />
-    <SolidColorBrush x:Key="ToolbarDarkHover" Color="#363D46" />
+    <!-- 深色主题同理：hover #363D46 与 toast #313842 仅差 5 个 RGB，
+         需提亮到 #475368 让按钮在 hover 时与底板拉开明显层级 -->
+    <SolidColorBrush x:Key="ToolbarDarkHover" Color="#475368" />
     <SolidColorBrush x:Key="ToolbarDarkAccentSoft" Color="#2E4661" />
     <SolidColorBrush x:Key="ToolbarDarkToastBackground" Color="#313842" Opacity="1" />
     <SolidColorBrush x:Key="ToolbarDarkSeparator" Color="#3F4650" Opacity="0.82" />
@@ -36,12 +40,15 @@
            Separator   - 分割线，目前与 Border 一致
          ============================================================ -->
 
+    <!-- 各彩色主题的 Hover 统一调亮一档，与 ToastBackground 拉开 ~15% 的亮度差
+         （旧值 hover-toast 差 5~8 个 RGB，hover 反馈极弱，所有主题统一加强） -->
+
     <!-- 青瓷蓝：浅青绿文字 #99D3D4 配深海蓝背景 #113974 -->
     <SolidColorBrush x:Key="ToolbarQingciBlueBackground" Color="#113974" Opacity="0.98" />
     <SolidColorBrush x:Key="ToolbarQingciBlueShadow" Color="#000000" Opacity="0.20" />
     <SolidColorBrush x:Key="ToolbarQingciBlueBorder" Color="#1E4F8E" Opacity="1" />
     <SolidColorBrush x:Key="ToolbarQingciBlueForeground" Color="#C7E5E6" />
-    <SolidColorBrush x:Key="ToolbarQingciBlueHover" Color="#1B4A8A" />
+    <SolidColorBrush x:Key="ToolbarQingciBlueHover" Color="#2A66B5" />
     <SolidColorBrush x:Key="ToolbarQingciBlueAccentSoft" Color="#2A6DA8" />
     <SolidColorBrush x:Key="ToolbarQingciBlueToastBackground" Color="#16407E" />
     <SolidColorBrush x:Key="ToolbarQingciBlueSeparator" Color="#1E4F8E" />
@@ -51,7 +58,7 @@
     <SolidColorBrush x:Key="ToolbarDeepInkGreenShadow" Color="#000000" Opacity="0.20" />
     <SolidColorBrush x:Key="ToolbarDeepInkGreenBorder" Color="#3F6E5F" Opacity="1" />
     <SolidColorBrush x:Key="ToolbarDeepInkGreenForeground" Color="#E2EBB7" />
-    <SolidColorBrush x:Key="ToolbarDeepInkGreenHover" Color="#3A6657" />
+    <SolidColorBrush x:Key="ToolbarDeepInkGreenHover" Color="#508472" />
     <SolidColorBrush x:Key="ToolbarDeepInkGreenAccentSoft" Color="#5A8266" />
     <SolidColorBrush x:Key="ToolbarDeepInkGreenToastBackground" Color="#315E51" />
     <SolidColorBrush x:Key="ToolbarDeepInkGreenSeparator" Color="#3F6E5F" />
@@ -61,7 +68,7 @@
     <SolidColorBrush x:Key="ToolbarMistyGreenShadow" Color="#000000" Opacity="0.18" />
     <SolidColorBrush x:Key="ToolbarMistyGreenBorder" Color="#7AA083" Opacity="1" />
     <SolidColorBrush x:Key="ToolbarMistyGreenForeground" Color="#FBF1DC" />
-    <SolidColorBrush x:Key="ToolbarMistyGreenHover" Color="#779B81" />
+    <SolidColorBrush x:Key="ToolbarMistyGreenHover" Color="#90B79E" />
     <SolidColorBrush x:Key="ToolbarMistyGreenAccentSoft" Color="#8FB498" />
     <SolidColorBrush x:Key="ToolbarMistyGreenToastBackground" Color="#71957B" />
     <SolidColorBrush x:Key="ToolbarMistyGreenSeparator" Color="#7AA083" />
@@ -71,7 +78,7 @@
     <SolidColorBrush x:Key="ToolbarSunsetRoseShadow" Color="#000000" Opacity="0.20" />
     <SolidColorBrush x:Key="ToolbarSunsetRoseBorder" Color="#A04960" Opacity="1" />
     <SolidColorBrush x:Key="ToolbarSunsetRoseForeground" Color="#FFE2D5" />
-    <SolidColorBrush x:Key="ToolbarSunsetRoseHover" Color="#9B4258" />
+    <SolidColorBrush x:Key="ToolbarSunsetRoseHover" Color="#B85775" />
     <SolidColorBrush x:Key="ToolbarSunsetRoseAccentSoft" Color="#B25A72" />
     <SolidColorBrush x:Key="ToolbarSunsetRoseToastBackground" Color="#963E52" />
     <SolidColorBrush x:Key="ToolbarSunsetRoseSeparator" Color="#A04960" />
@@ -81,7 +88,7 @@
     <SolidColorBrush x:Key="ToolbarDistantMountainShadow" Color="#000000" Opacity="0.20" />
     <SolidColorBrush x:Key="ToolbarDistantMountainBorder" Color="#3D5169" Opacity="1" />
     <SolidColorBrush x:Key="ToolbarDistantMountainForeground" Color="#D5DBE5" />
-    <SolidColorBrush x:Key="ToolbarDistantMountainHover" Color="#374A5E" />
+    <SolidColorBrush x:Key="ToolbarDistantMountainHover" Color="#4D6886" />
     <SolidColorBrush x:Key="ToolbarDistantMountainAccentSoft" Color="#4A6481" />
     <SolidColorBrush x:Key="ToolbarDistantMountainToastBackground" Color="#314357" />
     <SolidColorBrush x:Key="ToolbarDistantMountainSeparator" Color="#3D5169" />
@@ -91,7 +98,7 @@
     <SolidColorBrush x:Key="ToolbarSandalwoodShadow" Color="#000000" Opacity="0.20" />
     <SolidColorBrush x:Key="ToolbarSandalwoodBorder" Color="#735346" Opacity="1" />
     <SolidColorBrush x:Key="ToolbarSandalwoodForeground" Color="#F2E1C2" />
-    <SolidColorBrush x:Key="ToolbarSandalwoodHover" Color="#6B4B3C" />
+    <SolidColorBrush x:Key="ToolbarSandalwoodHover" Color="#88634D" />
     <SolidColorBrush x:Key="ToolbarSandalwoodAccentSoft" Color="#8B6549" />
     <SolidColorBrush x:Key="ToolbarSandalwoodToastBackground" Color="#634537" />
     <SolidColorBrush x:Key="ToolbarSandalwoodSeparator" Color="#735346" />

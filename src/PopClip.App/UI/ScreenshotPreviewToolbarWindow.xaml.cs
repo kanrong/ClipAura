@@ -16,13 +16,17 @@ namespace PopClip.App.UI;
 /// - 内嵌的 Overlay 模式遮挡截图原内容；外接 Top/Bottom 又会被截图边界裁切。
 /// 独立 Window 一次性解决撑图 / 跨屏 / 拖动诉求，与 OcrResultToolbarWindow 走同一套路径。
 ///
+/// 跟随预览框拖动：当预览主窗 DragMove 时，host 调用 SyncPositionToHost 让工具条按相对偏移
+/// 同步移动，避免出现"图被拖远了，工具条还停在原地"的视觉断层。
+///
 /// 状态文案（DimensionText）由 host 推送过来；按钮回调全部委托给 host（CommandCopy/Save/Ocr/Close）。
 /// 工具条只是显示层，所有数据 / 副作用都在主窗内。
 ///
 /// 标注语义 v2（与 v1 区别）：
-/// - 基本绘制工具按钮（矩形 / 椭圆 / 直线 / 箭头 / 涂鸦 / 文本 / 马赛克 / 模糊 / 遮挡）
-///   不再藏在"编辑"子条里，而是直接放在主条第一行，点任一按钮即自动进入标注模式；
-/// - "编辑"按钮的语义改为"展开高级选项"（颜色 / 粗细 / Undo / Redo / 清空 / 完成），
+/// - 高频绘制工具（矩形 / 椭圆 / 箭头 / 画笔 / 文字 / 马赛克 / 实心遮挡）放在主行第一行，
+///   点任一按钮即自动进入标注模式；
+/// - 直线收纳到第二行高级面板（使用频次低）；
+/// - "编辑"按钮的语义为"展开高级选项"（直线 / 颜色 / 粗细 / Undo / Redo / 清空 / 完成），
 ///   与"标注模式是否激活"解耦 —— 标注模式由点击工具按钮自动进入，由"完成 / ESC"退出</summary>
 internal partial class ScreenshotPreviewToolbarWindow : Window
 {
@@ -94,15 +98,6 @@ internal partial class ScreenshotPreviewToolbarWindow : Window
 
     /// <summary>由 host 调用：当 Coordinator 没注入 PinnedScreenshotManager 时把按钮置灰</summary>
     public void SetPinEnabled(bool enabled) => PinButton.IsEnabled = enabled;
-
-    /// <summary>由 host 在隐私扫描完成 / 一键打码后调用，控制按钮可点状态</summary>
-    public void SetPrivacyMosaicEnabled(bool enabled) => PrivacyMosaicButton.IsEnabled = enabled;
-
-    private void OnPrivacyMosaicClicked(object sender, RoutedEventArgs e)
-    {
-        // host 端读 settings.PrivacyMosaicBlockSize 后再调底层 Command，保持单一职责
-        _host.RequestApplyPrivacyMosaic();
-    }
 
     // ============= 标注模式 =============
 
@@ -200,7 +195,6 @@ internal partial class ScreenshotPreviewToolbarWindow : Window
         SetSelected(ToolFreehandButton, mode && opts.Kind == AnnotationKind.Freehand);
         SetSelected(ToolTextButton, mode && opts.Kind == AnnotationKind.Text);
         SetSelected(ToolMosaicButton, mode && opts.Kind == AnnotationKind.Mosaic);
-        SetSelected(ToolBlurButton, mode && opts.Kind == AnnotationKind.Blur);
         SetSelected(ToolMaskButton, mode && opts.Kind == AnnotationKind.Mask);
 
         // "编辑"按钮：展开时给它一个 selected 视觉，与第一行视觉规则一致

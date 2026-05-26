@@ -249,20 +249,6 @@ public sealed class AppSettings
     /// 每次截图自动保存成功后 +1；ScreenshotAutoSaveCounterDate 不匹配时先归 0 再 +1</summary>
     public int ScreenshotAutoSaveCounter { get; set; }
 
-    // ================== 截图隐私自动识别 + 一键马赛克（M4） ==================
-    // 开启后，截图完成时后台跑一次 OCR + 正则规则集，命中文本块以红色虚线框提示在预览窗内，
-    // 用户在工具栏点"一键打码"批量将命中区写入标注层（mosaic）。默认关闭：避免每次截图都跑 OCR 增加 1~2 秒延迟
-
-    public bool PrivacyScanEnabled { get; set; } = false;
-
-    /// <summary>开启时仅当截图区域 ≥ 此像素阈值才扫描，避免极小截图浪费 OCR 时间。
-    /// 100 是经验值：再小的区域基本是图标 / 角标，不太可能含敏感信息</summary>
-    public int PrivacyScanMinPixelEdge { get; set; } = 100;
-
-    /// <summary>"一键打码"使用的马赛克像素块大小，与标注层 Mosaic 默认值保持一致；
-    /// 数字越大像素化越粗、越不可逆。默认 12 兼顾观感与隐私</summary>
-    public int PrivacyMosaicBlockSize { get; set; } = 12;
-
     /// <summary>是否启用"延时截图"全局热键。</summary>
     public bool EnableScreenshotDelayHotKey { get; set; } = true;
 

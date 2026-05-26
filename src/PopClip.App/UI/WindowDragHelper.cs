@@ -20,8 +20,12 @@ internal static class WindowDragHelper
 {
     /// <summary>从当前鼠标按下事件开始接管拖动。
     /// 调用方应在 MouseLeftButtonDown 事件里调，不需要在意 e.Handled。
-    /// 内部用 CaptureMouse + PreviewMouseMove 监听跟踪鼠标到 MouseUp / LostCapture 为止</summary>
-    public static void BeginDrag(Window window)
+    /// 内部用 CaptureMouse + PreviewMouseMove 监听跟踪鼠标到 MouseUp / LostCapture 为止。
+    ///
+    /// onMoved（可选）：每次主窗位置更新后回调，参数 (dx, dy) 是相对拖动起点的累计物理像素位移。
+    /// 用于联动跟随窗口（如截图预览主窗带动工具条 / 标注弹层一起搬家）—— 由调用方自行 SetWindowPos
+    /// 把 follower 按同样 dx/dy 推过去。直接用 dx/dy 而不是 follower 列表，避免本工具感知具体业务。</summary>
+    public static void BeginDrag(Window window, Action<int, int>? onMoved = null)
     {
         var hwnd = new WindowInteropHelper(window).Handle;
         if (hwnd == IntPtr.Zero) return;
@@ -66,6 +70,9 @@ internal static class WindowDragHelper
                 startRect.Top + dy,
                 0, 0,
                 NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
+            // follower 回调放在主窗 SetWindowPos 之后：让"跟随窗口"看上去和主窗同步抵达新位置，
+            // 中间不会出现"主窗动了一帧、follower 还在原地"的撕裂
+            try { onMoved?.Invoke(dx, dy); } catch { }
         };
 
         upHandler = (object s, MouseButtonEventArgs e) => Cleanup();

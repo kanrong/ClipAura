@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 
@@ -10,10 +9,9 @@ namespace PopClip.App.UI.Annotation;
 /// <summary>把 Annotation 渲染成 WPF FrameworkElement。
 /// 使用纯 WPF 原生形状 / 文字 / Path —— 不引入额外图像库。
 ///
-/// 马赛克 / 高斯模糊对源像素的依赖：
+/// 马赛克对源像素的依赖：
 /// - Mosaic：以源 BitmapSource 的对应区域为输入，预先生成"块大小=blockSize"的低分辨率位图，
 ///   再以 NearestNeighbor 拉回原大小作为 ImageBrush 填充矩形。
-/// - Blur：用 CroppedBitmap 截取源像素的对应区域，作为 Image 控件 + BlurEffect 显示。
 ///
 /// 设计动机：v1 方案不在像素层面回写源图，所有标注层都浮在 PreviewImage 之上，
 /// 复制 / 保存时再用 RenderTargetBitmap 把 PreviewImage + AnnotationCanvas 合成出最终 PNG。
@@ -36,7 +34,6 @@ internal static class AnnotationRenderer
             AnnotationKind.Freehand => CreateFreehand(a),
             AnnotationKind.Text => CreateText(a),
             AnnotationKind.Mosaic => CreateMosaic(a, sourceImage, imageWidthDip, imageHeightDip),
-            AnnotationKind.Blur => CreateBlur(a, sourceImage, imageWidthDip, imageHeightDip),
             AnnotationKind.Mask => CreateMask(a),
             _ => new System.Windows.Controls.Border(),
         };
@@ -109,9 +106,12 @@ internal static class AnnotationRenderer
         }
         var ux = dx / len;
         var uy = dy / len;
-        // 头部尺寸：粗细 1px → 头长 8 DIP；粗细 2px → 14；粗细 4px → 22
+        // 头部尺寸：明显尖锐的等腰三角形，底边 / 高 ≈ 0.80。
+        // 旧实现的 headHalfW = 3 + t*2.5 让底边宽度接近等边三角形，箭头偏胖、
+        // 在小图标上看更像"楔形涂鸦"而非"指示性箭头"；这里把 headHalfW 系数从 2.5 → 1.6
+        // 让等腰三角形底边收窄，箭头方向感更强，与 Snipaste / Snip & Sketch 同款比例
         var headLen = 5 + a.StrokeThickness * 4;
-        var headHalfW = 3 + a.StrokeThickness * 2.5;
+        var headHalfW = 2 + a.StrokeThickness * 1.6;
         var px = -uy;
         var py = ux;
         var headBaseX = end.X - ux * headLen;
@@ -168,57 +168,110 @@ internal static class AnnotationRenderer
 
     private static FrameworkElement CreateText(Annotation a)
     {
-        var border = new System.Windows.Controls.Border
-        {
-            Background = new SolidColorBrush(Color.FromArgb(0xC0, 0, 0, 0)),
-            CornerRadius = new CornerRadius(3),
-            Padding = new Thickness(4, 1, 4, 1),
-            IsHitTestVisible = false,
-        };
+        // 完成态文字只显示纯文字，不再叠黑色 / 任意背景色：
+        // 截图标注语义里"文字"应像写在原图上的笔迹，背景会盖掉用户截图原内容、显得突兀。
+        // 可读性问题在标注阶段交由用户改文字颜色 / 字号自行解决；如需类似"高亮便签"效果，
+        // 可叠加一个矩形标注。
+        //
+        // 字体策略：与 ShowTextInputAt 浮层完全一致 —— 都取 Application.Resources["ToolbarFontFamily"]
+        // （设置窗的"浮窗字体"）。这样用户在标注期间换字体设置，已落地的文字下一次 Repaint 也会跟着换，
+        // 与"主题切换文字字体"路径同语义。FontWeight=Bold：截图上的标记字常常压在彩色背景上，
+        // Bold 比 SemiBold 更"压得住"，与浮层输入态保持一致
         var tb = new TextBlock
         {
             Text = a.Text,
             Foreground = new SolidColorBrush(a.Color),
+            FontFamily = ResolveAnnotationFontFamily(),
             FontSize = a.FontSize <= 0 ? 16 : a.FontSize,
-            FontWeight = FontWeights.SemiBold,
+            FontWeight = FontWeights.Regular,
+            // 命中测试需放开：v2 文字工具支持"再次点击文本范围进入编辑"，
+            // 该入口由 AnnotationCanvasController 用 VisualTreeHelper.HitTest 找到 TextBlock
+            IsHitTestVisible = true,
         };
-        border.Child = tb;
-        Canvas.SetLeft(border, a.Bounds.X);
-        Canvas.SetTop(border, a.Bounds.Y);
-        return border;
+        Canvas.SetLeft(tb, a.Bounds.X);
+        Canvas.SetTop(tb, a.Bounds.Y);
+        return tb;
     }
 
-    /// <summary>马赛克：把源图对应区域用 8x8 / 12x12 / 16x16 像素块降采样后再以 NearestNeighbor 拉回原大小。
-    /// 实现细节：CroppedBitmap 截取源像素 → TransformedBitmap 缩小 → ImageBrush 填充矩形。
+    /// <summary>读取应用级 ToolbarFontFamily 资源作为标注字体；取不到时退回到中文 UI 字体回退链。
+    /// 与 AnnotationCanvasController.ResolveAnnotationFontFamily 完全等价 ——
+    /// 这里再写一份是因为 Renderer 是 static 工具类，不持有 controller 引用</summary>
+    private static FontFamily ResolveAnnotationFontFamily()
+    {
+        var app = System.Windows.Application.Current;
+        if (app is not null)
+        {
+            try
+            {
+                if (app.Resources["ToolbarFontFamily"] is FontFamily ff) return ff;
+            }
+            catch { }
+        }
+        return new FontFamily("Microsoft YaHei UI, Microsoft YaHei, 微软雅黑, PingFang SC, Segoe UI");
+    }
+
+    /// <summary>马赛克：把源图对应区域降采样为"块尺寸=blockSize"的低分辨率位图，再以 NearestNeighbor 拉回原大小。
+    ///
+    /// 算法演进：
+    ///  v0：TransformedBitmap + ScaleTransform 缩小 → WPF 自带 Fant 滤波先平均再插值，效果像高斯模糊；
+    ///  v1：CopyPixels + 块中心点单像素采样 + ImageBrush 拉回 → 色块颜色取决于块中心那 1 个像素，
+    ///       文字 / 边界附近的色块容易闪烁噪杂；并且 RenderOptions.BitmapScalingMode 设在 Brush 上
+    ///       生效不可靠，部分场景仍走线性插值，色块边界被柔化；
+    ///  v2（当前）：每块取所有源像素的算术平均色 + Image 控件承载 + 强保证 NearestNeighbor / EdgeMode.Aliased，
+    ///       与 FastStone Capture / Snipaste 的"经典像素化"语义一致 —— 色块过渡稳定、边界锋利。
     /// 该路径不修改源 BitmapSource，复制 / 保存时由 RenderTargetBitmap 合成最终像素</summary>
     private static FrameworkElement CreateMosaic(Annotation a, BitmapSource? source, double imageWidthDip, double imageHeightDip)
     {
-        var rect = new System.Windows.Shapes.Rectangle
+        var bounds = a.Bounds;
+        var shrunk = BuildMosaicBitmap(a, source, imageWidthDip, imageHeightDip);
+        if (shrunk is null)
         {
-            Width = Math.Max(0, a.Bounds.Width),
-            Height = Math.Max(0, a.Bounds.Height),
-            IsHitTestVisible = false,
-        };
-        Canvas.SetLeft(rect, a.Bounds.X);
-        Canvas.SetTop(rect, a.Bounds.Y);
+            // 源缺失 / 尺寸非法：退到灰色填充，至少让用户能看到马赛克区域被标记
+            var fallback = new System.Windows.Shapes.Rectangle
+            {
+                Width = Math.Max(0, bounds.Width),
+                Height = Math.Max(0, bounds.Height),
+                Fill = new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66)),
+                IsHitTestVisible = false,
+            };
+            Canvas.SetLeft(fallback, bounds.X);
+            Canvas.SetTop(fallback, bounds.Y);
+            return fallback;
+        }
 
-        var brush = BuildMosaicBrush(a, source, imageWidthDip, imageHeightDip);
-        rect.Fill = brush;
-        return rect;
+        // Image 控件承载缩小位图：比 Rectangle + ImageBrush 更可靠 —— BitmapScalingMode 是 attached property，
+        // 在 Image / Visual 上是强保证；EdgeMode.Aliased 关掉边缘反锯齿让色块边界锋利
+        var img = new System.Windows.Controls.Image
+        {
+            Source = shrunk,
+            Stretch = Stretch.Fill,
+            Width = Math.Max(0, bounds.Width),
+            Height = Math.Max(0, bounds.Height),
+            IsHitTestVisible = false,
+            SnapsToDevicePixels = false,
+            UseLayoutRounding = false,
+        };
+        RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.NearestNeighbor);
+        RenderOptions.SetEdgeMode(img, EdgeMode.Aliased);
+        Canvas.SetLeft(img, bounds.X);
+        Canvas.SetTop(img, bounds.Y);
+        return img;
     }
 
-    private static System.Windows.Media.Brush BuildMosaicBrush(Annotation a, BitmapSource? source, double imageWidthDip, double imageHeightDip)
+    /// <summary>把源图 a.Bounds 区域降采样成 smallW × smallH 的位图，每像素=对应块所有源像素颜色的算术平均。
+    /// 返回 null 表示源图缺失 / 区域非法，调用方走兜底渲染。
+    ///
+    /// 关键实现细节：
+    ///  - 块尺寸用"上取整"算 smallW/smallH，让右 / 下边不足 blockSize 的残块也能保留一行，
+    ///    否则 pxW=10, blockSize=12 时 smallW=0，整条边像素被吞；
+    ///  - 像素格式统一成 Bgra32，避免 16bpp / Indexed 等再走 FormatConvertedBitmap 路径；
+    ///  - 颜色累加用 long 而不是 int，防止大块 (blockSize≥256) 时 sumChannel 溢出。</summary>
+    private static BitmapSource? BuildMosaicBitmap(Annotation a, BitmapSource? source, double imageWidthDip, double imageHeightDip)
     {
-        // 兜底：源图缺失或区域非法时退到灰色填充，保持视觉一致避免穿帮
-        if (source is null || a.Bounds.Width < 1 || a.Bounds.Height < 1)
-        {
-            return new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66));
-        }
+        if (source is null || a.Bounds.Width < 1 || a.Bounds.Height < 1) return null;
 
         try
         {
-            // DIP → 源像素：sourceImage 在屏幕上的 DIP 尺寸 = imageWidthDip / Height；
-            // 像素 = DIP * (PixelWidth / DIP)
             var pxX = (int)Math.Round(a.Bounds.X * source.PixelWidth / Math.Max(1, imageWidthDip));
             var pxY = (int)Math.Round(a.Bounds.Y * source.PixelHeight / Math.Max(1, imageHeightDip));
             var pxW = (int)Math.Round(a.Bounds.Width * source.PixelWidth / Math.Max(1, imageWidthDip));
@@ -229,75 +282,64 @@ internal static class AnnotationRenderer
             pxH = Math.Clamp(pxH, 1, source.PixelHeight - pxY);
 
             var blockSize = Math.Max(2, a.MaskLevel == 0 ? 12 : a.MaskLevel);
-            // 缩小到 width/blockSize × height/blockSize；至少 1×1
-            var smallW = Math.Max(1, pxW / blockSize);
-            var smallH = Math.Max(1, pxH / blockSize);
+            var smallW = Math.Max(1, (pxW + blockSize - 1) / blockSize);
+            var smallH = Math.Max(1, (pxH + blockSize - 1) / blockSize);
 
             var cropped = new CroppedBitmap(source, new Int32Rect(pxX, pxY, pxW, pxH));
-            var scale = new ScaleTransform((double)smallW / pxW, (double)smallH / pxH);
-            var shrunk = new TransformedBitmap(cropped, scale);
+            BitmapSource bgra = cropped.Format == PixelFormats.Bgra32
+                ? cropped
+                : new FormatConvertedBitmap(cropped, PixelFormats.Bgra32, null, 0);
+
+            int srcStride = pxW * 4;
+            var srcPixels = new byte[srcStride * pxH];
+            bgra.CopyPixels(srcPixels, srcStride, 0);
+
+            int dstStride = smallW * 4;
+            var dstPixels = new byte[dstStride * smallH];
+
+            for (int sy = 0; sy < smallH; sy++)
+            {
+                int y0 = sy * blockSize;
+                int y1 = Math.Min(pxH, y0 + blockSize);
+                for (int sx = 0; sx < smallW; sx++)
+                {
+                    int x0 = sx * blockSize;
+                    int x1 = Math.Min(pxW, x0 + blockSize);
+
+                    long sumB = 0, sumG = 0, sumR = 0, sumA = 0;
+                    int count = 0;
+                    for (int y = y0; y < y1; y++)
+                    {
+                        int srcRow = y * srcStride;
+                        for (int x = x0; x < x1; x++)
+                        {
+                            int off = srcRow + x * 4;
+                            sumB += srcPixels[off];
+                            sumG += srcPixels[off + 1];
+                            sumR += srcPixels[off + 2];
+                            sumA += srcPixels[off + 3];
+                            count++;
+                        }
+                    }
+
+                    int dstOff = sy * dstStride + sx * 4;
+                    if (count > 0)
+                    {
+                        dstPixels[dstOff]     = (byte)(sumB / count);
+                        dstPixels[dstOff + 1] = (byte)(sumG / count);
+                        dstPixels[dstOff + 2] = (byte)(sumR / count);
+                        dstPixels[dstOff + 3] = (byte)(sumA / count);
+                    }
+                }
+            }
+
+            var shrunk = BitmapSource.Create(smallW, smallH, 96, 96, PixelFormats.Bgra32, null, dstPixels, dstStride);
             shrunk.Freeze();
-
-            var brush = new ImageBrush(shrunk)
-            {
-                Stretch = Stretch.Fill,
-                TileMode = TileMode.None,
-            };
-            RenderOptions.SetBitmapScalingMode(brush, BitmapScalingMode.NearestNeighbor);
-            brush.Freeze();
-            return brush;
+            return shrunk;
         }
         catch
         {
-            return new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66));
-        }
-    }
-
-    /// <summary>高斯模糊：用 CroppedBitmap 截取源像素 → Image 控件 + BlurEffect 显示。
-    /// 把 Image 装在 Border 内 + ClipToBounds=True，保证 BlurEffect 模糊像素仅在 Bounds 内可见</summary>
-    private static FrameworkElement CreateBlur(Annotation a, BitmapSource? source, double imageWidthDip, double imageHeightDip)
-    {
-        if (source is null || a.Bounds.Width < 1 || a.Bounds.Height < 1)
-        {
-            return CreateMask(Annotation.CreateMask(a.Bounds, Color.FromArgb(0xC0, 0x80, 0x80, 0x80)));
-        }
-        try
-        {
-            var pxX = (int)Math.Round(a.Bounds.X * source.PixelWidth / Math.Max(1, imageWidthDip));
-            var pxY = (int)Math.Round(a.Bounds.Y * source.PixelHeight / Math.Max(1, imageHeightDip));
-            var pxW = (int)Math.Round(a.Bounds.Width * source.PixelWidth / Math.Max(1, imageWidthDip));
-            var pxH = (int)Math.Round(a.Bounds.Height * source.PixelHeight / Math.Max(1, imageHeightDip));
-            pxX = Math.Clamp(pxX, 0, source.PixelWidth - 1);
-            pxY = Math.Clamp(pxY, 0, source.PixelHeight - 1);
-            pxW = Math.Clamp(pxW, 1, source.PixelWidth - pxX);
-            pxH = Math.Clamp(pxH, 1, source.PixelHeight - pxY);
-            var cropped = new CroppedBitmap(source, new Int32Rect(pxX, pxY, pxW, pxH));
-            cropped.Freeze();
-
-            var img = new System.Windows.Controls.Image
-            {
-                Source = cropped,
-                Stretch = Stretch.Fill,
-                Width = a.Bounds.Width,
-                Height = a.Bounds.Height,
-                Effect = new BlurEffect { Radius = a.MaskLevel == 0 ? 16 : a.MaskLevel, KernelType = KernelType.Gaussian },
-                IsHitTestVisible = false,
-            };
-            var border = new System.Windows.Controls.Border
-            {
-                Width = a.Bounds.Width,
-                Height = a.Bounds.Height,
-                ClipToBounds = true,
-                Child = img,
-                IsHitTestVisible = false,
-            };
-            Canvas.SetLeft(border, a.Bounds.X);
-            Canvas.SetTop(border, a.Bounds.Y);
-            return border;
-        }
-        catch
-        {
-            return CreateMask(Annotation.CreateMask(a.Bounds, Color.FromArgb(0xC0, 0x80, 0x80, 0x80)));
+            return null;
         }
     }
 

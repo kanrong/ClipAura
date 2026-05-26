@@ -14,25 +14,23 @@
         Title="截图预览"
         FontFamily="{DynamicResource ToolbarFontFamily}">
 
-    <!-- 主窗自身只渲染"截图 + 阴影边框"，工具条已拆成 ScreenshotPreviewToolbarWindow 独立子窗口。
+    <!-- 主窗自身只渲染"截图 + 边框"，工具条已拆成 ScreenshotPreviewToolbarWindow 独立子窗口。
          这样窄高 / 高长截图的主窗宽度严格 = 截图宽度，不会被工具条反推撑宽变形。
-         外层 Margin=4 给 DropShadow 留绘制空间；窗口总 DIP = 4*2 + Frame DIP。
-         Margin 之前用 14 是想给"BlurRadius=10/ShadowDepth=2"的阴影留足够余量，但实际把
-         "Frame 视觉上边"与"Window 边"拉开 14 DIP，用户拖动窗口时根本贴不到屏幕边，
-         也没法把窗口部分推到屏幕外（看到的总是 Window 边 + 14 DIP 之后的 Frame）。
-         现在压到 4 DIP + 极轻阴影（BlurRadius=4/Depth=1），Frame 几乎贴 Window 边 -->
-    <Grid Margin="4">
-        <!-- 主图边框：BorderBrush / 阴影强度与 OcrResultWindow 严格对齐，
-             两个窗口外观成一套设计语言。Cursor=SizeAll 让用户在主图任意位置都能 DragMove 整窗 -->
+         外层 Margin=2 仅给抗锯齿留极小余量；不再给 DropShadow 预留空间。
+         相比早期"BlurRadius=4/Depth=1 阴影 + 浅色边框"方案，整体观感更克制，
+         与 Snipaste 的纯描边风格一致 -->
+    <Grid Margin="2">
+        <!-- 主图边框：去掉 DropShadow 立体效果，仅保留一道实线描边。
+             颜色固定为深灰蓝 #5A6680，比浅色主题的 ToolbarAccentSoft 明显加深；
+             不依赖主题画刷，避免深色 / 彩色主题里边框颜色变浅与桌面分不清。
+             Cursor=SizeAll 让用户在主图任意位置都能 DragMove 整窗 -->
         <Border x:Name="Frame"
-                BorderBrush="{DynamicResource ToolbarAccentSoft}"
+                BorderBrush="#FF5A6680"
                 BorderThickness="2"
                 Background="Transparent"
                 HorizontalAlignment="Center"
+                VerticalAlignment="Center"
                 Cursor="SizeAll">
-            <Border.Effect>
-                <DropShadowEffect BlurRadius="4" ShadowDepth="1" Direction="270" Opacity="0.20" Color="Black" />
-            </Border.Effect>
             <Grid ClipToBounds="True">
                 <!-- Stretch=None 让 Image 控件 DIP = BitmapSource DIP；
                      BitmapSource 用 anchor monitor DPI 创建，保证 DIP × 屏幕 DPI = anchor 物理像素，
@@ -47,32 +45,6 @@
                         Background="Transparent"
                         IsHitTestVisible="False"
                         SnapsToDevicePixels="True" />
-                <!-- 隐私扫描提示层：与标注层并列，但完全独立。命中区由 PrivacyScanner 给出，
-                     画成红色虚线框只起视觉提示作用，不进入 AnnotationStore；
-                     用户在工具栏点"一键打码"时再把这些区域转成 Mosaic 写入 store。
-                     IsHitTestVisible=False 让所有交互（拖窗 / 标注）都不被它遮挡 -->
-                <Canvas x:Name="PrivacyHintCanvas"
-                        Background="Transparent"
-                        IsHitTestVisible="False"
-                        SnapsToDevicePixels="True" />
-                <!-- 隐私提示红条：截图顶部 8 DIP 处出现，命中数量随 OCR 完成动态填入。
-                     使用 Border + TextBlock，不放工具栏 —— 工具栏可能被用户拖到任意屏幕位置，
-                     提示必须紧贴截图本身才能让"哪张图有泄露"一目了然 -->
-                <Border x:Name="PrivacyBanner"
-                        VerticalAlignment="Top"
-                        HorizontalAlignment="Center"
-                        Margin="0,8,0,0"
-                        Padding="10,4"
-                        CornerRadius="6"
-                        Background="#E0E53935"
-                        BorderBrush="#FFFFFFFF"
-                        BorderThickness="1"
-                        Visibility="Collapsed"
-                        IsHitTestVisible="False">
-                    <TextBlock x:Name="PrivacyBannerText"
-                               Foreground="White"
-                               FontSize="12" />
-                </Border>
             </Grid>
         </Border>
     </Grid>

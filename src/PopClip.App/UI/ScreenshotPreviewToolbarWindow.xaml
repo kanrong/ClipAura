@@ -73,8 +73,12 @@
         </Grid.RowDefinitions>
 
         <!-- 主面板：一个 Border + StackPanel Vertical 两行布局
-             第一行（始终可见）：基本操作 + 9 个绘制工具 + 编辑切换 + 重新截图 / 关闭
-             第二行（点编辑按钮才展开）：颜色 / 粗细 / Undo / Redo / 清空 / 完成 -->
+             第一行（始终可见）：尺寸胶囊 + 绘制工具组 + 展开按钮 | OCR / 重新截图 | 复制 / 保存 / 钉图 | 关闭
+             第二行（点展开按钮才展开）：直线 / 颜色 / 粗细 / Undo / Redo / 清空 / 完成
+
+             分组语义：把"编辑相关"全部归到左侧（绘制工具 + 展开），中间是"切换类操作"（OCR / 重新截图），
+             右侧才是"输出类操作"（复制 / 保存 / 钉图）。这样视觉上从左到右是"修改 → 转换 → 导出"，
+             用户做完一个动作链顺手就能找到下一步入口 -->
         <Border x:Name="ToolbarBorder"
                 Grid.Row="0"
                 Padding="6,4"
@@ -87,20 +91,101 @@
                 <DropShadowEffect BlurRadius="8" ShadowDepth="1" Direction="270" Opacity="0.22" Color="Black" />
             </Border.Effect>
             <StackPanel x:Name="ToolbarRoot" Orientation="Vertical">
-                <!-- 第一行：基本操作 + 绘制工具 + 编辑切换 + 重新截图 / 关闭 -->
+                <!-- 第一行：尺寸胶囊（弱化）+ 绘制工具组 + 展开 | OCR / 重截 | 复制 / 保存 / 钉图 | 关闭 -->
                 <StackPanel x:Name="PrimaryRow" Orientation="Horizontal" VerticalAlignment="Center">
-                    <!-- 截图尺寸胶囊：与 OCR 工具栏 StatusPill 同款；DimensionText 由 host 在构造时填入 -->
-                    <Border Padding="9,3"
-                            Margin="0,0,4,0"
-                            Background="{DynamicResource ToolbarAccentSoft}"
-                            CornerRadius="10"
-                            Opacity="0.95">
+                    <!-- 尺寸胶囊：视觉降权 —— 去掉强调底色、降低不透明度 + 字号缩小，让它不抢按钮焦点
+                         背景留一个非常浅的描边而非 AccentSoft 实心填充，只在用户主动看时才进入视野 -->
+                    <Border Padding="7,2"
+                            Margin="2,0,6,0"
+                            BorderBrush="{DynamicResource ToolbarSeparator}"
+                            BorderThickness="1"
+                            CornerRadius="9"
+                            Opacity="0.55">
                         <TextBlock x:Name="DimensionText"
                                    Foreground="{DynamicResource ToolbarForeground}"
-                                   FontSize="11.5"
+                                   FontSize="10.5"
                                    VerticalAlignment="Center" />
                     </Border>
 
+                    <!-- ===== 左侧编辑组：高频绘制工具，点任一按钮自动进入标注模式
+                         双击矩形 / 椭圆切换"实心 / 空心" ===== -->
+                    <Button x:Name="ToolRectButton"
+                            Style="{StaticResource ScreenshotToolButtonStyle}"
+                            Click="OnToolButtonClicked"
+                            Tag="Rectangle"
+                            ToolTip="矩形（双击切换实心 / 空心，按住 Shift 强制正方形）">
+                        <iconPacks:PackIconMaterialDesign Kind="CropSquareRound" Width="16" Height="16" />
+                    </Button>
+                    <Button x:Name="ToolEllipseButton"
+                            Style="{StaticResource ScreenshotToolButtonStyle}"
+                            Click="OnToolButtonClicked"
+                            Tag="Ellipse"
+                            ToolTip="椭圆（双击切换实心 / 空心，按住 Shift 强制正圆）">
+                        <iconPacks:PackIconMaterialDesign Kind="PanoramaFishEyeRound" Width="16" Height="16" />
+                    </Button>
+                    <Button x:Name="ToolArrowButton"
+                            Style="{StaticResource ScreenshotToolButtonStyle}"
+                            Click="OnToolButtonClicked"
+                            Tag="Arrow"
+                            ToolTip="箭头">
+                        <iconPacks:PackIconMaterialDesign Kind="ArrowRightAltRound" Width="16" Height="16" />
+                    </Button>
+                    <Button x:Name="ToolFreehandButton"
+                            Style="{StaticResource ScreenshotToolButtonStyle}"
+                            Click="OnToolButtonClicked"
+                            Tag="Freehand"
+                            ToolTip="画笔">
+                        <iconPacks:PackIconMaterialDesign Kind="BrushRound" Width="16" Height="16" />
+                    </Button>
+                    <Button x:Name="ToolTextButton"
+                            Style="{StaticResource ScreenshotToolButtonStyle}"
+                            Click="OnToolButtonClicked"
+                            Tag="Text"
+                            ToolTip="文字（点位置后输入文字 / 点击文字外完成 / 再次点击文字可继续编辑）">
+                        <iconPacks:PackIconMaterialDesign Kind="TitleRound" Width="16" Height="16" />
+                    </Button>
+                    <Button x:Name="ToolMosaicButton"
+                            Style="{StaticResource ScreenshotToolButtonStyle}"
+                            Click="OnToolButtonClicked"
+                            Tag="Mosaic"
+                            ToolTip="马赛克（像素化）">
+                        <iconPacks:PackIconMaterialDesign Kind="GrainRound" Width="16" Height="16" />
+                    </Button>
+                    <!-- 实心遮挡按钮：用 WPF 原生 Rectangle 直接绘制实心方形，与"圆形 LensRound"区分语义 -->
+                    <Button x:Name="ToolMaskButton"
+                            Style="{StaticResource ScreenshotToolButtonStyle}"
+                            Click="OnToolButtonClicked"
+                            Tag="Mask"
+                            ToolTip="实心遮挡（纯色填充）">
+                        <Rectangle Width="14" Height="14" Fill="{DynamicResource ToolbarForeground}" />
+                    </Button>
+                    <!-- 展开高级选项按钮：紧跟绘制工具末尾，与"编辑组"自然成对 ——
+                         展开后第二行出现 直线 / 颜色 / 粗细 / Undo / Redo / 清空 / 完成 -->
+                    <Button x:Name="EditAnnotationButton"
+                            Style="{StaticResource ScreenshotToolButtonStyle}"
+                            Click="OnEditAnnotationClicked"
+                            ToolTip="展开高级选项（直线 / 颜色 / 粗细 / Undo / Redo / 清空）">
+                        <iconPacks:PackIconMaterialDesign Kind="TuneRound" Width="16" Height="16" />
+                    </Button>
+
+                    <Rectangle Style="{StaticResource ScreenshotToolbarSepStyle}" />
+
+                    <!-- ===== 中间切换组：OCR / 重新截图 ===== -->
+                    <Button Style="{StaticResource ScreenshotToolButtonStyle}"
+                            Click="OnOcrClicked"
+                            ToolTip="切换到 OCR 识别（识别当前截图，O）">
+                        <iconPacks:PackIconMaterialDesign Kind="DescriptionRound" Width="16" Height="16" />
+                    </Button>
+                    <Button x:Name="ReshootButton"
+                            Style="{StaticResource ScreenshotToolButtonStyle}"
+                            Click="OnReshootClicked"
+                            ToolTip="重新截图 · 关闭本预览并重新框选新的截图区域">
+                        <iconPacks:PackIconMaterialDesign Kind="CropFreeRound" Width="16" Height="16" />
+                    </Button>
+
+                    <Rectangle Style="{StaticResource ScreenshotToolbarSepStyle}" />
+
+                    <!-- ===== 右侧输出组：复制 / 保存 / 钉图 ===== -->
                     <Button Style="{StaticResource ScreenshotToolButtonStyle}"
                             Click="OnCopyClicked"
                             ToolTip="复制图片到剪贴板 (Ctrl+C)">
@@ -114,109 +199,8 @@
                     <Button x:Name="PinButton"
                             Style="{StaticResource ScreenshotToolButtonStyle}"
                             Click="OnPinClicked"
-                            ToolTip="钉到桌面 · 把截图固定为桌面置顶参考层">
+                            ToolTip="钉到桌面 · 把截图（含已绘制标注）固定为桌面置顶参考层">
                         <iconPacks:PackIconMaterialDesign Kind="PushPinRound" Width="16" Height="16" />
-                    </Button>
-                    <Button x:Name="PrivacyMosaicButton"
-                            Style="{StaticResource ScreenshotToolButtonStyle}"
-                            Click="OnPrivacyMosaicClicked"
-                            IsEnabled="False"
-                            ToolTip="一键打码 · 把检测到的敏感文本块批量打上马赛克">
-                        <iconPacks:PackIconMaterialDesign Kind="VisibilityOffRound" Width="16" Height="16" />
-                    </Button>
-
-                    <Rectangle Style="{StaticResource ScreenshotToolbarSepStyle}" />
-
-                    <!-- OCR 与 重新截图 -->
-                    <Button Style="{StaticResource ScreenshotToolButtonStyle}"
-                            Click="OnOcrClicked"
-                            ToolTip="切换到 OCR 识别（识别当前截图，O）">
-                        <iconPacks:PackIconMaterialDesign Kind="DocumentScannerRound" Width="16" Height="16" />
-                    </Button>
-                    <Button x:Name="ReshootButton"
-                            Style="{StaticResource ScreenshotToolButtonStyle}"
-                            Click="OnReshootClicked"
-                            ToolTip="重新截图 · 关闭本预览并重新框选新的截图区域">
-                        <iconPacks:PackIconMaterialDesign Kind="CropFreeRound" Width="16" Height="16" />
-                    </Button>
-
-                    <Rectangle Style="{StaticResource ScreenshotToolbarSepStyle}" />
-
-                    <!-- 基本绘制工具组：始终显示，点任意一个直接进入标注模式（无需先点编辑）
-                         双击矩形 / 椭圆切换"实心 / 空心" -->
-                    <Button x:Name="ToolRectButton"
-                            Style="{StaticResource ScreenshotToolButtonStyle}"
-                            Click="OnToolButtonClicked"
-                            Tag="Rectangle"
-                            ToolTip="矩形（双击切换实心 / 空心）">
-                        <iconPacks:PackIconMaterialDesign Kind="CropSquareRound" Width="16" Height="16" />
-                    </Button>
-                    <Button x:Name="ToolEllipseButton"
-                            Style="{StaticResource ScreenshotToolButtonStyle}"
-                            Click="OnToolButtonClicked"
-                            Tag="Ellipse"
-                            ToolTip="椭圆（双击切换实心 / 空心）">
-                        <iconPacks:PackIconMaterialDesign Kind="PanoramaFishEyeRound" Width="16" Height="16" />
-                    </Button>
-                    <Button x:Name="ToolLineButton"
-                            Style="{StaticResource ScreenshotToolButtonStyle}"
-                            Click="OnToolButtonClicked"
-                            Tag="Line"
-                            ToolTip="直线">
-                        <iconPacks:PackIconMaterialDesign Kind="HorizontalRuleRound" Width="16" Height="16" />
-                    </Button>
-                    <Button x:Name="ToolArrowButton"
-                            Style="{StaticResource ScreenshotToolButtonStyle}"
-                            Click="OnToolButtonClicked"
-                            Tag="Arrow"
-                            ToolTip="箭头">
-                        <iconPacks:PackIconMaterialDesign Kind="ArrowRightAltRound" Width="16" Height="16" />
-                    </Button>
-                    <Button x:Name="ToolFreehandButton"
-                            Style="{StaticResource ScreenshotToolButtonStyle}"
-                            Click="OnToolButtonClicked"
-                            Tag="Freehand"
-                            ToolTip="自由涂鸦">
-                        <iconPacks:PackIconMaterialDesign Kind="GestureRound" Width="16" Height="16" />
-                    </Button>
-                    <Button x:Name="ToolTextButton"
-                            Style="{StaticResource ScreenshotToolButtonStyle}"
-                            Click="OnToolButtonClicked"
-                            Tag="Text"
-                            ToolTip="文本（点位置后输入文字 / 回车确认 / Esc 取消）">
-                        <iconPacks:PackIconMaterialDesign Kind="TextFieldsRound" Width="16" Height="16" />
-                    </Button>
-                    <Button x:Name="ToolMosaicButton"
-                            Style="{StaticResource ScreenshotToolButtonStyle}"
-                            Click="OnToolButtonClicked"
-                            Tag="Mosaic"
-                            ToolTip="马赛克（像素化）">
-                        <iconPacks:PackIconMaterialDesign Kind="GrainRound" Width="16" Height="16" />
-                    </Button>
-                    <Button x:Name="ToolBlurButton"
-                            Style="{StaticResource ScreenshotToolButtonStyle}"
-                            Click="OnToolButtonClicked"
-                            Tag="Blur"
-                            ToolTip="高斯模糊">
-                        <iconPacks:PackIconMaterialDesign Kind="BlurOnRound" Width="16" Height="16" />
-                    </Button>
-                    <Button x:Name="ToolMaskButton"
-                            Style="{StaticResource ScreenshotToolButtonStyle}"
-                            Click="OnToolButtonClicked"
-                            Tag="Mask"
-                            ToolTip="实心遮挡（纯色填充）">
-                        <iconPacks:PackIconMaterialDesign Kind="LensRound" Width="16" Height="16" />
-                    </Button>
-
-                    <Rectangle Style="{StaticResource ScreenshotToolbarSepStyle}" />
-
-                    <!-- 编辑：仅控制是否展开第二行高级选项（颜色 / 粗细 / Undo / Redo / 清空 / 完成）
-                         不影响绘制工具按钮的可用性 —— 用户点任何绘制工具按钮都能直接画 -->
-                    <Button x:Name="EditAnnotationButton"
-                            Style="{StaticResource ScreenshotToolButtonStyle}"
-                            Click="OnEditAnnotationClicked"
-                            ToolTip="展开高级选项（颜色 / 粗细 / Undo / Redo / 清空）">
-                        <iconPacks:PackIconMaterialDesign Kind="TuneRound" Width="16" Height="16" />
                     </Button>
 
                     <Button Style="{StaticResource ScreenshotToolButtonStyle}"
@@ -234,6 +218,17 @@
                             VerticalAlignment="Center"
                             Margin="0,6,0,0"
                             Visibility="Collapsed">
+                    <!-- 直线：使用频次低于矩形 / 椭圆 / 箭头 / 涂鸦，从主行收纳到高级面板，给主行让位 -->
+                    <Button x:Name="ToolLineButton"
+                            Style="{StaticResource ScreenshotToolButtonStyle}"
+                            Click="OnToolButtonClicked"
+                            Tag="Line"
+                            ToolTip="直线">
+                        <iconPacks:PackIconMaterialDesign Kind="HorizontalRuleRound" Width="16" Height="16" />
+                    </Button>
+
+                    <Rectangle Style="{StaticResource ScreenshotToolbarSepStyle}" />
+
                     <!-- 颜色组：6 个色卡 -->
                     <Button x:Name="ColorRedButton" Style="{StaticResource ScreenshotToolButtonStyle}" Click="OnColorClicked" Tag="#FFE53935" ToolTip="红色" Padding="2">
                         <Border Width="20" Height="20" CornerRadius="3" Background="#FFE53935" />

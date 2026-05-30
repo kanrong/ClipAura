@@ -18,9 +18,7 @@ internal sealed class HistoryDatabase
     private readonly string _connectionString;
     public bool IsAvailable { get; private set; }
 
-    /// <summary>SQLite 编译版本是否启用了 FTS5；不可用时调用方应退到 LIKE 路径。
-    /// Microsoft.Data.Sqlite 默认包含的 SQLitePCLRaw.bundle_e_sqlite3 是带 FTS5 编译的，
-    /// 但用户自定义部署或精简版本可能缺，因此运行期探测一次更稳妥</summary>
+    /// <summary>FTS5 trigram 是否可用；不可用（老 SQLite 不带 trigram）时搜索全程退回 LIKE</summary>
     public bool FtsAvailable { get; private set; }
 
     public HistoryDatabase(ILog log)
@@ -31,7 +29,11 @@ internal sealed class HistoryDatabase
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = dbPath,
-            Cache = SqliteCacheMode.Shared,
+            // 刻意不使用 SqliteCacheMode.Shared：本库有多个连接跨 UI 线程与后台线程并发访问
+            // （剪贴板文本/图片入库、历史查询、对话与用量记录），共享缓存在这种并发下曾进入
+            // "database disk image is malformed" 的不一致状态——磁盘文件其实完好、仅缓存损坏，
+            // 故重启清空连接池后即恢复。改回每连接私有缓存 + WAL 提供读写并发，
+            // 这也是 Microsoft.Data.Sqlite 的推荐用法
             Pooling = true,
         }.ToString();
     }
@@ -94,11 +96,10 @@ internal sealed class HistoryDatabase
             ";
             cmd.ExecuteNonQuery();
 
-            TryEnableFts5(conn);
+            EnsureClipboardFtsTrigram(conn);
 
             IsAvailable = true;
-            FtsAvailable = ProbeFtsAvailable(conn);
-            _log.Info("history db ready", ("path", ConfigPaths.HistoryDbFile), ("fts5", FtsAvailable));
+            _log.Info("history db ready", ("path", ConfigPaths.HistoryDbFile), ("fts5_trigram", FtsAvailable));
         }
         catch (Exception ex)
         {
@@ -123,44 +124,41 @@ internal sealed class HistoryDatabase
         var conn = new SqliteConnection(_connectionString);
         conn.Open();
         using var pragma = conn.CreateCommand();
-        // WAL：读写不互锁，适合 UI 偶尔查询 + 后台串行写
-        pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
+        // WAL：读写不互锁，适合 UI 偶尔查询 + 后台串行写。
+        // busy_timeout：多连接并发写时，让后到的写等待而非立刻抛 SQLITE_BUSY(database is locked)
+        pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=3000;";
         pragma.ExecuteNonQuery();
         return conn;
     }
 
-    /// <summary>探测当前 SQLite 是否带 FTS5 编译。失败一次后调用方走 LIKE 路径，
-    /// 但表的 schema 仍存在（不影响下次升级或换 SQLite 后启用 FTS5）</summary>
-    private static bool ProbeFtsAvailable(SqliteConnection conn)
+    /// <summary>建立 trigram 分词的剪贴板 FTS5 虚表 + 同步触发器，并 backfill 现有数据。
+    /// 选 trigram 而非 unicode61：unicode61 把连续中文当成单个 token，搜"内容"命中不了
+    /// "很多内容"；trigram 按 3 字符滑窗切分，中英文都能子串匹配（代价是查询串需 >=3 字符，
+    /// 更短的由调用方退回 LIKE）。若检测到现存 FTS 表不是 trigram（早期 unicode61 版本），
+    /// 先拆掉再以 trigram 重建。失败只记日志并置 FtsAvailable=false，搜索退回 LIKE，不阻塞主流程</summary>
+    private void EnsureClipboardFtsTrigram(SqliteConnection conn)
     {
         try
         {
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='clipboard_history_fts'";
-            var name = cmd.ExecuteScalar() as string;
-            return !string.IsNullOrEmpty(name);
-        }
-        catch { return false; }
-    }
+            // 现存 FTS 表若非 trigram（建表 SQL 里不含 trigram 关键字），先拆掉以便重建
+            string? existing;
+            using (var probe = conn.CreateCommand())
+            {
+                probe.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name='clipboard_history_fts'";
+                existing = probe.ExecuteScalar() as string;
+            }
+            if (existing is not null && existing.IndexOf("trigram", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                DropClipboardFtsArtifacts(conn);
+            }
 
-    /// <summary>建立 FTS5 虚表 + 触发器，并把现有 clipboard_history 一次性 reindex。
-    /// 使用 unicode61 分词器：默认按 Unicode codepoint 切分，对中英混合 90% 场景够用；
-    /// CJK 字段被切到字符级，搜索时仍能命中（虽然没有"分词"语义，但用户搜的是包含字而非短语，
-    /// codepoint 级匹配实际很贴近期望）。
-    ///
-    /// 失败时只写日志：本应用所有持久化能力都遵循"DB 故障不阻塞主流程"原则，
-    /// FTS5 故障只是搜索路径退化为 LIKE，使用体验可接受</summary>
-    private void TryEnableFts5(SqliteConnection conn)
-    {
-        try
-        {
             using var ft = conn.CreateCommand();
             ft.CommandText = @"
                 CREATE VIRTUAL TABLE IF NOT EXISTS clipboard_history_fts USING fts5(
                     text,
                     content='clipboard_history',
                     content_rowid='id',
-                    tokenize='unicode61');
+                    tokenize='trigram');
 
                 -- 同步触发器：clipboard_history 增 / 删 / 改时把记录写到 fts 镜像
                 CREATE TRIGGER IF NOT EXISTS clipboard_history_ai AFTER INSERT ON clipboard_history BEGIN
@@ -177,19 +175,33 @@ internal sealed class HistoryDatabase
                 END;";
             ft.ExecuteNonQuery();
 
-            // 已有的历史数据一次性 backfill 到 fts。INSERT IGNORE 风格用 EXCEPT 避免重插：
-            // 第一次建表时 fts 为空，全部塞入；下次启动时 fts 已与 clipboard_history 同步，
-            // EXCEPT 子查询返回空集，实际写入 0 行
+            // 现有历史一次性回填到 fts；EXCEPT 子查询保证重启时不重复插入已同步的行
             using var seed = conn.CreateCommand();
             seed.CommandText = @"
                 INSERT INTO clipboard_history_fts(rowid, text)
                 SELECT id, text FROM clipboard_history
                 WHERE id NOT IN (SELECT rowid FROM clipboard_history_fts);";
             seed.ExecuteNonQuery();
+
+            FtsAvailable = true;
         }
         catch (Exception ex)
         {
-            _log.Warn("fts5 init failed; falling back to LIKE", ("err", ex.Message));
+            FtsAvailable = false;
+            _log.Warn("fts trigram init failed; search falls back to LIKE", ("err", ex.Message));
         }
+    }
+
+    /// <summary>删除剪贴板 FTS 虚表与同步触发器。用于重建：检测到现存 FTS 表不是期望的
+    /// trigram 分词时，先拆掉再重建。DROP 只动 FTS 对象，不触碰 clipboard_history 主表数据</summary>
+    private void DropClipboardFtsArtifacts(SqliteConnection conn)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            DROP TRIGGER IF EXISTS clipboard_history_ai;
+            DROP TRIGGER IF EXISTS clipboard_history_ad;
+            DROP TRIGGER IF EXISTS clipboard_history_au;
+            DROP TABLE IF EXISTS clipboard_history_fts;";
+        cmd.ExecuteNonQuery();
     }
 }

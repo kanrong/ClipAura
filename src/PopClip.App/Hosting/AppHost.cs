@@ -371,7 +371,14 @@ internal sealed class AppHost : IDisposable
 
     private void OpenClipboardHistory()
     {
-        _clipHistoryLauncher?.Open(null);
+        // 托盘/快捷键唤起历史面板时没有选区上下文，但用户多半想把历史项粘回"刚才那个窗口"。
+        // 传入实时取值器而非固定句柄：历史窗口可常驻，用户会切到目标窗口再切回面板，
+        // 必须在点击"粘贴"那一刻才取最近外部前台窗口。WinEvent hook 用 SKIPOWNPROCESS 不记本进程，
+        // 但 ForegroundWatcher.Snapshot() 走 OCR/选区流程时可能无过滤地记入本进程窗口，故再排除本进程，
+        // 取第一个非本进程窗口即为用户想粘回的目标
+        var self = Environment.ProcessId;
+        _clipHistoryLauncher?.Open(null, () => ForegroundWatcher.RecentProcesses()
+            .FirstOrDefault(w => w.Hwnd != 0 && w.ProcessId != self)?.Hwnd ?? 0);
     }
 
     public void Dispose()

@@ -26,6 +26,10 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
     private readonly ITextReplacer? _replacer;
     private readonly SelectionContext? _anchorContext;
     private readonly ClipboardPaste? _paste;
+    /// <summary>无选区上下文（托盘/快捷键唤起）时，"粘贴目标窗口"的实时取值器。
+    /// 之所以是回调而非固定句柄：历史窗口可常驻不关，用户会在它与目标窗口间来回切换，
+    /// 必须在点击"粘贴"的那一刻才取最近一个外部前台窗口，而不是打开窗口时定格。返回 0 表示未知</summary>
+    private readonly Func<nint>? _pasteTargetProvider;
     public ObservableCollection<HistoryRow> Rows { get; } = new();
     public ObservableCollection<ImageHistoryRow> ImageRows { get; } = new();
 
@@ -35,7 +39,8 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
         ITextReplacer? replacer,
         SelectionContext? anchorContext,
         ClipboardPaste? paste,
-        ClipboardAccess clipboardAccess)
+        ClipboardAccess clipboardAccess,
+        Func<nint>? pasteTargetProvider = null)
     {
         _history = history;
         _writer = writer;
@@ -43,6 +48,7 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
         _anchorContext = anchorContext;
         _paste = paste;
         _clipboardAccess = clipboardAccess;
+        _pasteTargetProvider = pasteTargetProvider;
         InitializeComponent();
         HistoryList.ItemsSource = Rows;
         ImageList.ItemsSource = ImageRows;
@@ -230,31 +236,61 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
     private void HandleConfirm(ModifierKeys modifier)
     {
         if (HistoryList.SelectedItem is not HistoryRow row) return;
-        var copyOnly = modifier.HasFlag(ModifierKeys.Control);
-        if (copyOnly || _anchorContext is null)
+
+        // Ctrl+Enter：用户明确只要"复制到剪贴板"，不粘贴
+        if (modifier.HasFlag(ModifierKeys.Control))
         {
             _writer.SetText(row.Text);
             Close();
             return;
         }
 
-        Close();
-        _ = Task.Run(async () =>
+        // 浮窗触发：有选区上下文 → 复制并尝试替换原选区，替换失败再退回粘贴到原窗口
+        if (_anchorContext is not null)
         {
-            try
+            Close();
+            _ = Task.Run(async () =>
             {
-                _writer.SetText(row.Text);
-                if (_replacer is not null)
+                try
                 {
-                    var replaced = await _replacer.TryReplaceAsync(_anchorContext, row.Text, CancellationToken.None)
-                        .ConfigureAwait(false);
-                    if (replaced) return;
-                }
+                    _writer.SetText(row.Text);
+                    if (_replacer is not null)
+                    {
+                        var replaced = await _replacer.TryReplaceAsync(_anchorContext, row.Text, CancellationToken.None)
+                            .ConfigureAwait(false);
+                        if (replaced) return;
+                    }
 
-                _paste?.PasteCurrent(_anchorContext.Foreground.Hwnd);
-            }
-            catch { /* ignore */ }
-        });
+                    _paste?.PasteCurrent(_anchorContext.Foreground.Hwnd);
+                }
+                catch { /* ignore */ }
+            });
+            return;
+        }
+
+        // 托盘/快捷键触发：在点击的此刻实时取"切到本历史窗口之前的那个外部前台窗口"作为目标，
+        // 支持"历史窗口常驻 → 切到目标窗口 → 切回历史窗口 → 粘贴"。必须在 Close 之前取：
+        // 关窗会改变前台窗口，而此刻历史窗口还在前台、最近外部窗口仍是用户想粘贴的目标。
+        // PasteCurrent 内部 SetForegroundWindow 把焦点切回目标，解决"历史窗口占着焦点粘不进去"
+        var targetHwnd = _pasteTargetProvider?.Invoke() ?? 0;
+        if (targetHwnd != 0 && _paste is not null)
+        {
+            Close();
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    _writer.SetText(row.Text);
+                    _paste.PasteCurrent(targetHwnd);
+                }
+                catch { /* ignore */ }
+            });
+            return;
+        }
+
+        // 既无选区也取不到目标窗口：退化为仅复制到剪贴板
+        _writer.SetText(row.Text);
+        Close();
     }
 }
 

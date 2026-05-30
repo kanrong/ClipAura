@@ -308,18 +308,22 @@ internal sealed class ClipboardHistoryService : IDisposable
         var hasQuery = !string.IsNullOrEmpty(trimmed);
         try
         {
-            // 优先走 FTS5：1000 条历史搜索 < 50ms（LIKE 大概 ~500ms）。
-            // FTS5 不可用时退到原 LIKE 路径，行为兼容旧 DB
-            if (hasQuery && _db.FtsAvailable)
+            // 查询 >=3 字符走 FTS5 trigram MATCH：trigram 按 3 字符滑窗建索引，中英文都能子串匹配，
+            // 历史量大时也快。<3 字符无法生成 trigram（如中文"内容"两字），退回 LIKE；
+            // TryListByFts 内部异常时会清空结果并返回 false，同样落到下面的 LIKE 兜底
+            if (hasQuery && trimmed!.Length >= 3 && _db.FtsAvailable
+                && TryListByFts(conn, trimmed, limit, list))
             {
-                if (TryListByFts(conn, trimmed!, limit, list)) return list;
+                return list;
             }
 
             using var cmd = conn.CreateCommand();
+            // LIKE 子串匹配：短查询（<3 字符）或 FTS 不可用时的兜底路径。
+            // ESCAPE 让查询里的 % _ \ 按字面匹配，避免用户搜这些字符时被当成通配符
             cmd.CommandText = hasQuery
-                ? "SELECT id, text, text_hash, source_proc, created_at, pinned FROM clipboard_history WHERE text LIKE $q ORDER BY pinned DESC, created_at DESC LIMIT $limit"
+                ? "SELECT id, text, text_hash, source_proc, created_at, pinned FROM clipboard_history WHERE text LIKE $q ESCAPE '\\' ORDER BY pinned DESC, created_at DESC LIMIT $limit"
                 : "SELECT id, text, text_hash, source_proc, created_at, pinned FROM clipboard_history ORDER BY pinned DESC, created_at DESC LIMIT $limit";
-            if (hasQuery) cmd.Parameters.AddWithValue("$q", "%" + trimmed + "%");
+            if (hasQuery) cmd.Parameters.AddWithValue("$q", "%" + EscapeLike(trimmed!) + "%");
             cmd.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 500));
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
@@ -340,13 +344,18 @@ internal sealed class ClipboardHistoryService : IDisposable
         return list;
     }
 
-    /// <summary>FTS5 搜索路径：把用户输入当 phrase（双引号包裹 + 转义）查询，
+    /// <summary>转义 LIKE 通配符，使查询里的 % _ \ 按字面参与匹配。
+    /// 必须先转义反斜杠本身，否则会把后续转义补进的反斜杠二次转义。
+    /// 调用方需配合 SQL 的 ESCAPE '\' 子句</summary>
+    private static string EscapeLike(string s)
+        => s.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+
+    /// <summary>FTS5 trigram 搜索：把整段输入当 phrase（双引号包裹 + 转义内部双引号）匹配，
     /// JOIN 回 clipboard_history 取完整字段并按 pinned / created_at 排序。
-    /// 失败返回 false 让调用方退到 LIKE。
-    ///
-    /// FTS5 query 语法：把用户输入完整作为 phrase，避免 OR / AND / NEAR 等语法字符
-    /// 被解释为 FTS5 操作符；用户搜 `is null` 应该匹配整段而不是 `is OR null`。
-    /// 双引号转义：`"a""b"` → 匹配字面量 `a"b`</summary>
+    /// 仅在查询 >=3 字符时调用（trigram 的最小匹配单元是连续 3 字符）。
+    /// 失败时清空 list 并返回 false，让调用方退回 LIKE。
+    /// phrase 包裹是为了让 OR / AND / NEAR / * 等 FTS 语法字符按字面参与匹配，
+    /// 而不被解释成查询操作符</summary>
     private bool TryListByFts(SqliteConnection conn, string query, int limit, List<ClipboardEntry> list)
     {
         try
@@ -376,7 +385,7 @@ internal sealed class ClipboardHistoryService : IDisposable
         }
         catch (Exception ex)
         {
-            _log.Debug("fts5 query failed; fallback to LIKE", ("err", ex.Message));
+            _log.Debug("fts trigram query failed; fallback to LIKE", ("err", ex.Message));
             list.Clear();
             return false;
         }

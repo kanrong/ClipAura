@@ -75,8 +75,14 @@ public interface IPasteService
     /// 比"我们自己 Clipboard.SetText(selectionText)"重要的差异在于：
     /// 源应用会被叫醒主动写多格式数据，剪贴板里同时含 CF_UNICODETEXT / CF_HTML / CF_RTF 等，
     /// 之后在富文本编辑器粘贴时保留原格式。
-    /// 返回 false 表示底层 SendInput/SetForegroundWindow 失败</summary>
+    /// 返回 false 表示底层 SendInput/SetForegroundWindow 失败。
+    /// 仅适用于 UIA 来源（选区仍存活）；终端等兜底来源应改走 TryCopyCapturedSelection</summary>
     Task<bool> CopyAsync(SelectionContext context, CancellationToken ct);
+
+    /// <summary>把"最近一次剪贴板兜底采集到的选区"回写到剪贴板，含采集时一并捕获的富文本格式。
+    /// 用于终端 / Firefox 等 UIA 取不到文本的来源：避免二次 Ctrl+C（终端会触发 ^C 中断），同时保住格式。
+    /// 仅当缓存存在且与 context.Text 匹配时返回 true；否则返回 false，调用方应退回 SetText 纯文本兜底</summary>
+    bool TryCopyCapturedSelection(SelectionContext context);
 
     /// <summary>把剪贴板内容粘贴到 context.Foreground 指向的窗口。
     /// 调用方应自行先关闭浮窗并恢复目标窗口焦点，本方法只负责模拟 Ctrl+V。

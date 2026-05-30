@@ -14,12 +14,14 @@ internal sealed class PasteService : IPasteService
     private readonly ILog _log;
     private readonly ClipboardAccess _clipboard;
     private readonly ClipboardPaste _paste;
+    private readonly CapturedSelectionCache _capturedSelection;
 
-    public PasteService(ILog log, ClipboardAccess clipboard, ClipboardPaste paste)
+    public PasteService(ILog log, ClipboardAccess clipboard, ClipboardPaste paste, CapturedSelectionCache capturedSelection)
     {
         _log = log;
         _clipboard = clipboard;
         _paste = paste;
+        _capturedSelection = capturedSelection;
     }
 
     /// <summary>仅判定剪贴板是否包含文本，不复制内容。
@@ -50,6 +52,22 @@ internal sealed class PasteService : IPasteService
                 return false;
             }
         }, ct);
+    }
+
+    public bool TryCopyCapturedSelection(SelectionContext context)
+    {
+        var snapshot = _capturedSelection.TryGet(context.Text);
+        if (snapshot is null) return false;
+        try
+        {
+            _clipboard.WriteSnapshot(snapshot);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("paste service TryCopyCapturedSelection failed", ("err", ex.Message));
+            return false;
+        }
     }
 
     public Task<bool> PasteAsync(SelectionContext context, CancellationToken ct)

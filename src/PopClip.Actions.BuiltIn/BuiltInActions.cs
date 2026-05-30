@@ -75,11 +75,14 @@ internal static class EnglishLetterProbe
 }
 
 /// <summary>内置"复制"动作：等价于让用户按一次 Ctrl+C。
-/// 关键设计：刻意不走 host.Clipboard.SetText(context.Text)。
-/// 那条路径只能写入纯文本格式（CF_UNICODETEXT），会丢失源应用本来一并写入的 CF_HTML / CF_RTF
-/// 等富文本格式，进而在 Word/Outlook 等富文本编辑器粘贴时出现"格式丢失/方块乱码"。
-/// 改为转交给系统 Ctrl+C，让源应用按自身策略把多格式数据写入剪贴板，行为与用户手动 Ctrl+C 完全一致。
-/// 失败时（targetHwnd 为 0 或 SendInput 抛错）退回到 SetText 兜底，至少保住纯文本可粘贴</summary>
+/// 按选区来源分三条路径，核心诉求是"既保留富文本格式，又不给终端发会触发 ^C 中断的多余 Ctrl+C"：
+///
+/// 1) 剪贴板兜底来源（终端 / Firefox 等 UIA 取不到文本的应用）：采集阶段那次 Ctrl+C 已让源应用把
+///    多格式数据写进过剪贴板，并被一并捕获成快照。这里直接回写快照——终端快照里只有纯文本（回写纯文本、
+///    且不再发 Ctrl+C），Firefox 快照含 CF_HTML（回写即保住格式）。快照不可用时退回 SetText，仍不发 Ctrl+C。
+/// 2) UIA 来源：选区仍存活在真实控件里，转交系统 Ctrl+C 让源应用主动写 CF_UNICODETEXT + CF_HTML / CF_RTF，
+///    在 Word/Outlook 等粘贴时保留格式；失败再退回 SetText。
+/// 3) OCR 来源：没有真实选区，模拟 Ctrl+C 会误复制截图时前台窗口的内容，直接写采集文本。</summary>
 internal sealed class CopyAction : BuiltInAction
 {
     public override string Id => BuiltInActionIds.Copy;
@@ -88,14 +91,20 @@ internal sealed class CopyAction : BuiltInAction
 
     public override async Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
     {
-        if (context.Foreground.Hwnd != 0)
+        if (context.Source == AcquisitionSource.ClipboardFallback)
+        {
+            if (host.Paste.TryCopyCapturedSelection(context)) return;
+            // 快照不可用（极少见：被新一次选区采集覆盖等）→ 用纯文本兜底，绝不退回 Ctrl+C（保护终端）
+            host.Clipboard.SetText(context.Text);
+            return;
+        }
+        if (context.Foreground.Hwnd != 0 && context.Source != AcquisitionSource.Ocr)
         {
             var ok = await host.Paste.CopyAsync(context, ct).ConfigureAwait(false);
             if (ok) return;
             host.Log.Warn("copy via Ctrl+C failed, fallback to plain SetText");
         }
-        // 兜底：拿不到目标 HWND 或键盘模拟失败时，保底把纯文本塞进剪贴板，
-        // 让用户至少能 Ctrl+V 出文字（哪怕没有格式）
+        // 兜底：OCR 来源、拿不到目标 HWND，或系统 Ctrl+C 失败时，用采集阶段已取到的文本保底写入（纯文本）
         host.Clipboard.SetText(context.Text);
     }
 }

@@ -44,7 +44,10 @@ public sealed class ClipboardPaste
     /// HTML/RTF/图片 等会全部丢失，进而在 Word/Outlook 等富文本编辑器粘贴时表现为
     /// "格式丢失 / 个别符号方块乱码"。
     /// 流程：先把焦点切回目标窗口（浮窗是 NoActivate 不抢键盘焦点，但仍然显式 set 一次以防意外），
-    /// 等 40ms 让目标窗口完成激活，再发系统 Ctrl+C，让源应用按它自己的方式把多格式数据写到剪贴板</summary>
+    /// 等 40ms 让目标窗口完成激活，再发系统 Ctrl+C，让源应用按它自己的方式把多格式数据写到剪贴板。
+    ///
+    /// 仅用于 UIA 来源（选区仍存活在真实控件里）。终端等剪贴板兜底来源不走这里：它们采集时
+    /// 已捕获选区多格式快照，复制动作直接回写快照，绝不再合成 Ctrl+C（否则终端会触发 ^C 中断）。</summary>
     public bool CopyCurrent(nint targetHwnd)
     {
         try

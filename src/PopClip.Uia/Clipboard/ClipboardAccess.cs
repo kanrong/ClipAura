@@ -54,6 +54,10 @@ public sealed class ClipboardAccess
 
     public void Restore(ClipboardSnapshot snapshot) => _thread.Invoke(snapshot.RestoreOnSta);
 
+    /// <summary>把快照内容写入剪贴板（多格式）。实现与 Restore 相同，语义上区别在于：
+    /// 这里是"主动写入采集到的选区数据"（复制动作回写富文本），而非"恢复先前备份"</summary>
+    public void WriteSnapshot(ClipboardSnapshot snapshot) => _thread.Invoke(snapshot.RestoreOnSta);
+
     private static string? GetTextOnSta()
     {
         for (var i = 0; i < RetryCount; i++)

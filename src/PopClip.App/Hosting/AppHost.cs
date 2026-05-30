@@ -69,11 +69,13 @@ internal sealed class AppHost : IDisposable
         _clipboardThread = new ClipboardThread();
         _clipboardThread.Start();
         var clipboardAccess = new ClipboardAccess(_clipboardThread);
+        // 兜底采集到的选区多格式快照在采集端写入、复制动作端读取，二者共享同一实例
+        var capturedSelection = new CapturedSelectionCache();
 
         _watcher = new InputWatcher(_log);
 
         var uiaAcquirer = new UiaTextAcquirer(_log);
-        var clipboardFallback = new ClipboardFallback(_log, clipboardAccess);
+        var clipboardFallback = new ClipboardFallback(_log, clipboardAccess, capturedSelection);
         _acquisition = new TextAcquisitionService(_log, uiaAcquirer, clipboardFallback);
 
         var uiaReplacer = new UiaTextReplacer(_log);
@@ -82,7 +84,7 @@ internal sealed class AppHost : IDisposable
 
         // PasteService 必须在 ActionCatalog 之前构造：PasteAction.CanRun 通过它判定
         // "剪贴板是否有文本"，因此目录在装配每个内置动作时就需要这个能力
-        var pasteService = new PasteService(_log, clipboardAccess, clipboardPaste);
+        var pasteService = new PasteService(_log, clipboardAccess, clipboardPaste, capturedSelection);
         _dictionary = new OfflineDictionaryService(_log);
         _catalog = new ActionCatalog(_log, pasteService, _dictionary);
         var cfg = _store.LoadActions();

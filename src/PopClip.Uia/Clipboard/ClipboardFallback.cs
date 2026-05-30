@@ -14,12 +14,14 @@ public sealed class ClipboardFallback
 {
     private readonly ILog _log;
     private readonly ClipboardAccess _clipboard;
+    private readonly CapturedSelectionCache _capturedSelection;
     private static readonly object Gate = new();
 
-    public ClipboardFallback(ILog log, ClipboardAccess clipboard)
+    public ClipboardFallback(ILog log, ClipboardAccess clipboard, CapturedSelectionCache capturedSelection)
     {
         _log = log;
         _clipboard = clipboard;
+        _capturedSelection = capturedSelection;
     }
 
     public string? CopySelectionViaCtrlC(TimeSpan timeout)
@@ -56,6 +58,13 @@ public sealed class ClipboardFallback
                     }
 
                     newText = _clipboard.GetText();
+                    if (!string.IsNullOrEmpty(newText))
+                    {
+                        // 此刻剪贴板正是源应用响应 Ctrl+C 写入的选区多格式数据（Firefox 等含 CF_HTML）。
+                        // 在下面 finally 还原旧剪贴板前抓一份快照缓存，供"复制"动作直接回写：
+                        // 既保住富文本格式，又不必对终端再合成一次会触发 ^C 中断的 Ctrl+C
+                        _capturedSelection.Store(newText, _clipboard.Capture());
+                    }
                     break;
                 }
                 return newText;

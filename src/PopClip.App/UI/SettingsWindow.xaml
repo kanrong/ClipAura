@@ -5,7 +5,7 @@
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  xmlns:local="clr-namespace:PopClip.App.UI"
                  Title="ClipAura 设置"
-                 Icon="pack://application:,,,/Assets/AppIcon.ico"
+                 Icon="pack://application:,,,/Assets/ClipAuraLogo.ico"
                  Width="1020" Height="820"
                  MinWidth="880" MinHeight="600"
                  ShowInTaskbar="True"
@@ -220,7 +220,7 @@
         <!-- 自定义标题栏（ExtendsContentIntoTitleBar=True 时需要） -->
         <ui:TitleBar Grid.Row="0"
                      Title="ClipAura 设置"
-                     Icon="{ui:ImageIcon 'pack://application:,,,/Assets/AppIcon.ico'}"
+                     Icon="{ui:ImageIcon 'pack://application:,,,/Assets/ClipAuraLogo.png'}"
                      Style="{StaticResource Settings.CompactTitleBar}"
                      ShowMaximize="True"
                      ShowMinimize="True" />
@@ -1739,12 +1739,14 @@
                                                 BorderThickness="1"
                                                 CornerRadius="{StaticResource Settings.Radius.Md}"
                                                 Margin="0,0,16,0">
-                                            <Image Source="pack://application:,,,/Assets/AppIcon.ico"
+                                            <Image Source="pack://application:,,,/Assets/ClipAuraLogo.png"
                                                    Width="40"
                                                    Height="40"
                                                    HorizontalAlignment="Center"
                                                    VerticalAlignment="Center"
-                                                   Stretch="Uniform" />
+                                                   Stretch="Uniform"
+                                                   RenderOptions.BitmapScalingMode="HighQuality"
+                                                   SnapsToDevicePixels="True" />
                                         </Border>
                                         <StackPanel VerticalAlignment="Center">
                                             <TextBlock Text="ClipAura" FontSize="22" FontWeight="SemiBold"

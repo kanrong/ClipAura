@@ -5,7 +5,7 @@
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  xmlns:local="clr-namespace:PopClip.App.UI"
                  Title="添加内置动作"
-                 Icon="pack://application:,,,/Assets/AppIcon.ico"
+                 Icon="pack://application:,,,/Assets/ClipAuraLogo.ico"
                  Width="560" Height="640"
                  MinWidth="480" MinHeight="420"
                  ShowInTaskbar="False"

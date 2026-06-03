@@ -206,15 +206,18 @@ internal sealed class Win32TrayIcon : IDisposable
         return (x, y);
     }
 
-    /// <summary>优先从 EXE 自身嵌入的 .ico（ApplicationIcon）加载；失败则回退到 pack uri 资源里的 AppIcon.ico</summary>
+    /// <summary>优先从 EXE 自身嵌入的 .ico（ApplicationIcon）加载；失败则回退到 pack uri 资源里的 ClipAuraLogo.ico</summary>
     private nint LoadTrayIcon()
     {
+        var iconWidth = Math.Max(16, NativeMethods.GetSystemMetrics(NativeMethods.SM_CXSMICON));
+        var iconHeight = Math.Max(16, NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSMICON));
+
         try
         {
             var exe = Process.GetCurrentProcess().MainModule?.FileName;
             if (!string.IsNullOrWhiteSpace(exe))
             {
-                var hIcon = NativeMethods.LoadImage(0, exe, NativeMethods.IMAGE_ICON, 16, 16, NativeMethods.LR_LOADFROMFILE);
+                var hIcon = NativeMethods.LoadImage(0, exe, NativeMethods.IMAGE_ICON, iconWidth, iconHeight, NativeMethods.LR_LOADFROMFILE);
                 if (hIcon != 0) return hIcon;
             }
         }
@@ -225,7 +228,7 @@ internal sealed class Win32TrayIcon : IDisposable
 
         try
         {
-            var resource = WpfApplication.GetResourceStream(new Uri("pack://application:,,,/Assets/AppIcon.ico"));
+            var resource = WpfApplication.GetResourceStream(new Uri("pack://application:,,,/Assets/ClipAuraLogo.ico"));
             if (resource is not null)
             {
                 var temp = Path.Combine(Path.GetTempPath(), "ClipAuraTray.ico");
@@ -234,7 +237,7 @@ internal sealed class Win32TrayIcon : IDisposable
                 {
                     stream.CopyTo(file);
                 }
-                var hIcon = NativeMethods.LoadImage(0, temp, NativeMethods.IMAGE_ICON, 16, 16, NativeMethods.LR_LOADFROMFILE);
+                var hIcon = NativeMethods.LoadImage(0, temp, NativeMethods.IMAGE_ICON, iconWidth, iconHeight, NativeMethods.LR_LOADFROMFILE);
                 if (hIcon != 0) return hIcon;
             }
         }

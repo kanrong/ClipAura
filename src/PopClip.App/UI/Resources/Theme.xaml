@@ -112,12 +112,13 @@
     <StaticResource x:Key="ToolbarToastBackground" ResourceKey="ToolbarLightToastBackground" />
     <StaticResource x:Key="ToolbarSeparator" ResourceKey="ToolbarLightSeparator" />
     <CornerRadius x:Key="ToolbarCornerRadius">8</CornerRadius>
-    <!-- 按钮本身为矩形（0 圆角），左右两端按钮通过外层 ContentClipHost 的圆角 Clip
-         统一裁切到外壳内圆角弧线内，避免矩形角伸出外壳圆角外 -->
-    <CornerRadius x:Key="ToolbarButtonCornerRadius">0</CornerRadius>
+    <!-- 按钮 hover 高亮块的圆角，跟随设置中的圆角值；运行时由 FloatingToolbar 按用户设置覆写 -->
+    <CornerRadius x:Key="ToolbarButtonCornerRadius">6</CornerRadius>
     <Thickness x:Key="ToolbarBorderThickness">1</Thickness>
     <Thickness x:Key="ToolbarButtonPadding">12,9</Thickness>
     <Thickness x:Key="ToolbarButtonMargin">1</Thickness>
+    <!-- 内容层四周留白：让按钮 hover 块内缩在外壳圆角之内，块自带圆角故永不触边、永不缺角 -->
+    <Thickness x:Key="ToolbarContentPadding">2</Thickness>
     <!-- 阴影默认值（ShadowAndBorder 风格）：接近 Windows 11 普通窗体的轻量阴影。
          BlurRadius + ShadowDepth 不应超过外层阴影留白，避免透明窗口边界裁切 -->
     <sys:Double x:Key="ToolbarShadowBlurRadius" xmlns:sys="clr-namespace:System;assembly=mscorlib">6</sys:Double>
@@ -140,13 +141,13 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <!-- 不带 BorderThickness：按钮 hover Background 必须铺满按钮整个矩形，
-                         否则相邻按钮中间会因为透明描边占位出现 1~2px 空白，最外侧按钮
-                         也会与浮窗内边出现 1px 缝（被阴影底板的 ToolbarBackground 透出） -->
+                    <!-- hover 高亮块：Margin 让块比可点击区略小，并与相邻块、外壳内边留出缝隙；
+                         CornerRadius 跟随设置中的圆角值，块四周留白故无需任何裁切就不会缺角 -->
                     <Border x:Name="Bd"
                             Background="{TemplateBinding Background}"
                             CornerRadius="{DynamicResource ToolbarButtonCornerRadius}"
                             Padding="{TemplateBinding Padding}"
+                            Margin="2"
                             SnapsToDevicePixels="True">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>

@@ -651,8 +651,8 @@ internal sealed class SelectionSessionManager : IDisposable
                     if (ShouldShowCompletionToast(action, descriptor) && _toolbar.LastToastAtUtc <= toastBefore)
                     {
                         // "剪贴板 + 气泡"模式：气泡已展示结果正文，再补 "{Title} ✓" 信息冗余，
-                        // 用户真正想被告知的是"内容已经进剪贴板"，统一用"已复制 ✓"贴齐 Copy 内置动作的语义
-                        var text = (action.Id == BuiltInActionIds.Copy || IsClipboardCarrierMode(descriptor?.OutputMode))
+                        // 用户真正想被告知的是"内容已经进剪贴板"，统一用"已复制 ✓"
+                        var text = IsClipboardCarrierMode(descriptor?.OutputMode)
                             ? "已复制 ✓"
                             : $"{title} ✓";
                         _toolbar.ShowInlineToast(text);
@@ -696,7 +696,8 @@ internal sealed class SelectionSessionManager : IDisposable
     /// - 内置智能动作：BuiltInOutputMode 的 Bubble / CopyAndBubble / Dialog → 安静
     /// - AI 动作：chat（独立对话窗）/ replace（原地）/ bubble（结果气泡） → 安静
     /// - 内置 AI 对话 / AI 解释：descriptor 不携带 outputMode，但实际会打开对话窗 / 气泡 → 安静
-    /// - 其余（Copy / clipboard / 缺省）→ 补 toast，告诉用户"动作已执行"
+    /// - 内置 Copy（浮窗"复制"按钮）：保持安静——点击意图已明确，再弹 toast 反而遮挡视线
+    /// - 其余（clipboard / 缺省）→ 补 toast，告诉用户"动作已执行"
     ///
     /// 特例：内置 Translate 在 AI 启用且开启内联翻译时会走 AI 气泡，
     /// 但它的 descriptor.OutputMode 不会被填成 AI 那套（descriptor 是 Translate 自己的），
@@ -723,6 +724,12 @@ internal sealed class SelectionSessionManager : IDisposable
         if (string.Equals(action.Id, BuiltInActionIds.Search, StringComparison.OrdinalIgnoreCase)
             || string.Equals(action.Id, BuiltInActionIds.OpenUrl, StringComparison.OrdinalIgnoreCase)
             || string.Equals(action.Id, BuiltInActionIds.Mailto, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        // 内置"复制"动作：点击"复制"的意图本身已经足够明确，
+        // 再补"已复制 ✓"toast 在表单等场景反而遮挡视线、打断操作，保持安静
+        if (string.Equals(action.Id, BuiltInActionIds.Copy, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }

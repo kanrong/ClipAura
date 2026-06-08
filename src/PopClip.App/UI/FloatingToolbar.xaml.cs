@@ -13,7 +13,6 @@ using PopClip.Core.Session;
 using PopClip.Hooks.Interop;
 using PopClip.Hooks.Window;
 using Brush = System.Windows.Media.Brush;
-using RectangleGeometry = System.Windows.Media.RectangleGeometry;
 using SolidColorBrush = System.Windows.Media.SolidColorBrush;
 
 namespace PopClip.App.UI;
@@ -70,7 +69,7 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
     /// 决定阴影最大可见 BlurRadius+ShadowDepth；过小阴影边缘会被透明窗口裁切，过大会增加屏占用</summary>
     private const int ShadowPaddingDip = 12;
 
-    /// <summary>窗口尺寸 = ContentClipHost.DesiredSize + 这个值。
+    /// <summary>窗口尺寸 = ContentHost.DesiredSize + 这个值。
     /// 必须 = ShadowPaddingDip * 2（左右 / 上下两侧 Margin 之和），
     /// 否则 SizeToContent 算出的 window 比真实内容小，右侧按钮会被透明边裁切</summary>
     private const int OuterMarginDip = ShadowPaddingDip * 2;
@@ -80,10 +79,6 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
 
     /// <summary>Standard 密度下按钮的上下内边距</summary>
     private const double ToolbarButtonPaddingY = 9;
-    // 外圆角半径，与阴影底板/描边层的 CornerRadius 完全一致；
-    // ContentClipHost 用它作 Clip 圆角，按钮 hover 颜色直接铺满到外圆角弧线，
-    // 描边层（最上层）再把外圆角描边盖住 hover 边缘的抗锯齿过渡像素
-    private double _outerCornerRadius;
 
     public event Action? Dismissed;
     /// <summary>系统主题/强调色变化时触发，由 AppHost 转给 ThemeManager 重新应用全局主题。
@@ -224,55 +219,19 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
             var radius = Math.Clamp(settings.ToolbarCornerRadius, 0, 18);
             var spacing = Math.Clamp(settings.ToolbarButtonSpacing, 0, 10);
             var fontSize = Math.Clamp(settings.ToolbarFontSize, 10, 18);
-            // 外壳圆角 = 用户设置 radius + 1（给描边留 1px 抗锯齿余量）。
-            // 深色下的圆角顺滑度主要由边框对比和背景透明度决定，不在这里额外放大半径。
-            // 阴影底板 / ContentClipHost.Clip / 描边层都用同一个外圆角，避免任何"双层圆角错位"
-            var outerRadius = ResolveOuterCornerRadius(radius);
-            Resources["ToolbarCornerRadius"] = new CornerRadius(outerRadius);
-            // 按钮本体保持矩形：左右两端按钮的"圆角观感"完全交给 ContentClipHost 的 Clip 完成
-            Resources["ToolbarButtonCornerRadius"] = new CornerRadius(0);
-            _outerCornerRadius = outerRadius;
-            // spacing 仅作用于按钮的左右 Margin；按钮 Padding 固定（仅决定按钮内容的内边距）。
-            // 需要调整按钮高度时，改 ToolbarButtonPaddingY 即可。
-            // 不再有 container padding：StackPanel 直接贴满 ContentClipHost，
-            // ItemsPanel 通过负 Margin 抵消最外侧按钮的左右 Margin，最左/最右按钮的高亮区直接贴到外壳内边
+            // 外壳圆角 = 用户设置 radius + 1，给 1px 边框留出抗锯齿余量；阴影底板与内容层共用此外圆角
+            Resources["ToolbarCornerRadius"] = new CornerRadius(ResolveOuterCornerRadius(radius));
+            // hover 高亮块的圆角直接取用户设置值：设置接近方形时块也接近方形，
+            // 块四周由 ToolbarContentPadding 与按钮 Margin 留白，无需任何裁切也不会缺角
+            Resources["ToolbarButtonCornerRadius"] = new CornerRadius(radius);
+            // spacing 仅作用于按钮的左右 Margin，决定相邻 hover 块的水平间距；
+            // 按钮 Padding 决定块内图标/文字的内边距（随密度档变化）
             Resources["ToolbarButtonMargin"] = new Thickness(spacing, 0, spacing, 0);
             Resources["ToolbarButtonPadding"] = new Thickness(padX, padY, padX, padY);
-            Resources["ToolbarItemsPanelMargin"] = new Thickness(-spacing, 0, -spacing, 0);
             Resources["ToolbarButtonFontSize"] = fontSize;
-            // 图标比正文大 4 号 + SemiBold 字重，让图标在按钮里成为视觉重心
+            // 图标比正文大 2 号，让图标在按钮里成为视觉重心
             Resources["ToolbarIconFontSize"] = fontSize + 2;
-            // 圆角变化时 Clip 半径也要跟着改，否则按钮还会以旧半径被裁切
-            UpdateContentClip();
         });
-    }
-
-    /// <summary>用 RoundedRectangleGeometry 给 ContentClipHost 设置 Clip，
-    /// 半径与外圆角一致：按钮 hover 颜色铺满到外圆角弧线，描边层再把外侧抗锯齿过渡盖住</summary>
-    private void UpdateContentClip()
-    {
-        if (ContentClipHost is null) return;
-        var w = ContentClipHost.ActualWidth;
-        var h = ContentClipHost.ActualHeight;
-        if (w <= 0 || h <= 0)
-        {
-            // 尚未完成首次布局：清空旧 Clip，等 SizeChanged 触发时再更新
-            ContentClipHost.Clip = null;
-            return;
-        }
-        // 不超过容器一半，避免圆角值过大导致几何畸形
-        var r = Math.Min(_outerCornerRadius, Math.Min(w, h) * 0.5);
-        if (r <= 0)
-        {
-            ContentClipHost.Clip = null;
-            return;
-        }
-        ContentClipHost.Clip = new RectangleGeometry(new Rect(0, 0, w, h), r, r);
-    }
-
-    private void OnContentClipHostSizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        UpdateContentClip();
     }
 
     private static double ResolveOuterCornerRadius(double userRadius)
@@ -450,12 +409,12 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         // 首次显示时 Window/Root Grid 偶尔会把阴影层的 effect 外扩算进 Desired/Actual，
         // 导致宽度像多出一个按钮位。定位尺寸改为直接取内容层期望尺寸 + 外层固定 margin，
         // 让窗口大小只由真实按钮/Toast 内容决定。
-        var contentWidth = ContentClipHost.DesiredSize.Width > 0
-            ? ContentClipHost.DesiredSize.Width
-            : ContentClipHost.ActualWidth;
-        var contentHeight = ContentClipHost.DesiredSize.Height > 0
-            ? ContentClipHost.DesiredSize.Height
-            : ContentClipHost.ActualHeight;
+        var contentWidth = ContentHost.DesiredSize.Width > 0
+            ? ContentHost.DesiredSize.Width
+            : ContentHost.ActualWidth;
+        var contentHeight = ContentHost.DesiredSize.Height > 0
+            ? ContentHost.DesiredSize.Height
+            : ContentHost.ActualHeight;
 
         return (contentWidth + OuterMarginDip, contentHeight + OuterMarginDip);
     }
@@ -467,8 +426,8 @@ public partial class FloatingToolbar : Window, INotifyPropertyChanged, INotifica
         RowsHost.ClearValue(WidthProperty);
         RowsHost.InvalidateMeasure();
         RowsHost.InvalidateArrange();
-        ContentClipHost.InvalidateMeasure();
-        ContentClipHost.InvalidateArrange();
+        ContentHost.InvalidateMeasure();
+        ContentHost.InvalidateArrange();
         InvalidateMeasure();
         InvalidateArrange();
     }

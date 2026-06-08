@@ -36,10 +36,10 @@
          窗口定位会与阴影外缘错位；这里 12 留给常规柔和阴影不被裁切 -->
     <Grid Margin="12"
           SnapsToDevicePixels="True">
-        <!-- 阴影底板：fill 必须与主体 ToolbarBackground 同色，主 Border 完全覆盖其填充区，
-             只露出 DropShadowEffect 投射出来的柔和阴影。
-             这样既不会在主体边缘形成"深色硬边"，也保留主 Border 内文本的 ClearType 渲染。
-             CornerRadius 与主 Border 严格一致，避免"内圆外方"双圆角；
+        <!-- 阴影底板：填充色与内容层 ToolbarBackground 同色，内容层完全覆盖其填充区，
+             只露出 DropShadowEffect 投射出来的柔和阴影。本层不含任何文字，
+             Effect 的位图化不会波及内容层文字的 ClearType 渲染。
+             CornerRadius 与内容层严格一致，避免双层圆角错位；
              Direction=270 让阴影自然向下沉，接近 Windows 11 常规窗体阴影的轻量层次 -->
         <Border Background="{DynamicResource ToolbarBackground}"
                 CornerRadius="{DynamicResource ToolbarCornerRadius}"
@@ -54,15 +54,18 @@
             </Border.Effect>
         </Border>
 
-        <!-- 内容层：按钮区。三层结构（阴影底板 → ContentClipHost → 描边层）的关键中间层。
-             不再嵌在带 BorderBrush 的 Border 里，避免"Border.Background 圆角在 BorderBrush 内侧
-             留半像素抗锯齿过渡区"导致的"圆角处 1px 白边"。
-             ContentClipHost 直接占据整个 Grid（与阴影底板同尺寸），Clip 圆角 = 外圆角，
-             按钮 hover 高亮直接铺满到外圆角弧线，描边层在最上面把 hover 边缘的 0.5px 模糊咬住 -->
-        <Grid x:Name="ContentClipHost"
-              SizeChanged="OnContentClipHostSizeChanged"
-              UseLayoutRounding="True"
-              SnapsToDevicePixels="True">
+        <!-- 内容层：边框 + 按钮区，叠在阴影底板之上。本层无 Effect，文字保留 ClearType。
+             Padding 给按钮区四周留白，使按钮 hover 高亮块（自带圆角）始终内缩在外壳圆角之内，
+             永不触边、永不被裁角，因此无需 Clip，也无需早期那层专门压边缘的描边层。
+             边框与圆角直接画在本层，与阴影底板外缘严格对齐 -->
+        <Border x:Name="ContentHost"
+                BorderBrush="{DynamicResource ToolbarBorder}"
+                BorderThickness="{DynamicResource ToolbarBorderThickness}"
+                CornerRadius="{DynamicResource ToolbarCornerRadius}"
+                Background="Transparent"
+                Padding="{DynamicResource ToolbarContentPadding}"
+                UseLayoutRounding="True"
+                SnapsToDevicePixels="True">
             <!-- 外层 ItemsControl 绑定 Rows（多行布局时 ≥2 个 row，单行布局始终 1 个），
                  内层 ItemsControl 绑定 row.Items 用 WrapPanel 展示按钮。
                  这样布局策略（默认 / 智能动作单独一行 / 按分组多行）只影响 Rows 的拆分，
@@ -79,8 +82,7 @@
                         <ItemsControl ItemsSource="{Binding Items}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <WrapPanel Orientation="Horizontal"
-                                               Margin="{DynamicResource ToolbarItemsPanelMargin}" />
+                                    <WrapPanel Orientation="Horizontal" />
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
@@ -119,15 +121,6 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-        </Grid>
-
-        <!-- 描边层：仅画 1px 圆角描边，IsHitTestVisible=False 不拦点击；
-             叠在最上面把 ContentClipHost 内 hover 边缘的 0.5px 抗锯齿过渡区咬住，
-             视觉上 hover 颜色 ↔ 边框 ↔ 圆角弧线连成一体，圆角处不再有任何浅色透出 -->
-        <Border BorderBrush="{DynamicResource ToolbarBorder}"
-                BorderThickness="{DynamicResource ToolbarBorderThickness}"
-                CornerRadius="{DynamicResource ToolbarCornerRadius}"
-                IsHitTestVisible="False"
-                SnapsToDevicePixels="True" />
+        </Border>
     </Grid>
 </Window>

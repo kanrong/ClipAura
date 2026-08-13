@@ -103,29 +103,45 @@ public sealed class ForegroundWatcher : IDisposable
         }
     }
 
-    private static string GetProcessName(int pid)
+    /// <summary>按 PID 取进程映像完整路径。搜索动作用它把 URL 交给当前浏览器 exe，而不是系统默认浏览器。</summary>
+    public static string? TryGetProcessImagePath(int pid)
     {
-        // 进程名优先用 QueryFullProcessImageName，避免 Process 类引入 .NET 反射开销
+        if (pid <= 0) return null;
+
         var handle = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)pid);
-        if (handle == 0)
+        if (handle != 0)
         {
-            try { return Path.GetFileName(Process.GetProcessById(pid).MainModule?.FileName ?? ""); }
-            catch { return ""; }
+            try
+            {
+                var buf = new StringBuilder(1024);
+                uint size = (uint)buf.Capacity;
+                if (NativeMethods.QueryFullProcessImageName(handle, 0, buf, ref size))
+                {
+                    var path = buf.ToString();
+                    return string.IsNullOrWhiteSpace(path) ? null : path;
+                }
+            }
+            finally
+            {
+                NativeMethods.CloseHandle(handle);
+            }
         }
+
         try
         {
-            var buf = new StringBuilder(1024);
-            uint size = (uint)buf.Capacity;
-            if (NativeMethods.QueryFullProcessImageName(handle, 0, buf, ref size))
-            {
-                return Path.GetFileName(buf.ToString());
-            }
-            return "";
+            var path = Process.GetProcessById(pid).MainModule?.FileName;
+            return string.IsNullOrWhiteSpace(path) ? null : path;
         }
-        finally
+        catch
         {
-            NativeMethods.CloseHandle(handle);
+            return null;
         }
+    }
+
+    private static string GetProcessName(int pid)
+    {
+        var path = TryGetProcessImagePath(pid);
+        return string.IsNullOrEmpty(path) ? "" : Path.GetFileName(path);
     }
 
     public void Dispose()

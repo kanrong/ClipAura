@@ -154,7 +154,7 @@ internal sealed class SearchAction : BuiltInAction
             template = "https://www.google.com/search?q={q}";
         }
         var url = template.Replace("{q}", WebUtility.UrlEncode(context.Text));
-        host.UrlLauncher.Open(url);
+        host.UrlLauncher.Open(url, context.Foreground);
         return Task.CompletedTask;
     }
 }

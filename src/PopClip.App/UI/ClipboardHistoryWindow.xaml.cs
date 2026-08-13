@@ -15,13 +15,14 @@ using PopClip.Uia.Clipboard;
 namespace PopClip.App.UI;
 
 /// <summary>剪贴板历史选择器，贴在光标旁。
-///   Enter            → 粘贴到目标窗口并关闭
-///   Shift+Enter      → 粘贴后窗口留下，方便连贴
+///   Enter            → 粘贴到目标窗口并关闭（钉住时不关）
+///   Shift+Enter      → 粘贴后窗口留下
 ///   Ctrl+Enter       → 只写入系统剪贴板
 ///   1-9              → 直选对应条目（搜索框有字时不拦截，留给查询）
 ///   Ctrl+Tab         → 文本 / 图片
-///   Del / P          → 删除 / 钉选
-/// 点到窗口外会关闭。</summary>
+///   Ctrl+P           → 钉住 / 取消钉住浮层
+///   Del / P          → 删除 / 钉选条目
+/// 未钉住时点到窗口外会关闭。</summary>
 internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
 {
     private readonly ClipboardHistoryService _history;
@@ -33,6 +34,7 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
     private readonly Func<nint>? _pasteTargetProvider;
     private bool _ignoreDeactivate;
     private bool _closing;
+    private bool _pinned;
 
     public ObservableCollection<HistoryRow> Rows { get; } = new();
     public ObservableCollection<ImageHistoryRow> ImageRows { get; } = new();
@@ -68,6 +70,8 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
     }
 
     private bool IsImageTab => TabImageRadio?.IsChecked == true;
+
+    public bool IsPinned => _pinned;
 
     public void FocusSearch()
     {
@@ -117,8 +121,49 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
 
     private void OnDeactivated(object? sender, EventArgs e)
     {
-        if (_ignoreDeactivate || _closing) return;
+        if (_ignoreDeactivate || _closing || _pinned) return;
         Close();
+    }
+
+    private void OnPinClicked(object sender, RoutedEventArgs e) => SetPinned(!_pinned);
+
+    private void SetPinned(bool pinned)
+    {
+        if (_pinned == pinned) return;
+        _pinned = pinned;
+        ApplyPinVisuals();
+        if (_pinned) KeepOnTopWithoutFocus();
+    }
+
+    private void ApplyPinVisuals()
+    {
+        if (PinButton is null || PinLabel is null || PinIcon is null) return;
+        PinButton.Appearance = _pinned
+            ? Wpf.Ui.Controls.ControlAppearance.Primary
+            : Wpf.Ui.Controls.ControlAppearance.Secondary;
+        PinLabel.Text = _pinned ? "已钉住" : "钉住";
+        PinButton.ToolTip = _pinned
+            ? "取消钉住。取消后失焦会关闭浮层"
+            : "钉在最前，点击条目即可连续粘贴";
+        Title = _pinned ? "剪贴板历史 · 已钉住" : "剪贴板历史";
+        if (HintText is not null)
+        {
+            HintText.Text = _pinned
+                ? "已钉住 · 点击条目连续粘贴 · Esc 关闭"
+                : "Enter 粘贴 · Shift+Enter 留下 · 1-9 直选 · Ctrl+Enter 复制";
+        }
+    }
+
+    /// <summary>钉住后粘贴会把焦点切回目标窗，用 NOACTIVATE 再置顶一次，避免被目标窗盖住。</summary>
+    private void KeepOnTopWithoutFocus()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == 0) return;
+        NativeMethods.SetWindowPos(
+            hwnd,
+            NativeMethods.HWND_TOPMOST,
+            0, 0, 0, 0,
+            NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
     }
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
@@ -196,6 +241,13 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
         {
             e.Handled = true;
             ToggleTab();
+            return;
+        }
+
+        if (e.Key == Key.P && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            e.Handled = true;
+            SetPinned(!_pinned);
             return;
         }
 
@@ -340,7 +392,7 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
     {
         if (HistoryList.SelectedItem is not HistoryRow row) return;
         var copyOnly = modifier.HasFlag(ModifierKeys.Control);
-        var stay = modifier.HasFlag(ModifierKeys.Shift);
+        var stay = ShouldStayOpen(modifier);
 
         if (copyOnly)
         {
@@ -381,7 +433,7 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
         if (bytes is null || bytes.Length == 0) return;
 
         var copyOnly = modifier.HasFlag(ModifierKeys.Control);
-        var stay = modifier.HasFlag(ModifierKeys.Shift);
+        var stay = ShouldStayOpen(modifier);
         var target = ResolvePasteTarget();
 
         try
@@ -415,6 +467,9 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
         return _pasteTargetProvider?.Invoke() ?? 0;
     }
 
+    private bool ShouldStayOpen(ModifierKeys modifier)
+        => _pinned || modifier.HasFlag(ModifierKeys.Shift);
+
     private void BeginPaste(bool stay)
     {
         _ignoreDeactivate = true;
@@ -428,8 +483,16 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
         {
             try
             {
-                Activate();
-                FocusSearch();
+                if (_pinned)
+                {
+                    // 钉住时焦点留在目标窗口，用户点下一条就能再贴
+                    KeepOnTopWithoutFocus();
+                }
+                else
+                {
+                    Activate();
+                    FocusSearch();
+                }
                 // SetForegroundWindow 触发的 Deactivated 可能排在 Activate 之后，稍等再恢复
                 await Task.Delay(250);
             }

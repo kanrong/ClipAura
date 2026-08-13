@@ -1087,7 +1087,7 @@
                         <StackPanel x:Name="SearchPage" Visibility="Collapsed">
                             <TextBlock Style="{StaticResource Settings.PageTitle}" Text="搜索引擎" />
                             <TextBlock Style="{StaticResource Settings.PageDescription}"
-                                       Text="工具栏「搜索」按钮使用的引擎；URL 中 {q} 会被替换为选中文本的 UrlEncode 结果" />
+                                       Text="工具栏「搜索」按钮使用的引擎；URL 中 {q} 会被替换为选中文本的 UrlEncode 结果。当前窗口是浏览器时，会在该浏览器打开新标签，而不是系统默认浏览器。" />
 
                             <Border Style="{StaticResource Settings.Card}">
                                 <StackPanel>

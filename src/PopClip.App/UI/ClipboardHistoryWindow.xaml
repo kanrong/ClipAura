@@ -38,20 +38,37 @@
             </ui:TitleBar.Icon>
         </ui:TitleBar>
 
-        <!-- Tab 切换：文本（默认）/ 图片。RadioButton + GroupName 实现单选语义，
-             比 TabControl 更轻量也更贴近列表外观 -->
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="14,8,14,0">
-            <RadioButton x:Name="TabTextRadio"
-                         GroupName="HistoryTab"
-                         Content="文本"
-                         IsChecked="True"
-                         Margin="0,0,8,0"
-                         Checked="OnTabChanged" />
-            <RadioButton x:Name="TabImageRadio"
-                         GroupName="HistoryTab"
-                         Content="图片"
-                         Checked="OnTabChanged" />
-        </StackPanel>
+        <!-- Tab 切换：文本（默认）/ 图片。右侧 Pin 把浮层钉在最前，失焦不关，方便连贴。 -->
+        <Grid Grid.Row="1" Margin="14,8,14,0">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <RadioButton x:Name="TabTextRadio"
+                             GroupName="HistoryTab"
+                             Content="文本"
+                             IsChecked="True"
+                             Margin="0,0,8,0"
+                             Checked="OnTabChanged" />
+                <RadioButton x:Name="TabImageRadio"
+                             GroupName="HistoryTab"
+                             Content="图片"
+                             Checked="OnTabChanged" />
+            </StackPanel>
+            <ui:Button x:Name="PinButton"
+                       HorizontalAlignment="Right"
+                       VerticalAlignment="Center"
+                       Appearance="Secondary"
+                       Padding="8,2"
+                       Click="OnPinClicked"
+                       ToolTip="钉在最前，点击条目即可连续粘贴">
+                <StackPanel Orientation="Horizontal">
+                    <ui:SymbolIcon x:Name="PinIcon" Symbol="Pin24" FontSize="14" />
+                    <TextBlock x:Name="PinLabel"
+                               Text="钉住"
+                               Margin="6,0,0,0"
+                               VerticalAlignment="Center"
+                               FontSize="12" />
+                </StackPanel>
+            </ui:Button>
+        </Grid>
 
         <ui:TextBox Grid.Row="2"
                     x:Name="SearchBox"

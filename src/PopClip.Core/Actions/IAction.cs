@@ -202,6 +202,9 @@ public interface ITextReplacer
 public interface IUrlLauncher
 {
     void Open(string url);
+
+    /// <summary>打开 URL。source 是浏览器时优先用该浏览器新标签，避免跳到系统默认浏览器。</summary>
+    void Open(string url, ForegroundWindowInfo? source);
 }
 
 public interface IClipboardWriter

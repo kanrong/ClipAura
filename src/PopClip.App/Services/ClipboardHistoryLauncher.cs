@@ -42,7 +42,8 @@ internal sealed class ClipboardHistoryLauncher : IClipboardHistoryLauncher
         {
             if (_current is { IsVisible: true })
             {
-                _current.RepositionToCursor();
+                // 钉住时用户已经摆好位置，热键只唤回焦点，不跟着光标搬家
+                if (!_current.IsPinned) _current.RepositionToCursor();
                 _current.Activate();
                 _current.FocusSearch();
                 return;

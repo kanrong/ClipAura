@@ -3,21 +3,25 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using PopClip.App.Services;
 using PopClip.Core.Actions;
 using PopClip.Core.Model;
+using PopClip.Hooks.Interop;
+using PopClip.Hooks.Window;
 using PopClip.Uia.Clipboard;
 
 namespace PopClip.App.UI;
 
-/// <summary>剪贴板历史搜索 / 选取面板。
-/// 操作语义：
-///   Enter           → 用所选条目替换调用上下文（若有），否则写剪贴板；窗口关闭
-///   Ctrl+Enter       → 只复制到系统剪贴板，不替换选区
-///   Del              → 删除条目
-///   P                → 钉选 / 取消钉选
-/// </summary>
+/// <summary>剪贴板历史选择器，贴在光标旁。
+///   Enter            → 粘贴到目标窗口并关闭
+///   Shift+Enter      → 粘贴后窗口留下，方便连贴
+///   Ctrl+Enter       → 只写入系统剪贴板
+///   1-9              → 直选对应条目（搜索框有字时不拦截，留给查询）
+///   Ctrl+Tab         → 文本 / 图片
+///   Del / P          → 删除 / 钉选
+/// 点到窗口外会关闭。</summary>
 internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
 {
     private readonly ClipboardHistoryService _history;
@@ -26,10 +30,10 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
     private readonly ITextReplacer? _replacer;
     private readonly SelectionContext? _anchorContext;
     private readonly ClipboardPaste? _paste;
-    /// <summary>无选区上下文（托盘/快捷键唤起）时，"粘贴目标窗口"的实时取值器。
-    /// 之所以是回调而非固定句柄：历史窗口可常驻不关，用户会在它与目标窗口间来回切换，
-    /// 必须在点击"粘贴"的那一刻才取最近一个外部前台窗口，而不是打开窗口时定格。返回 0 表示未知</summary>
     private readonly Func<nint>? _pasteTargetProvider;
+    private bool _ignoreDeactivate;
+    private bool _closing;
+
     public ObservableCollection<HistoryRow> Rows { get; } = new();
     public ObservableCollection<ImageHistoryRow> ImageRows { get; } = new();
 
@@ -52,15 +56,76 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
         InitializeComponent();
         HistoryList.ItemsSource = Rows;
         ImageList.ItemsSource = ImageRows;
+        _history.Mutated += OnHistoryMutated;
+        Deactivated += OnDeactivated;
+        Closed += (_, _) => _history.Mutated -= OnHistoryMutated;
         Loaded += (_, _) =>
         {
             Refresh();
-            SearchBox.Focus();
-            Keyboard.Focus(SearchBox);
+            RepositionToCursor();
+            FocusSearch();
         };
     }
 
     private bool IsImageTab => TabImageRadio?.IsChecked == true;
+
+    public void FocusSearch()
+    {
+        SearchBox.Focus();
+        Keyboard.Focus(SearchBox);
+    }
+
+    /// <summary>按光标所在屏放置，优先右下；放不下则翻到左上，并夹进工作区。</summary>
+    public void RepositionToCursor()
+    {
+        if (!NativeMethods.GetCursorPos(out var pt))
+        {
+            pt = new NativeMethods.POINT { X = 0, Y = 0 };
+        }
+
+        var monitor = MonitorQuery.FromPoint(pt.X, pt.Y);
+        var dipW = ActualWidth > 1 ? ActualWidth : Width;
+        var dipH = ActualHeight > 1 ? ActualHeight : Height;
+        var wPx = Math.Max(1, (int)Math.Round(dipW * monitor.DpiX / 96.0));
+        var hPx = Math.Max(1, (int)Math.Round(dipH * monitor.DpiY / 96.0));
+        const int gap = 16;
+        var x = pt.X + gap;
+        var y = pt.Y + gap;
+        if (x + wPx > monitor.WorkRight) x = pt.X - wPx - gap;
+        if (y + hPx > monitor.WorkBottom) y = pt.Y - hPx - gap;
+        x = Math.Clamp(x, monitor.WorkLeft, Math.Max(monitor.WorkLeft, monitor.WorkRight - wPx));
+        y = Math.Clamp(y, monitor.WorkTop, Math.Max(monitor.WorkTop, monitor.WorkBottom - hPx));
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == 0) return;
+        NativeMethods.SetWindowPos(
+            hwnd,
+            NativeMethods.HWND_TOPMOST,
+            x, y, wPx, hPx,
+            NativeMethods.SWP_SHOWWINDOW);
+    }
+
+    private void OnHistoryMutated()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(Refresh);
+            return;
+        }
+        Refresh();
+    }
+
+    private void OnDeactivated(object? sender, EventArgs e)
+    {
+        if (_ignoreDeactivate || _closing) return;
+        Close();
+    }
+
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        _closing = true;
+        base.OnClosing(e);
+    }
 
     private void Refresh()
     {
@@ -72,9 +137,11 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
     {
         var query = SearchBox.Text?.Trim();
         Rows.Clear();
-        foreach (var e in _history.List(120, query))
+        var i = 0;
+        foreach (var entry in _history.List(120, query))
         {
-            Rows.Add(HistoryRow.From(e));
+            Rows.Add(HistoryRow.From(entry, i < 9 ? (i + 1).ToString() : ""));
+            i++;
         }
         if (Rows.Count > 0) HistoryList.SelectedIndex = 0;
     }
@@ -82,12 +149,12 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
     private void RefreshImages()
     {
         ImageRows.Clear();
-        // ListImages includeBlob=true 时会同步把 PNG 字节加载出来用于缩略图。
-        // 对于 30 张 1~3MB 图片来说总量在 30~90 MB，一次性加载略大；
-        // 用 OnDemand 解码避免占住内存：每个 BitmapImage 只解到 DecodePixelWidth=120 的低分版本
-        foreach (var e in _history.ListImages(60, includeBlob: true))
+        var query = SearchBox.Text?.Trim();
+        var i = 0;
+        foreach (var entry in _history.ListImages(60, includeBlob: true, query))
         {
-            ImageRows.Add(ImageHistoryRow.From(e));
+            ImageRows.Add(ImageHistoryRow.From(entry, i < 9 ? (i + 1).ToString() : ""));
+            i++;
         }
         if (ImageRows.Count > 0) ImageList.SelectedIndex = 0;
     }
@@ -98,14 +165,25 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
         var img = IsImageTab;
         HistoryList.Visibility = img ? Visibility.Collapsed : Visibility.Visible;
         ImageList.Visibility = img ? Visibility.Visible : Visibility.Collapsed;
-        // 切到图片 Tab 时清掉文本搜索 query：图片 Tab 暂未支持搜索，避免上次输入误导
-        if (img) SearchBox.Text = "";
+        if (SearchBox is not null)
+        {
+            SearchBox.PlaceholderText = img
+                ? "按 OCR 文本搜索 · Esc 关闭"
+                : "搜索 · 1-9 直选 · Esc 关闭";
+        }
         Refresh();
+    }
+
+    private void ToggleTab()
+    {
+        if (TabImageRadio is null || TabTextRadio is null) return;
+        if (IsImageTab) TabTextRadio.IsChecked = true;
+        else TabImageRadio.IsChecked = true;
     }
 
     private void OnSearchChanged(object sender, TextChangedEventArgs e) => Refresh();
 
-    private void OnSearchKeyDown(object sender, KeyEventArgs e)
+    private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape)
         {
@@ -113,16 +191,51 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
             Close();
             return;
         }
+
+        if (e.Key == Key.Tab && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            e.Handled = true;
+            ToggleTab();
+            return;
+        }
+
+        if (TryDigitIndex(e.Key, out var index)
+            && (Keyboard.Modifiers & ~(ModifierKeys.Shift | ModifierKeys.Control)) == 0)
+        {
+            var typingQuery = SearchBox.IsKeyboardFocusWithin && !string.IsNullOrEmpty(SearchBox.Text);
+            if (!typingQuery)
+            {
+                e.Handled = true;
+                PickIndex(index);
+            }
+        }
+    }
+
+    private void OnSearchKeyDown(object sender, KeyEventArgs e)
+    {
         if (e.Key == Key.Down)
         {
             e.Handled = true;
-            HistoryList.Focus();
-            if (HistoryList.SelectedIndex < 0 && Rows.Count > 0) HistoryList.SelectedIndex = 0;
+            FocusActiveList();
         }
         else if (e.Key == Key.Enter)
         {
             e.Handled = true;
-            HandleConfirm(modifier: Keyboard.Modifiers);
+            ConfirmSelected(Keyboard.Modifiers);
+        }
+    }
+
+    private void FocusActiveList()
+    {
+        if (IsImageTab)
+        {
+            ImageList.Focus();
+            if (ImageList.SelectedIndex < 0 && ImageRows.Count > 0) ImageList.SelectedIndex = 0;
+        }
+        else
+        {
+            HistoryList.Focus();
+            if (HistoryList.SelectedIndex < 0 && Rows.Count > 0) HistoryList.SelectedIndex = 0;
         }
     }
 
@@ -132,7 +245,7 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
         {
             case Key.Enter:
                 e.Handled = true;
-                HandleConfirm(modifier: Keyboard.Modifiers);
+                ConfirmSelected(Keyboard.Modifiers);
                 break;
             case Key.Escape:
                 e.Handled = true;
@@ -143,7 +256,6 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
                 {
                     e.Handled = true;
                     _history.Delete(del.Id);
-                    Refresh();
                 }
                 break;
             case Key.P:
@@ -151,7 +263,6 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
                 {
                     e.Handled = true;
                     _history.TogglePinned(toggle.Id);
-                    Refresh();
                 }
                 break;
         }
@@ -160,25 +271,19 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
     private void OnItemDoubleClick(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
-        HandleConfirm(modifier: ModifierKeys.None);
+        ConfirmSelected(ModifierKeys.None);
     }
 
     private void OnCopyClicked(object sender, RoutedEventArgs e)
-    {
-        if (IsImageTab) HandleImageCopy();
-        else HandleConfirm(modifier: ModifierKeys.Control);
-    }
+        => ConfirmSelected(ModifierKeys.Control);
 
     private void OnPasteClicked(object sender, RoutedEventArgs e)
-    {
-        if (IsImageTab) HandleImageCopy();
-        else HandleConfirm(modifier: ModifierKeys.None);
-    }
+        => ConfirmSelected(ModifierKeys.None);
 
     private void OnImageDoubleClick(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
-        HandleImageCopy();
+        ConfirmSelected(ModifierKeys.None);
     }
 
     private void OnImageListKeyDown(object sender, KeyEventArgs e)
@@ -187,7 +292,7 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
         {
             case Key.Enter:
                 e.Handled = true;
-                HandleImageCopy();
+                ConfirmSelected(Keyboard.Modifiers);
                 break;
             case Key.Escape:
                 e.Handled = true;
@@ -198,7 +303,6 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
                 {
                     e.Handled = true;
                     _history.DeleteImage(del.Id);
-                    RefreshImages();
                 }
                 break;
             case Key.P:
@@ -206,103 +310,173 @@ internal partial class ClipboardHistoryWindow : Wpf.Ui.Controls.FluentWindow
                 {
                     e.Handled = true;
                     _history.TogglePinnedImage(toggle.Id);
-                    RefreshImages();
                 }
                 break;
         }
     }
 
-    /// <summary>把所选图片复制到系统剪贴板。
-    /// 不像文本支持"粘贴到目标进程"——图片粘贴语义随目标应用差异极大（聊天工具粘附件、Office 嵌入位图、
-    /// 文件管理器变成保存对话框），统一只复制到剪贴板让用户自己 Ctrl+V 决定怎么用</summary>
-    private void HandleImageCopy()
+    private void PickIndex(int zeroBased)
+    {
+        if (IsImageTab)
+        {
+            if ((uint)zeroBased >= (uint)ImageRows.Count) return;
+            ImageList.SelectedIndex = zeroBased;
+        }
+        else
+        {
+            if ((uint)zeroBased >= (uint)Rows.Count) return;
+            HistoryList.SelectedIndex = zeroBased;
+        }
+        ConfirmSelected(Keyboard.Modifiers);
+    }
+
+    private void ConfirmSelected(ModifierKeys modifier)
+    {
+        if (IsImageTab) ConfirmImage(modifier);
+        else ConfirmText(modifier);
+    }
+
+    private void ConfirmText(ModifierKeys modifier)
+    {
+        if (HistoryList.SelectedItem is not HistoryRow row) return;
+        var copyOnly = modifier.HasFlag(ModifierKeys.Control);
+        var stay = modifier.HasFlag(ModifierKeys.Shift);
+
+        if (copyOnly)
+        {
+            _writer.SetText(row.Text);
+            if (!stay) Close();
+            return;
+        }
+
+        var target = ResolvePasteTarget();
+        BeginPaste(stay);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                _writer.SetText(row.Text);
+                if (_anchorContext is not null && _replacer is not null)
+                {
+                    var replaced = await _replacer.TryReplaceAsync(_anchorContext, row.Text, CancellationToken.None)
+                        .ConfigureAwait(false);
+                    if (replaced)
+                    {
+                        EndPaste(stay);
+                        return;
+                    }
+                }
+
+                if (target != 0) _paste?.PasteCurrent(target);
+            }
+            catch { /* ignore */ }
+            EndPaste(stay);
+        });
+    }
+
+    private void ConfirmImage(ModifierKeys modifier)
     {
         if (ImageList.SelectedItem is not ImageHistoryRow row) return;
         var bytes = _history.GetImageBlob(row.Id);
         if (bytes is null || bytes.Length == 0) return;
+
+        var copyOnly = modifier.HasFlag(ModifierKeys.Control);
+        var stay = modifier.HasFlag(ModifierKeys.Shift);
+        var target = ResolvePasteTarget();
+
         try
         {
-            // 让监听路径忽略这次回环写入，避免把刚刚选中的图又入库一次形成"翻新"
             _history.NoteSelfWrittenImage(bytes);
             _clipboardAccess.SetImagePngBytes(bytes);
-            Close();
         }
         catch
         {
-            // 写剪贴板失败的兜底：保持窗口打开，让用户重试
+            return;
         }
+
+        if (copyOnly || target == 0 || _paste is null)
+        {
+            if (!stay) Close();
+            return;
+        }
+
+        BeginPaste(stay);
+        _ = Task.Run(() =>
+        {
+            try { _paste.PasteCurrent(target); }
+            catch { /* ignore */ }
+            EndPaste(stay);
+        });
     }
 
-    private void HandleConfirm(ModifierKeys modifier)
+    private nint ResolvePasteTarget()
     {
-        if (HistoryList.SelectedItem is not HistoryRow row) return;
+        if (_anchorContext is { Foreground.Hwnd: var hwnd } && hwnd != 0) return hwnd;
+        return _pasteTargetProvider?.Invoke() ?? 0;
+    }
 
-        // Ctrl+Enter：用户明确只要"复制到剪贴板"，不粘贴
-        if (modifier.HasFlag(ModifierKeys.Control))
-        {
-            _writer.SetText(row.Text);
-            Close();
-            return;
-        }
+    private void BeginPaste(bool stay)
+    {
+        _ignoreDeactivate = true;
+        if (!stay) Close();
+    }
 
-        // 浮窗触发：有选区上下文 → 复制并尝试替换原选区，替换失败再退回粘贴到原窗口
-        if (_anchorContext is not null)
+    private void EndPaste(bool stay)
+    {
+        if (!stay) return;
+        Dispatcher.BeginInvoke(async () =>
         {
-            Close();
-            _ = Task.Run(async () =>
+            try
             {
-                try
-                {
-                    _writer.SetText(row.Text);
-                    if (_replacer is not null)
-                    {
-                        var replaced = await _replacer.TryReplaceAsync(_anchorContext, row.Text, CancellationToken.None)
-                            .ConfigureAwait(false);
-                        if (replaced) return;
-                    }
-
-                    _paste?.PasteCurrent(_anchorContext.Foreground.Hwnd);
-                }
-                catch { /* ignore */ }
-            });
-            return;
-        }
-
-        // 托盘/快捷键触发：在点击的此刻实时取"切到本历史窗口之前的那个外部前台窗口"作为目标，
-        // 支持"历史窗口常驻 → 切到目标窗口 → 切回历史窗口 → 粘贴"。必须在 Close 之前取：
-        // 关窗会改变前台窗口，而此刻历史窗口还在前台、最近外部窗口仍是用户想粘贴的目标。
-        // PasteCurrent 内部 SetForegroundWindow 把焦点切回目标，解决"历史窗口占着焦点粘不进去"
-        var targetHwnd = _pasteTargetProvider?.Invoke() ?? 0;
-        if (targetHwnd != 0 && _paste is not null)
-        {
-            Close();
-            _ = Task.Run(() =>
+                Activate();
+                FocusSearch();
+                // SetForegroundWindow 触发的 Deactivated 可能排在 Activate 之后，稍等再恢复
+                await Task.Delay(250);
+            }
+            finally
             {
-                try
-                {
-                    _writer.SetText(row.Text);
-                    _paste.PasteCurrent(targetHwnd);
-                }
-                catch { /* ignore */ }
-            });
-            return;
-        }
+                _ignoreDeactivate = false;
+            }
+        });
+    }
 
-        // 既无选区也取不到目标窗口：退化为仅复制到剪贴板
-        _writer.SetText(row.Text);
-        Close();
+    private static bool TryDigitIndex(Key key, out int index)
+    {
+        if (key is >= Key.D1 and <= Key.D9)
+        {
+            index = key - Key.D1;
+            return true;
+        }
+        if (key is >= Key.NumPad1 and <= Key.NumPad9)
+        {
+            index = key - Key.NumPad1;
+            return true;
+        }
+        index = -1;
+        return false;
     }
 }
 
-public sealed record HistoryRow(long Id, string Text, string Preview, string TimeLabel, string MetaLabel)
+public sealed record HistoryRow(long Id, string Text, string Preview, string TimeLabel, string MetaLabel, string IndexLabel)
 {
-    public static HistoryRow From(ClipboardEntry e)
+    public static HistoryRow From(ClipboardEntry e, string indexLabel = "")
     {
         var collapsed = System.Text.RegularExpressions.Regex.Replace(e.Text, @"\s+", " ").Trim();
         var preview = collapsed.Length > 120 ? collapsed[..120] + "…" : collapsed;
         var local = e.CreatedAtUtc.ToLocalTime();
-        var meta = (e.Pinned ? "📌 钉选 · " : "") + $"{e.Text.Length} 字符";
-        return new HistoryRow(e.Id, e.Text, preview, local.ToString("MM-dd HH:mm"), meta);
+        var src = DisplayProcess(e.SourceProcess);
+        var meta = (e.Pinned ? "钉选 · " : "")
+            + (src.Length > 0 ? src + " · " : "")
+            + $"{e.Text.Length} 字符";
+        return new HistoryRow(e.Id, e.Text, preview, local.ToString("MM-dd HH:mm"), meta, indexLabel);
+    }
+
+    internal static string DisplayProcess(string? processName)
+    {
+        if (string.IsNullOrWhiteSpace(processName)) return "";
+        return processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            ? processName[..^4]
+            : processName;
     }
 }
 
@@ -314,9 +488,10 @@ public sealed record ImageHistoryRow(
     BitmapImage? Thumbnail,
     string Header,
     string TimeLabel,
-    string MetaLabel)
+    string MetaLabel,
+    string IndexLabel)
 {
-    public static ImageHistoryRow From(ClipboardImageEntry e)
+    public static ImageHistoryRow From(ClipboardImageEntry e, string indexLabel = "")
     {
         BitmapImage? thumb = null;
         if (e.PngBlob is { Length: > 0 })
@@ -325,9 +500,6 @@ public sealed record ImageHistoryRow(
             {
                 thumb = new BitmapImage();
                 thumb.BeginInit();
-                // CacheOption=OnLoad 让 BitmapImage 不持有 stream 引用，stream 关闭后图像仍可见；
-                // DecodePixelWidth=120 让解码出的位图固定宽度 120 像素，缩略图显示用足够，
-                // 大幅节省内存（4K 截图 8MP → 14400px²，缩略后 ~14kpx²）
                 thumb.CacheOption = BitmapCacheOption.OnLoad;
                 thumb.DecodePixelWidth = 120;
                 thumb.StreamSource = new MemoryStream(e.PngBlob, writable: false);
@@ -347,10 +519,11 @@ public sealed record ImageHistoryRow(
         var ocr = string.IsNullOrWhiteSpace(e.OcrText)
             ? ""
             : "OCR: " + (e.OcrText!.Length > 60 ? e.OcrText[..60] + "…" : e.OcrText);
-        var meta = (e.Pinned ? "📌 钉选 · " : "")
-            + (string.IsNullOrEmpty(e.SourceProcess) ? "" : e.SourceProcess + " · ")
-            + (string.IsNullOrEmpty(ocr) ? "" : ocr);
-        return new ImageHistoryRow(e.Id, thumb, header, local.ToString("MM-dd HH:mm"), meta);
+        var src = HistoryRow.DisplayProcess(e.SourceProcess);
+        var meta = (e.Pinned ? "钉选 · " : "")
+            + (src.Length > 0 ? src + " · " : "")
+            + ocr;
+        return new ImageHistoryRow(e.Id, thumb, header, local.ToString("MM-dd HH:mm"), meta.TrimEnd(' ', '·'), indexLabel);
     }
 
     private static string FormatSize(int bytes)

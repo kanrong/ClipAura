@@ -4,13 +4,18 @@
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  x:ClassModifier="internal"
                  Title="ClipAura 剪贴板历史"
-                 Width="620"
-                 Height="560"
-                 MinWidth="420"
-                 MinHeight="360"
-                 WindowStartupLocation="CenterScreen"
+                 Width="400"
+                 Height="460"
+                 MinWidth="320"
+                 MinHeight="280"
+                 Left="-32000"
+                 Top="-32000"
+                 Topmost="True"
+                 ShowInTaskbar="False"
+                 WindowStartupLocation="Manual"
                  WindowBackdropType="Mica"
                  ExtendsContentIntoTitleBar="True"
+                 PreviewKeyDown="OnWindowPreviewKeyDown"
                  Background="{DynamicResource Settings.Window.Background}"
                  Foreground="{DynamicResource Settings.Foreground}"
                  FontFamily="{DynamicResource Settings.FontFamily}">
@@ -26,8 +31,8 @@
         <ui:TitleBar Grid.Row="0"
                      Title="剪贴板历史"
                      Style="{StaticResource Settings.CompactTitleBar}"
-                     ShowMaximize="True"
-                     ShowMinimize="True">
+                     ShowMaximize="False"
+                     ShowMinimize="False">
             <ui:TitleBar.Icon>
                 <ui:SymbolIcon Symbol="History24" />
             </ui:TitleBar.Icon>
@@ -51,7 +56,7 @@
         <ui:TextBox Grid.Row="2"
                     x:Name="SearchBox"
                     Margin="14,8,14,8"
-                    PlaceholderText="搜索历史 (ESC 关闭)"
+                    PlaceholderText="搜索 · 1-9 直选 · Esc 关闭"
                     Icon="{ui:SymbolIcon Search24}"
                     TextChanged="OnSearchChanged"
                     KeyDown="OnSearchKeyDown" />
@@ -85,16 +90,22 @@
                             </Grid.RowDefinitions>
                             <Grid Grid.Row="0">
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="20" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Text="{Binding Preview}"
+                                <TextBlock Text="{Binding IndexLabel}"
                                            Grid.Column="0"
+                                           FontSize="11"
+                                           VerticalAlignment="Center"
+                                           Foreground="{DynamicResource Settings.Muted}" />
+                                <TextBlock Text="{Binding Preview}"
+                                           Grid.Column="1"
                                            TextWrapping="NoWrap"
                                            TextTrimming="CharacterEllipsis"
                                            FontSize="13"
                                            Foreground="{DynamicResource Settings.Foreground}" />
-                                <TextBlock Grid.Column="1"
+                                <TextBlock Grid.Column="2"
                                            Text="{Binding TimeLabel}"
                                            FontSize="11"
                                            Margin="8,0,0,0"
@@ -127,18 +138,24 @@
                     <DataTemplate>
                         <Grid>
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="20" />
                                 <ColumnDefinition Width="64" />
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0"
+                            <TextBlock Grid.Column="0"
+                                       Text="{Binding IndexLabel}"
+                                       FontSize="11"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource Settings.Muted}" />
+                            <Border Grid.Column="1"
                                     Width="60" Height="60"
                                     Background="#22000000"
                                     CornerRadius="4">
                                 <Image Source="{Binding Thumbnail}"
                                        Stretch="Uniform" />
                             </Border>
-                            <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                            <StackPanel Grid.Column="2" Margin="10,0,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="{Binding Header}"
                                            FontSize="13"
                                            Foreground="{DynamicResource Settings.Foreground}" />
@@ -147,7 +164,7 @@
                                            Margin="0,2,0,0"
                                            Foreground="{DynamicResource Settings.Muted}" />
                             </StackPanel>
-                            <TextBlock Grid.Column="2"
+                            <TextBlock Grid.Column="3"
                                        Text="{Binding TimeLabel}"
                                        FontSize="11"
                                        VerticalAlignment="Top"
@@ -174,7 +191,7 @@
                            VerticalAlignment="Center"
                            FontSize="11.5"
                            Foreground="{DynamicResource Settings.SubtleForeground}"
-                           Text="Enter 粘贴 · Ctrl+Enter 仅复制 · Del 删除 · P 钉选" />
+                           Text="Enter 粘贴 · Shift+Enter 留下 · 1-9 直选 · Ctrl+Enter 复制" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <ui:Button Appearance="Secondary"
                                Content="复制"

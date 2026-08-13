@@ -193,6 +193,7 @@ internal sealed class AppHost : IDisposable
         _hotkeys.ScreenshotRequested += () => _ocr?.Coordinator.TriggerScreenshot();
         _hotkeys.ScreenshotDelayRequested += () =>
             _ocr?.Coordinator.TriggerScreenshotDelayed(_settings?.ScreenshotDelayDefaultSeconds ?? 3);
+        _hotkeys.ClipboardHistoryRequested += OpenClipboardHistory;
         _lastHotKeyApplyResult = _hotkeys.Apply(_settings!);
 
         // toolbar 构造完成后才能注册依赖它的事件

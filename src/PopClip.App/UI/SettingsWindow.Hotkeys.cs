@@ -31,18 +31,22 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     private string _toolbarHotKeyStatusText = "尚未检查注册状态";
     private string _ocrHotKeyStatusText = "尚未检查注册状态";
     private string _screenshotHotKeyStatusText = "尚未检查注册状态";
+    private string _clipboardHistoryHotKeyStatusText = "尚未检查注册状态";
     private Brush _pauseHotKeyStatusBrush = MakeStatusBrush(HotKeyRegistrationState.Disabled);
     private Brush _toolbarHotKeyStatusBrush = MakeStatusBrush(HotKeyRegistrationState.Disabled);
     private Brush _ocrHotKeyStatusBrush = MakeStatusBrush(HotKeyRegistrationState.Disabled);
     private Brush _screenshotHotKeyStatusBrush = MakeStatusBrush(HotKeyRegistrationState.Disabled);
+    private Brush _clipboardHistoryHotKeyStatusBrush = MakeStatusBrush(HotKeyRegistrationState.Disabled);
     public string PauseHotKeyStatusText { get => _pauseHotKeyStatusText; private set => SetField(ref _pauseHotKeyStatusText, value); }
     public string ToolbarHotKeyStatusText { get => _toolbarHotKeyStatusText; private set => SetField(ref _toolbarHotKeyStatusText, value); }
     public string OcrHotKeyStatusText { get => _ocrHotKeyStatusText; private set => SetField(ref _ocrHotKeyStatusText, value); }
     public string ScreenshotHotKeyStatusText { get => _screenshotHotKeyStatusText; private set => SetField(ref _screenshotHotKeyStatusText, value); }
+    public string ClipboardHistoryHotKeyStatusText { get => _clipboardHistoryHotKeyStatusText; private set => SetField(ref _clipboardHistoryHotKeyStatusText, value); }
     public Brush PauseHotKeyStatusBrush { get => _pauseHotKeyStatusBrush; private set => SetField(ref _pauseHotKeyStatusBrush, value); }
     public Brush ToolbarHotKeyStatusBrush { get => _toolbarHotKeyStatusBrush; private set => SetField(ref _toolbarHotKeyStatusBrush, value); }
     public Brush OcrHotKeyStatusBrush { get => _ocrHotKeyStatusBrush; private set => SetField(ref _ocrHotKeyStatusBrush, value); }
     public Brush ScreenshotHotKeyStatusBrush { get => _screenshotHotKeyStatusBrush; private set => SetField(ref _screenshotHotKeyStatusBrush, value); }
+    public Brush ClipboardHistoryHotKeyStatusBrush { get => _clipboardHistoryHotKeyStatusBrush; private set => SetField(ref _clipboardHistoryHotKeyStatusBrush, value); }
 
     public void RefreshHotKeyRegistrationStatus()
     {
@@ -50,6 +54,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         if (status is null)
         {
             ApplyHotKeyStatus(
+                "尚未检查注册状态", HotKeyRegistrationState.Disabled,
                 "尚未检查注册状态", HotKeyRegistrationState.Disabled,
                 "尚未检查注册状态", HotKeyRegistrationState.Disabled,
                 "尚未检查注册状态", HotKeyRegistrationState.Disabled,
@@ -61,14 +66,16 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
             status.Pause.Message, status.Pause.State,
             status.Toolbar.Message, status.Toolbar.State,
             status.Ocr.Message, status.Ocr.State,
-            status.Screenshot.Message, status.Screenshot.State);
+            status.Screenshot.Message, status.Screenshot.State,
+            status.ClipboardHistory.Message, status.ClipboardHistory.State);
     }
 
     private void ApplyHotKeyStatus(
         string pauseMessage, HotKeyRegistrationState pauseState,
         string toolbarMessage, HotKeyRegistrationState toolbarState,
         string ocrMessage, HotKeyRegistrationState ocrState,
-        string screenshotMessage, HotKeyRegistrationState screenshotState)
+        string screenshotMessage, HotKeyRegistrationState screenshotState,
+        string clipboardHistoryMessage, HotKeyRegistrationState clipboardHistoryState)
     {
         PauseHotKeyStatusText = pauseMessage;
         PauseHotKeyStatusBrush = MakeStatusBrush(pauseState);
@@ -78,6 +85,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         OcrHotKeyStatusBrush = MakeStatusBrush(ocrState);
         ScreenshotHotKeyStatusText = screenshotMessage;
         ScreenshotHotKeyStatusBrush = MakeStatusBrush(screenshotState);
+        ClipboardHistoryHotKeyStatusText = clipboardHistoryMessage;
+        ClipboardHistoryHotKeyStatusBrush = MakeStatusBrush(clipboardHistoryState);
     }
 
     private static Brush MakeStatusBrush(HotKeyRegistrationState state)

@@ -7,12 +7,12 @@ Windows 选区动作工具。划选文字后弹出浮窗，复制、搜索、翻
 ## 功能
 
 - **选区浮窗**：用 UIA 读取选中文本，失败时回退到剪贴板。可配置弹出时机、修饰键和进程黑白名单。
-- **内置动作**：复制、粘贴、打开链接、搜索、翻译、计算、字数、剪贴板历史。
+- **内置动作**：复制、粘贴、打开链接、搜索、翻译、计算、字数。
 - **智能动作**：只在文本匹配时出现，例如 JSON 格式化、颜色码、时间戳、文件路径、Markdown / CSV / TSV 互转、离线查词。
 - **区域 OCR**：框选屏幕文字。默认 RapidOCR（PP-OCRv5），可选本机微信 OCR。
 - **区域截图**：预览、标注、复制、自动保存、钉到桌面；也可对截图再跑 OCR。
 - **AI**：对接 DeepSeek / OpenAI 兼容接口。翻译、解释、对话、自定义 Prompt。Key 用 DPAPI 加密存放。
-- **剪贴板历史**：文本和图片都记入本地 SQLite，可回看、粘贴、对图片 OCR。
+- **剪贴板历史**：文本和图片都记入本地 SQLite。用 `Ctrl+Shift+V`、托盘菜单或修饰键点击唤起，可回看、粘贴、对图片 OCR。不出现在划词浮窗。
 
 ## 系统要求
 
@@ -37,6 +37,7 @@ dotnet run --project src/PopClip.App/PopClip.App.csproj -c Release
 | --- | --- |
 | 暂停 / 恢复 | `Ctrl+Alt+P` |
 | 在光标处唤起浮窗 | `Ctrl+Alt+Space` |
+| 剪贴板历史 | `Ctrl+Shift+V` |
 | 区域 OCR | `Ctrl+Alt+O` |
 | 区域截图 | `Ctrl+Alt+S` |
 | 截已打开的菜单 | `PrintScreen` |

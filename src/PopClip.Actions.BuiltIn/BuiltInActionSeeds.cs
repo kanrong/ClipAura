@@ -35,7 +35,7 @@ public static class BuiltInActionSeeds
         new BuiltInActionSeed(BuiltInActionIds.Translate, "translate", "翻译", "Translate", BuiltInActionGroup.Basic, "AI 启用时走内联气泡，否则打开网页翻译"),
         new BuiltInActionSeed(BuiltInActionIds.Calculate, "calc", "计算", "Calc", BuiltInActionGroup.Basic, "选中算式自动求值"),
         new BuiltInActionSeed(BuiltInActionIds.WordCount, "wc", "字数统计", "Count", BuiltInActionGroup.Basic),
-        new BuiltInActionSeed(BuiltInActionIds.ClipboardHistory, "clipboard-history", "剪贴板历史", "ClipboardHistory", BuiltInActionGroup.Basic),
+        new BuiltInActionSeed(BuiltInActionIds.ClipboardHistory, "clipboard-history", "剪贴板历史", "ClipboardHistory", BuiltInActionGroup.Basic, "已改为热键 / 托盘 / 修饰键点击唤起，不再出现在划词浮窗"),
         new BuiltInActionSeed(BuiltInActionIds.ToUpper, "upper", "大写", "Upper", BuiltInActionGroup.Smart, "选中文本含英文字母时显示"),
         new BuiltInActionSeed(BuiltInActionIds.ToLower, "lower", "小写", "Lower", BuiltInActionGroup.Smart, "选中文本含英文字母时显示"),
         new BuiltInActionSeed(BuiltInActionIds.ToTitle, "title", "标题大小写", "Title", BuiltInActionGroup.Smart, "选中文本首个非空白字符是英文字母时显示"),

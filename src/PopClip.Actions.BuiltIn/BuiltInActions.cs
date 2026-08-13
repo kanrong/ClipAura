@@ -29,7 +29,7 @@ public static class BuiltInActionIds
     /// <summary>"AI 解释"内置动作。仅在 AI 已启用并配置 API Key 时显示，
     /// 结果走流式气泡呈现，让用户在不离开当前应用的情况下读懂选区文本</summary>
     public const string AiExplain = "builtin.ai.explain";
-    /// <summary>从浮动工具栏唤起"剪贴板历史"面板。运行时由 IClipboardHistoryLauncher 提供具体实现</summary>
+    /// <summary>剪贴板历史。划词浮窗不再展示；由全局热键 / 托盘 / 修饰键启动器唤起</summary>
     public const string ClipboardHistory = "builtin.clipboard.history";
 
     // 文本类型智能动作链：CanRun 自行嗅探内容类型；默认启用状态由 App 侧默认动作工厂和用户配置决定
@@ -332,15 +332,16 @@ internal sealed class CalculateAction : BuiltInAction
     }
 }
 
-/// <summary>从浮动工具栏点击后呼出剪贴板历史面板。
-/// 不要求选区文本，运行时把当前 SelectionContext 透传给 launcher（用于"插入到选区"）</summary>
+/// <summary>呼出剪贴板历史面板。划词浮窗不再展示此动作（CanRun 恒 false）；
+/// 入口是全局热键、托盘菜单、修饰键快速启动器。若旧 actions.json 仍启用该项，
+/// 目录会加载但选区浮窗会过滤掉。</summary>
 internal sealed class ClipboardHistoryAction : BuiltInAction
 {
     public override string Id => BuiltInActionIds.ClipboardHistory;
     public override string Title => "历史";
     public override string IconKey => "ClipboardHistory";
 
-    public override bool CanRun(SelectionContext context) => true;
+    public override bool CanRun(SelectionContext context) => false;
 
     public override Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
     {

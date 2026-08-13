@@ -265,6 +265,8 @@ internal sealed class SelectionSessionManager : IDisposable
             // 仍允许用户隐藏"AI 解释"按钮以保持浮窗精简，不影响其它 AI 动作
             .Where(v => !string.Equals(v.Action.Id, BuiltInActionIds.AiExplain, StringComparison.OrdinalIgnoreCase)
                         || _settings.ExplainActionEnabled)
+            // 剪贴板历史改走全局热键 / 托盘 / 修饰键启动器，不再占划词浮窗
+            .Where(v => !string.Equals(v.Action.Id, BuiltInActionIds.ClipboardHistory, StringComparison.OrdinalIgnoreCase))
             .ToList();
         _log.Info("visible actions", ("count", visible.Count));
         if (visible.Count == 0) return;

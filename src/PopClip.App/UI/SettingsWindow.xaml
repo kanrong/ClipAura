@@ -1122,7 +1122,7 @@
                         <StackPanel x:Name="HotkeysPage" Visibility="Collapsed">
                             <TextBlock Style="{StaticResource Settings.PageTitle}" Text="快捷键" />
                             <TextBlock Style="{StaticResource Settings.PageDescription}"
-                                       Text="全局快捷键。格式：Ctrl+Alt+P，支持 Ctrl / Alt / Shift / Win；PrintScreen、F1–F24 可以不带修饰键。OCR / 截图热键在 OCR 页。" />
+                                       Text="全局快捷键。格式：Ctrl+Alt+P，支持 Ctrl / Alt / Shift / Win；PrintScreen、F1–F24 可以不带修饰键。OCR / 截图热键在 OCR 页。默认 Ctrl+Shift+V 打开剪贴板历史；若和浏览器「粘贴为纯文本」冲突，改掉即可。" />
 
                             <Border Style="{StaticResource Settings.Card}">
                                 <StackPanel>
@@ -1163,6 +1163,25 @@
                                                    Style="{StaticResource Settings.HintText}"
                                                    Foreground="{Binding ToolbarHotKeyStatusBrush}"
                                                    Text="{Binding ToolbarHotKeyStatusText}" />
+                                    </Grid>
+                                    <Grid Margin="0,14,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="180" />
+                                            <ColumnDefinition Width="280" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource Settings.FieldLabel}" Text="剪贴板历史" />
+                                        <ui:TextBox Grid.Row="0" Grid.Column="1" x:Name="ClipboardHistoryHotKeyBox" />
+                                        <ui:ToggleSwitch Grid.Row="0" Grid.Column="2" x:Name="EnableClipboardHistoryHotKeyBox" Margin="12,0,0,0" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Row="1" Grid.Column="1"
+                                                   Margin="0,6,0,0"
+                                                   Style="{StaticResource Settings.HintText}"
+                                                   Foreground="{Binding ClipboardHistoryHotKeyStatusBrush}"
+                                                   Text="{Binding ClipboardHistoryHotKeyStatusText}" />
                                     </Grid>
                                 </StackPanel>
                             </Border>

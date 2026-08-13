@@ -17,7 +17,7 @@ internal static class DefaultActionsFactory
                 new() { Id = "search", Type = "builtin", BuiltIn = BuiltInActionIds.Search, Title = "搜索", Icon = "Search", IconLocked = true, Enabled = true },
                 new() { Id = "translate", Type = "builtin", BuiltIn = BuiltInActionIds.Translate, Title = "翻译", Icon = "Translate", IconLocked = true, Enabled = true },
                 new() { Id = "calc", Type = "builtin", BuiltIn = BuiltInActionIds.Calculate, Title = "计算", Icon = "Calc", OutputMode = BuiltInOutputModes.Bubble, IconLocked = true, Enabled = true },
-                new() { Id = "clipboard-history", Type = "builtin", BuiltIn = BuiltInActionIds.ClipboardHistory, Title = "剪贴板历史", Icon = "ClipboardHistory", IconLocked = true, Enabled = true },
+                new() { Id = "clipboard-history", Type = "builtin", BuiltIn = BuiltInActionIds.ClipboardHistory, Title = "剪贴板历史", Icon = "ClipboardHistory", IconLocked = true, Enabled = false },
                 new() { Id = "json-format", Type = "builtin", BuiltIn = BuiltInActionIds.JsonFormat, Title = "格式化 JSON", Icon = "Json", OutputMode = BuiltInOutputModes.Bubble, IconLocked = true, Enabled = true },
                 new() { Id = "color", Type = "builtin", BuiltIn = BuiltInActionIds.Color, Title = "颜色", Icon = "Color", OutputMode = BuiltInOutputModes.Bubble, IconLocked = true, Enabled = true },
                 new() { Id = "path-open", Type = "builtin", BuiltIn = BuiltInActionIds.PathOpen, Title = "在资源管理器打开", Icon = "FolderOpen", IconLocked = true, Enabled = true },

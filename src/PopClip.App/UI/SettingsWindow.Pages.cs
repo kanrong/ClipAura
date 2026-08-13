@@ -137,7 +137,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
             ("Actions", "动作 添加 内置 URL AI Prompt 模板 图标 排序"),
             ("Processes", "进程 过滤 黑名单 白名单 最近活动窗口"),
             ("Search", "搜索 引擎 Google Bing 百度 URL 模板"),
-            ("Hotkeys", "快捷键 热键 暂停 恢复 唤起 工具栏"),
+            ("Hotkeys", "快捷键 热键 暂停 恢复 唤起 工具栏 剪贴板 历史"),
             ("Ocr", "OCR 识别 截图 截选 RapidOCR WeChat Interactive Quick 边框 菜单 PrintScreen 延时"),
             ("AI", "AI 模型 Provider DeepSeek OpenAI API Key 自定义 测试连接"),
             ("Templates", "模板 Prompt template 改写 翻译 修语法 commit"),

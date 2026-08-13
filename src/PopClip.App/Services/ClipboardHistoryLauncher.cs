@@ -42,12 +42,15 @@ internal sealed class ClipboardHistoryLauncher : IClipboardHistoryLauncher
         {
             if (_current is { IsVisible: true })
             {
+                _current.RepositionToCursor();
                 _current.Activate();
+                _current.FocusSearch();
                 return;
             }
             _current = new ClipboardHistoryWindow(_history, _writer, _replacer, anchorContext, _paste, _clipboardAccess, pasteTargetProvider);
             _current.Closed += (_, _) => _current = null;
             _current.Show();
+            _current.RepositionToCursor();
             _current.Activate();
         });
     }

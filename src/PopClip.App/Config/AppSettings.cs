@@ -183,9 +183,14 @@ public sealed class AppSettings
     public bool EnableOcrHotKey { get; set; } = true;
     /// <summary>是否启用"区域截图"全局快捷键。</summary>
     public bool EnableScreenshotHotKey { get; set; } = true;
+    /// <summary>是否启用"剪贴板历史"全局快捷键。</summary>
+    public bool EnableClipboardHistoryHotKey { get; set; } = true;
 
     public string PauseHotKey { get; set; } = "Ctrl+Alt+P";
     public string ToolbarHotKey { get; set; } = "Ctrl+Alt+Space";
+    /// <summary>剪贴板历史热键。默认 Ctrl+Shift+V，贴近"从历史粘贴"心智；
+    /// 若与浏览器"粘贴为纯文本"冲突，可在设置里改掉。</summary>
+    public string ClipboardHistoryHotKey { get; set; } = "Ctrl+Shift+V";
 
     /// <summary>区域 OCR 截选热键。按下后弹出全屏蒙层让用户拉框，
     /// 截图区域被当前活跃的 OCR provider 识别后走与正常选区相同的浮窗 + 动作链路</summary>

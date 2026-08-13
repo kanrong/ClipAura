@@ -326,10 +326,12 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
 
         PauseHotKeyBox.Text = _settings.PauseHotKey;
         ToolbarHotKeyBox.Text = _settings.ToolbarHotKey;
+        ClipboardHistoryHotKeyBox.Text = _settings.ClipboardHistoryHotKey;
         OcrHotKeyBox.Text = _settings.OcrHotKey;
         ScreenshotHotKeyBox.Text = _settings.ScreenshotHotKey;
         EnablePauseHotKeyBox.IsChecked = _settings.EnablePauseHotKey;
         EnableToolbarHotKeyBox.IsChecked = _settings.EnableToolbarHotKey;
+        EnableClipboardHistoryHotKeyBox.IsChecked = _settings.EnableClipboardHistoryHotKey;
         EnableOcrHotKeyBox.IsChecked = _settings.EnableOcrHotKey;
         EnableScreenshotHotKeyBox.IsChecked = _settings.EnableScreenshotHotKey;
         EnablePrintScreenScreenshotBox.IsChecked = _settings.EnablePrintScreenScreenshot;
@@ -461,6 +463,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         _settings.EnableSelectAllPopup = EnableSelectAllPopupBox.IsChecked == true;
         _settings.EnablePauseHotKey = EnablePauseHotKeyBox.IsChecked == true;
         _settings.EnableToolbarHotKey = EnableToolbarHotKeyBox.IsChecked == true;
+        _settings.EnableClipboardHistoryHotKey = EnableClipboardHistoryHotKeyBox.IsChecked == true;
         _settings.EnableOcrHotKey = EnableOcrHotKeyBox.IsChecked == true;
         _settings.EnableScreenshotHotKey = EnableScreenshotHotKeyBox.IsChecked == true;
         _settings.EnablePrintScreenScreenshot = EnablePrintScreenScreenshotBox.IsChecked == true;
@@ -486,6 +489,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
 
         _settings.PauseHotKey = PauseHotKeyBox.Text.Trim();
         _settings.ToolbarHotKey = ToolbarHotKeyBox.Text.Trim();
+        _settings.ClipboardHistoryHotKey = ClipboardHistoryHotKeyBox.Text.Trim();
         _settings.OcrHotKey = OcrHotKeyBox.Text.Trim();
         _settings.ScreenshotHotKey = ScreenshotHotKeyBox.Text.Trim();
         _settings.ScreenshotAfterCaptureMode = ScreenshotModeClipboardRadio.IsChecked == true
@@ -609,7 +613,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
     {
         // ToggleSwitch / CheckBox / RadioButton 走 Checked/Unchecked
         AttachToggle(FullScreenSuppress, LaunchAtStartup, EnableSelectAllPopupBox,
-            EnablePauseHotKeyBox, EnableToolbarHotKeyBox, EnableOcrHotKeyBox, EnableScreenshotHotKeyBox,
+            EnablePauseHotKeyBox, EnableToolbarHotKeyBox, EnableClipboardHistoryHotKeyBox,
+            EnableOcrHotKeyBox, EnableScreenshotHotKeyBox,
             EnablePrintScreenScreenshotBox,
             EnableToolbarKeyboardShortcutsBox, EnableToolbarTabNavigationBox, EnableToolbarNumberShortcutsBox,
             DismissOnMouseLeaveBox, DismissOnForegroundChangedBox, DismissOnClickOutsideBox,
@@ -636,7 +641,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
 
         // TextBox / PasswordBox：用 LostFocus 而不是 TextChanged，避免每个键盘字符都触发写盘
         AttachTextLostFocus(SearchEngineName, SearchUrlTemplate,
-            PauseHotKeyBox, ToolbarHotKeyBox, OcrHotKeyBox, ScreenshotHotKeyBox,
+            PauseHotKeyBox, ToolbarHotKeyBox, ClipboardHistoryHotKeyBox, OcrHotKeyBox, ScreenshotHotKeyBox,
             AiBaseUrlBox, AiModelBox, AiDefaultLanguageBox,
             ScreenshotSaveDirectoryBox, ScreenshotFileNameTemplateBox);
         // 文件名模板预览随 TextChanged 实时刷新（CommitAll 内会再校准一次）

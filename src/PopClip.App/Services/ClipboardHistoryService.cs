@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Interop;
 using Microsoft.Data.Sqlite;
 using PopClip.Core.Logging;
+using PopClip.Hooks;
 using PopClip.Hooks.Interop;
 using PopClip.Uia.Clipboard;
 
@@ -64,6 +65,8 @@ internal sealed class ClipboardHistoryService : IDisposable
 
     public event Action<ClipboardEntry>? EntryAdded;
     public event Action<ClipboardImageEntry>? ImageEntryAdded;
+    /// <summary>任何增删改 / 翻新都会触发，供历史窗在打开时实时刷新。</summary>
+    public event Action? Mutated;
 
     public ClipboardHistoryService(HistoryDatabase db, ClipboardAccess clipboard, ILog log)
     {
@@ -126,7 +129,7 @@ internal sealed class ClipboardHistoryService : IDisposable
                     _lastWrittenImageHash = "";
                     return;
                 }
-                _ = AppendImageAsync(imageBytes, imgHash, sourceProc: null);
+                _ = AppendImageAsync(imageBytes, imgHash, CurrentSourceProcess());
                 return;
             }
 
@@ -142,7 +145,7 @@ internal sealed class ClipboardHistoryService : IDisposable
                 return;
             }
 
-            var entry = AppendInternal(text, hash, sourceProc: null);
+            var entry = AppendInternal(text, hash, CurrentSourceProcess());
             if (entry is not null)
             {
                 EntryAdded?.Invoke(entry);
@@ -197,11 +200,17 @@ internal sealed class ClipboardHistoryService : IDisposable
 
             using (var update = conn.CreateCommand())
             {
-                update.CommandText = "UPDATE clipboard_image_history SET created_at = $now WHERE png_hash = $h";
+                update.CommandText = @"
+                    UPDATE clipboard_image_history
+                    SET created_at = $now,
+                        source_proc = CASE WHEN $proc IS NULL THEN source_proc ELSE $proc END
+                    WHERE png_hash = $h";
                 update.Parameters.AddWithValue("$h", hash);
                 update.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                update.Parameters.AddWithValue("$proc", (object?)sourceProc ?? DBNull.Value);
                 if (update.ExecuteNonQuery() > 0)
                 {
+                    NotifyMutated();
                     return null;
                 }
             }
@@ -238,6 +247,7 @@ internal sealed class ClipboardHistoryService : IDisposable
                 id, hash, width, height, pngBytes.Length, sourceProc, null,
                 DateTime.UtcNow, false, null);
             ImageEntryAdded?.Invoke(entry);
+            NotifyMutated();
             return entry;
         }
         catch (Exception ex)
@@ -256,11 +266,17 @@ internal sealed class ClipboardHistoryService : IDisposable
             // 已存在则把它的 created_at 更新为现在（"翻新")，不重复插入
             using (var update = conn.CreateCommand())
             {
-                update.CommandText = "UPDATE clipboard_history SET created_at = $now WHERE text_hash = $h";
+                update.CommandText = @"
+                    UPDATE clipboard_history
+                    SET created_at = $now,
+                        source_proc = CASE WHEN $proc IS NULL THEN source_proc ELSE $proc END
+                    WHERE text_hash = $h";
                 update.Parameters.AddWithValue("$h", hash);
                 update.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                update.Parameters.AddWithValue("$proc", (object?)sourceProc ?? DBNull.Value);
                 if (update.ExecuteNonQuery() > 0)
                 {
+                    NotifyMutated();
                     return null;
                 }
             }
@@ -290,7 +306,9 @@ internal sealed class ClipboardHistoryService : IDisposable
                 prune.ExecuteNonQuery();
             }
 
-            return new ClipboardEntry(id, text, hash, sourceProc, DateTime.UtcNow, false);
+            var created = new ClipboardEntry(id, text, hash, sourceProc, DateTime.UtcNow, false);
+            NotifyMutated();
+            return created;
         }
         catch (Exception ex)
         {
@@ -400,7 +418,9 @@ internal sealed class ClipboardHistoryService : IDisposable
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "DELETE FROM clipboard_history WHERE id = $id";
             cmd.Parameters.AddWithValue("$id", id);
-            return cmd.ExecuteNonQuery() > 0;
+            var ok = cmd.ExecuteNonQuery() > 0;
+            if (ok) NotifyMutated();
+            return ok;
         }
         catch { return false; }
     }
@@ -414,7 +434,7 @@ internal sealed class ClipboardHistoryService : IDisposable
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "UPDATE clipboard_history SET pinned = 1 - pinned WHERE id = $id";
             cmd.Parameters.AddWithValue("$id", id);
-            cmd.ExecuteNonQuery();
+            if (cmd.ExecuteNonQuery() > 0) NotifyMutated();
         }
         catch { /* ignore */ }
     }
@@ -428,6 +448,7 @@ internal sealed class ClipboardHistoryService : IDisposable
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "DELETE FROM clipboard_history WHERE pinned = 0";
             cmd.ExecuteNonQuery();
+            NotifyMutated();
         }
         catch { /* ignore */ }
     }
@@ -445,17 +466,22 @@ internal sealed class ClipboardHistoryService : IDisposable
         return Convert.ToHexString(hash);
     }
 
-    public IReadOnlyList<ClipboardImageEntry> ListImages(int limit, bool includeBlob = false)
+    public IReadOnlyList<ClipboardImageEntry> ListImages(int limit, bool includeBlob = false, string? query = null)
     {
         using var conn = _db.Open();
         if (conn is null) return Array.Empty<ClipboardImageEntry>();
         var list = new List<ClipboardImageEntry>();
+        var trimmed = query?.Trim();
+        var hasQuery = !string.IsNullOrEmpty(trimmed);
         try
         {
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = includeBlob
-                ? "SELECT id, png_hash, width, height, bytes, source_proc, ocr_text, created_at, pinned, png_blob FROM clipboard_image_history ORDER BY pinned DESC, created_at DESC LIMIT $limit"
-                : "SELECT id, png_hash, width, height, bytes, source_proc, ocr_text, created_at, pinned FROM clipboard_image_history ORDER BY pinned DESC, created_at DESC LIMIT $limit";
+            var columns = includeBlob
+                ? "id, png_hash, width, height, bytes, source_proc, ocr_text, created_at, pinned, png_blob"
+                : "id, png_hash, width, height, bytes, source_proc, ocr_text, created_at, pinned";
+            var where = hasQuery ? " WHERE ocr_text LIKE $q ESCAPE '\\'" : "";
+            cmd.CommandText = $"SELECT {columns} FROM clipboard_image_history{where} ORDER BY pinned DESC, created_at DESC LIMIT $limit";
+            if (hasQuery) cmd.Parameters.AddWithValue("$q", "%" + EscapeLike(trimmed!) + "%");
             cmd.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 200));
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
@@ -519,7 +545,9 @@ internal sealed class ClipboardHistoryService : IDisposable
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "DELETE FROM clipboard_image_history WHERE id = $id";
             cmd.Parameters.AddWithValue("$id", id);
-            return cmd.ExecuteNonQuery() > 0;
+            var ok = cmd.ExecuteNonQuery() > 0;
+            if (ok) NotifyMutated();
+            return ok;
         }
         catch { return false; }
     }
@@ -538,7 +566,7 @@ internal sealed class ClipboardHistoryService : IDisposable
             cmd.CommandText = "UPDATE clipboard_image_history SET ocr_text = $t WHERE png_hash = $h";
             cmd.Parameters.AddWithValue("$t", (object?)ocrText ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$h", pngHash);
-            cmd.ExecuteNonQuery();
+            if (cmd.ExecuteNonQuery() > 0) NotifyMutated();
         }
         catch (Exception ex)
         {
@@ -564,9 +592,30 @@ internal sealed class ClipboardHistoryService : IDisposable
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "UPDATE clipboard_image_history SET pinned = 1 - pinned WHERE id = $id";
             cmd.Parameters.AddWithValue("$id", id);
-            cmd.ExecuteNonQuery();
+            if (cmd.ExecuteNonQuery() > 0) NotifyMutated();
         }
         catch { }
+    }
+
+    private void NotifyMutated()
+    {
+        try { Mutated?.Invoke(); }
+        catch { /* 订阅方异常不能打断入库 */ }
+    }
+
+    /// <summary>复制发生时前台通常还是源应用。本进程窗口（历史窗 / 隐藏监听窗）记成无来源。</summary>
+    private static string? CurrentSourceProcess()
+    {
+        try
+        {
+            var snap = ForegroundWatcher.Snapshot();
+            if (snap.Hwnd == 0 || snap.ProcessId == Environment.ProcessId) return null;
+            return string.IsNullOrWhiteSpace(snap.ProcessName) ? null : snap.ProcessName;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public void Dispose()

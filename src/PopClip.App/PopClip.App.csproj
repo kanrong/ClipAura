@@ -44,7 +44,7 @@
   <ItemGroup>
     <PackageReference Include="MahApps.Metro.IconPacks.MaterialDesign" Version="6.2.1" />
     <PackageReference Include="WPF-UI" Version="4.3.0" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
     <!-- net10 起 System.Drawing.Common 已是 Microsoft.WindowsDesktop.App 自带的 framework 引用，
          不再需要显式 PackageReference -->
   </ItemGroup>

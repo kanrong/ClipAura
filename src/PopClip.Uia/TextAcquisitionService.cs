@@ -7,7 +7,8 @@ using PopClip.Uia.Clipboard;
 
 namespace PopClip.Uia;
 
-/// <summary>对外统一的"读取当前选中文本"入口，串联 UIA + 剪贴板兜底</summary>
+/// <summary>对外统一的"读取当前选中文本"入口，串联 UIA + 剪贴板兜底。
+/// 终端面（含 Cursor / VS Code 集成终端）UIA 失败后不发 Ctrl+C，避免中断正在跑的命令。</summary>
 public sealed class TextAcquisitionService
 {
     private readonly ILog _log;
@@ -94,8 +95,28 @@ public sealed class TextAcquisitionService
             return AcquisitionAttempt.Skipped;
         }
 
-        // 剪贴板兜底
-        var text = _clipboard.CopySelectionViaCtrlC(TimeSpan.FromMilliseconds(220));
+        var avoidCtrlC = TerminalSurface.AvoidsCtrlCFallback(foreground, focusedWindowClassName);
+        if (avoidCtrlC && trigger == SelectionTrigger.MouseDoubleClick)
+        {
+            _log.Info("clipboard fallback skipped: double-click on terminal surface",
+                ("foreground", foreground.ProcessName),
+                ("class", foreground.WindowClassName),
+                ("focusedClass", focusedWindowClassName),
+                ("controlType", focusedControlTypeName));
+            return AcquisitionAttempt.Skipped;
+        }
+
+        // 剪贴板兜底。终端面只试 Ctrl+Shift+C（复制），绝不发 Ctrl+C（中断）。
+        var chord = avoidCtrlC ? ClipboardCopyChord.CtrlShiftC : ClipboardCopyChord.CtrlC;
+        if (avoidCtrlC)
+        {
+            _log.Info("clipboard fallback using Ctrl+Shift+C",
+                ("foreground", foreground.ProcessName),
+                ("class", foreground.WindowClassName),
+                ("focusedClass", focusedWindowClassName),
+                ("controlType", focusedControlTypeName));
+        }
+        var text = _clipboard.CopySelection(TimeSpan.FromMilliseconds(220), chord);
         if (!string.IsNullOrEmpty(text))
         {
             var ctx = new SelectionContext(

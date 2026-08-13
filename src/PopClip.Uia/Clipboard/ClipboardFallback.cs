@@ -4,9 +4,17 @@ using PopClip.Hooks.Interop;
 
 namespace PopClip.Uia.Clipboard;
 
+/// <summary>剪贴板兜底用的复制组合键。
+/// 终端面必须用 Ctrl+Shift+C：Ctrl+C 在无选区 / TUI / agent 会话里是中断。</summary>
+public enum ClipboardCopyChord
+{
+    CtrlC,
+    CtrlShiftC,
+}
+
 /// <summary>剪贴板兜底链路：
 /// 1) STA 上备份当前剪贴板
-/// 2) 后台线程模拟 Ctrl+C
+/// 2) 后台线程模拟复制组合键
 /// 3) 后台线程 + STA Get 轮询剪贴板文本变化
 /// 4) STA 上恢复
 /// SendInput 与 Thread.Sleep 留在后台，避免阻塞 UI 与 STA</summary>
@@ -24,7 +32,7 @@ public sealed class ClipboardFallback
         _capturedSelection = capturedSelection;
     }
 
-    public string? CopySelectionViaCtrlC(TimeSpan timeout)
+    public string? CopySelection(TimeSpan timeout, ClipboardCopyChord chord)
     {
         if (!Monitor.TryEnter(Gate, TimeSpan.FromMilliseconds(50)))
         {
@@ -45,7 +53,7 @@ public sealed class ClipboardFallback
                     return null;
                 }
 
-                SendCtrlC();
+                SendCopyChord(chord);
 
                 var deadline = DateTime.UtcNow + timeout;
                 string? newText = null;
@@ -60,7 +68,7 @@ public sealed class ClipboardFallback
                     newText = _clipboard.GetText();
                     if (!string.IsNullOrEmpty(newText))
                     {
-                        // 此刻剪贴板正是源应用响应 Ctrl+C 写入的选区多格式数据（Firefox 等含 CF_HTML）。
+                        // 此刻剪贴板正是源应用响应复制组合键写入的选区多格式数据（Firefox 等含 CF_HTML）。
                         // 在下面 finally 还原旧剪贴板前抓一份快照缓存，供"复制"动作直接回写：
                         // 既保住富文本格式，又不必对终端再合成一次会触发 ^C 中断的 Ctrl+C
                         _capturedSelection.Store(newText, _clipboard.Capture());
@@ -111,21 +119,41 @@ public sealed class ClipboardFallback
     private static bool IsDown(int vk)
         => (NativeMethods.GetAsyncKeyState(vk) & 0x8000) != 0;
 
-    private static void SendCtrlC()
+    private static void SendCopyChord(ClipboardCopyChord chord)
     {
         const ushort VK_CONTROL = 0x11;
+        const ushort VK_SHIFT = 0x10;
         const ushort VK_C = 0x43;
 
-        var inputs = new NativeMethods.INPUT[4];
-        inputs[0].type = NativeMethods.INPUT_KEYBOARD;
-        inputs[0].u.ki = new NativeMethods.KEYBDINPUT { wVk = VK_CONTROL };
-        inputs[1].type = NativeMethods.INPUT_KEYBOARD;
-        inputs[1].u.ki = new NativeMethods.KEYBDINPUT { wVk = VK_C };
-        inputs[2].type = NativeMethods.INPUT_KEYBOARD;
-        inputs[2].u.ki = new NativeMethods.KEYBDINPUT { wVk = VK_C, dwFlags = NativeMethods.KEYEVENTF_KEYUP };
-        inputs[3].type = NativeMethods.INPUT_KEYBOARD;
-        inputs[3].u.ki = new NativeMethods.KEYBDINPUT { wVk = VK_CONTROL, dwFlags = NativeMethods.KEYEVENTF_KEYUP };
+        NativeMethods.INPUT[] inputs = chord == ClipboardCopyChord.CtrlShiftC
+            ? new NativeMethods.INPUT[6]
+            : new NativeMethods.INPUT[4];
+
+        var i = 0;
+        inputs[i++] = Key(VK_CONTROL, down: true);
+        if (chord == ClipboardCopyChord.CtrlShiftC)
+        {
+            inputs[i++] = Key(VK_SHIFT, down: true);
+        }
+        inputs[i++] = Key(VK_C, down: true);
+        inputs[i++] = Key(VK_C, down: false);
+        if (chord == ClipboardCopyChord.CtrlShiftC)
+        {
+            inputs[i++] = Key(VK_SHIFT, down: false);
+        }
+        inputs[i] = Key(VK_CONTROL, down: false);
 
         NativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
+    }
+
+    private static NativeMethods.INPUT Key(ushort vk, bool down)
+    {
+        var input = new NativeMethods.INPUT { type = NativeMethods.INPUT_KEYBOARD };
+        input.u.ki = new NativeMethods.KEYBDINPUT
+        {
+            wVk = vk,
+            dwFlags = down ? 0u : NativeMethods.KEYEVENTF_KEYUP,
+        };
+        return input;
     }
 }

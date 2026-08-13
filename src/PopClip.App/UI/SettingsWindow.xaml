@@ -1122,7 +1122,7 @@
                         <StackPanel x:Name="HotkeysPage" Visibility="Collapsed">
                             <TextBlock Style="{StaticResource Settings.PageTitle}" Text="快捷键" />
                             <TextBlock Style="{StaticResource Settings.PageDescription}"
-                                       Text="全局快捷键。格式：Ctrl+Alt+P，支持 Ctrl / Alt / Shift / Win 修饰键。OCR 截选热键统一在 OCR 页设置。" />
+                                       Text="全局快捷键。格式：Ctrl+Alt+P，支持 Ctrl / Alt / Shift / Win；PrintScreen、F1–F24 可以不带修饰键。OCR / 截图热键在 OCR 页。" />
 
                             <Border Style="{StaticResource Settings.Card}">
                                 <StackPanel>
@@ -1181,7 +1181,7 @@
                                     <TextBlock Style="{StaticResource Settings.HintText}"
                                                TextWrapping="Wrap"
                                                Margin="0,0,0,12"
-                                               Text="按下后全屏蒙层弹出，拖框选区域后启动识别。" />
+                                               Text="按下后先冻结当前画面，再拖框裁切。带 Alt 的组合键会关掉菜单，截菜单请用 PrintScreen 或先开延时再打开菜单。" />
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="180" />
@@ -1211,6 +1211,13 @@
                                                    Foreground="{Binding ScreenshotHotKeyStatusBrush}"
                                                    Text="{Binding ScreenshotHotKeyStatusText}" />
                                     </Grid>
+                                    <ui:ToggleSwitch x:Name="EnablePrintScreenScreenshotBox"
+                                                     Content="PrintScreen 直接截图"
+                                                     Margin="0,14,0,0" />
+                                    <TextBlock Style="{StaticResource Settings.HintText}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,6,0,0"
+                                               Text="菜单已经打开时按 PrintScreen，不会经过 Alt，菜单不会收起。Win+PrintScreen 仍是系统保存。若要把 PrintScreen 留给系统截图工具，关掉此项。" />
                                 </StackPanel>
                             </Border>
 

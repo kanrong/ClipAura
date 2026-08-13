@@ -194,6 +194,11 @@ public sealed class AppSettings
     /// <summary>区域截图热键。按下后复用 OCR 截选蒙层，但默认只做截图，不自动识别文字。</summary>
     public string ScreenshotHotKey { get; set; } = "Ctrl+Alt+S";
 
+    /// <summary>是否拦截 PrintScreen 作为截图热键。
+    /// PrintScreen 不带 Alt，菜单栏 / 右键菜单不会被关掉，适合截已经打开的菜单。
+    /// 与 ScreenshotHotKey 独立：关掉本项可把 PrintScreen 还给系统截图工具。</summary>
+    public bool EnablePrintScreenScreenshot { get; set; } = true;
+
     /// <summary>OCR provider 用户偏好。
     /// 空串 / null = 自动模式，按 Priority 倒序选第一个可用的 provider（默认推荐）。
     /// 显式 id 见 PopClip.App.Ocr.OcrProviderIds：rapid-onnx / wechat。

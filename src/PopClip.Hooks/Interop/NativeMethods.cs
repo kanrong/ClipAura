@@ -63,6 +63,9 @@ public static class NativeMethods
     public const int VK_RETURN = 0x0D;
     public const int VK_ESCAPE = 0x1B;
     public const int VK_SPACE = 0x20;
+    public const int VK_SNAPSHOT = 0x2C;
+    public const int VK_LWIN = 0x5B;
+    public const int VK_RWIN = 0x5C;
     public const int VK_TAB = 0x09;
     public const int VK_LEFT = 0x25;
     public const int VK_UP = 0x26;

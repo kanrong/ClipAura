@@ -28,6 +28,33 @@ internal sealed partial class OcrCaptureCoordinator
     private static SelectionRect ToSelectionRect(Rectangle rect)
         => new(rect.Left, rect.Top, rect.Right, rect.Bottom);
 
+    /// <summary>把冻结的 GDI 位图做成 WPF 可显示、可跨线程 Freeze 的 BitmapSource。
+    /// 选区窗用 Stretch=Fill 铺满 virtual screen，这里 DPI 固定 96 即可。</summary>
+    private static BitmapSource CreateFrozenPreview(Bitmap bitmap)
+    {
+        var rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
+        var data = bitmap.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        try
+        {
+            var stride = Math.Abs(data.Stride);
+            var source = BitmapSource.Create(
+                bitmap.Width,
+                bitmap.Height,
+                96, 96,
+                System.Windows.Media.PixelFormats.Bgra32,
+                null,
+                data.Scan0,
+                stride * bitmap.Height,
+                stride);
+            source.Freeze();
+            return source;
+        }
+        finally
+        {
+            bitmap.UnlockBits(data);
+        }
+    }
+
     private static OcrImage CreateOcrImage(Bitmap bitmap, Func<byte[]>? pngFactory = null)
     {
         var rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);

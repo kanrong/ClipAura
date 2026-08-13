@@ -138,7 +138,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
             ("Processes", "进程 过滤 黑名单 白名单 最近活动窗口"),
             ("Search", "搜索 引擎 Google Bing 百度 URL 模板"),
             ("Hotkeys", "快捷键 热键 暂停 恢复 唤起 工具栏"),
-            ("Ocr", "OCR 识别 截图 截选 RapidOCR WeChat Interactive Quick 边框"),
+            ("Ocr", "OCR 识别 截图 截选 RapidOCR WeChat Interactive Quick 边框 菜单 PrintScreen 延时"),
             ("AI", "AI 模型 Provider DeepSeek OpenAI API Key 自定义 测试连接"),
             ("Templates", "模板 Prompt template 改写 翻译 修语法 commit"),
             ("History", "历史 对话 history 会话 记录"),

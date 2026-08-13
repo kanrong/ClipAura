@@ -4,6 +4,7 @@ using PopClip.App.Services;
 using PopClip.App.UI;
 using PopClip.Core.Logging;
 using PopClip.Hooks;
+using PopClip.Hooks.Interop;
 using PopClip.Uia;
 using PopClip.Uia.Clipboard;
 using Microsoft.Win32;
@@ -163,6 +164,7 @@ internal sealed class AppHost : IDisposable
             // 浮窗未处理且气泡可见时，ESC 关闭气泡（VK_ESCAPE = 0x1B）
             if (_toolbar!.TryHandleGlobalKey(key)) return true;
             if (key.IsDown && key.VirtualKey == 0x1B) return AiBubbleWindow.TryHandleEscape();
+            if (TryHandlePrintScreenCapture(key)) return true;
             return false;
         };
 
@@ -341,6 +343,20 @@ internal sealed class AppHost : IDisposable
         {
             _log.Warn("startup setting apply failed", ("err", ex.Message));
         }
+    }
+
+    /// <summary>PrintScreen 走低级键盘钩子而不是 RegisterHotKey：
+    /// 按键在到达前台窗口之前就被吃掉，菜单看不到 Alt/任何修饰键，也就不会收起。
+    /// Win+PrintScreen 仍留给系统（保存到图片文件夹）。</summary>
+    private bool TryHandlePrintScreenCapture(PopClip.Core.Session.KeyEvent key)
+    {
+        if (_settings is not { EnablePrintScreenScreenshot: true }) return false;
+        if (key.VirtualKey != NativeMethods.VK_SNAPSHOT) return false;
+        if (key.Ctrl || key.Alt || key.Shift) return false;
+        if ((NativeMethods.GetAsyncKeyState(NativeMethods.VK_LWIN) & 0x8000) != 0) return false;
+        if ((NativeMethods.GetAsyncKeyState(NativeMethods.VK_RWIN) & 0x8000) != 0) return false;
+        if (key.IsDown) _ocr?.Coordinator.TriggerScreenshot();
+        return true;
     }
 
     private void TogglePauseFromHotKey()

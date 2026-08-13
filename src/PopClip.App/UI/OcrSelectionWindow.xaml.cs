@@ -1,8 +1,8 @@
-using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using PopClip.Core.Logging;
 using PopClip.Hooks.Interop;
 using WinPoint = System.Drawing.Point;
@@ -12,10 +12,10 @@ namespace PopClip.App.UI;
 
 /// <summary>区域 OCR / 截图的全屏蒙层选区窗。
 /// 设计目标：
-/// - 一个跨所有屏幕的全屏窗口（VirtualScreen 物理像素尺寸），鼠标拖框 → 截图 → OCR
-/// - 选区中心保持透明让用户能看清要截的内容；外围用 4 块半透明黑色蒙层围合
+/// - 一个跨所有屏幕的全屏窗口（VirtualScreen 物理像素尺寸），鼠标拖框 → 裁切已冻结的快照
+/// - 背景是触发瞬间的全屏快照；选区镂空看到冻结画面，外围半透明黑蒙层围合
 /// - ESC / 右键 / 双击 → 取消；左键拖框 → 完成
-/// - 完成事件交付物理像素 Rect（System.Drawing.Rectangle），方便上层 BitBlt 截屏
+/// - 完成事件交付物理像素 Rect（System.Drawing.Rectangle），上层按此从快照裁切
 ///
 /// 关键改造：全程用 Win32 物理像素而非 WPF DIP 折算。
 /// 旧版用 SystemParameters.VirtualScreenWidth/Height（DIP）+ MouseEventArgs.GetPosition（DIP）
@@ -66,10 +66,14 @@ internal partial class OcrSelectionWindow : Window
     public event Action<WinRectangle>? RegionSelected;
     public event Action? Cancelled;
 
-    public OcrSelectionWindow(ILog log)
+    public OcrSelectionWindow(ILog log, ImageSource? frozenBackground = null)
     {
         _log = log;
         InitializeComponent();
+        if (frozenBackground is not null)
+        {
+            FrozenBackground.Source = frozenBackground;
+        }
         SourceInitialized += OnSourceInitialized;
         MouseLeftButtonDown += OnMouseDown;
         MouseMove += OnMouseMove;
@@ -116,10 +120,17 @@ internal partial class OcrSelectionWindow : Window
     {
         // 初始把"差集外圈"设为整个全屏蒙层 DIP 区域；内圈选区清零，
         // 视觉上 = 全屏铺一层 #99000000 蒙层（与旧 ResetMasks 等价但只更新两个 RectangleGeometry）
-        MaskOuterGeometry.Rect = new Rect(0, 0,
-            _virtualWidthPx / _dpiScaleX,
-            _virtualHeightPx / _dpiScaleY);
+        var widthDip = _virtualWidthPx / _dpiScaleX;
+        var heightDip = _virtualHeightPx / _dpiScaleY;
+        MaskOuterGeometry.Rect = new Rect(0, 0, widthDip, heightDip);
         MaskInnerGeometry.Rect = Rect.Empty;
+        if (FrozenBackground.Source is not null)
+        {
+            Canvas.SetLeft(FrozenBackground, 0);
+            Canvas.SetTop(FrozenBackground, 0);
+            FrozenBackground.Width = widthDip;
+            FrozenBackground.Height = heightDip;
+        }
         SelectionRect.Width = 0;
         SelectionRect.Height = 0;
         SelectionRectOuter.Width = 0;
@@ -193,8 +204,7 @@ internal partial class OcrSelectionWindow : Window
     }
 
     /// <summary>真正提交本次选区。Dragging 路径下由 MouseUp 调用，WaitingForEnd 路径下由 MouseDown 调用。
-    /// 内部判断选区尺寸合法性（&lt; 6 px 视为取消），合法则按原 Hide → Dispatcher.Background → Close 顺序
-    /// 把蒙层从合成里彻底移除后再触发 RegionSelected，避免上层 CopyFromScreen 截到半透明黑蒙层</summary>
+    /// 画面已在打开本窗前冻结，这里只需交付物理像素 rect，上层从快照裁切，不必再等蒙层从 DWM 消失。</summary>
     private void FinalizeSelection()
     {
         var physical = CurrentSelectionPx();
@@ -208,25 +218,11 @@ internal partial class OcrSelectionWindow : Window
         }
 
         _mode = SelectionMode.Idle;
-        // 关键：WPF 的 Close() 仅向消息队列投递 WM_CLOSE，蒙层在屏幕上消失需要等一次 DWM 合成。
-        // 必须先把窗口在视觉树上彻底隐藏（Hide + Visibility=Collapsed 让 DWM 跳过合成），
-        // 然后用 Dispatcher Background 优先级把截图事件推到下一帧 —— 此时蒙层已不在屏幕上。
-        // 之前直接 Close() + Invoke 会让 CopyFromScreen 截到半透明黑色蒙层，
-        // detector 还能看出文字框轮廓但 recognizer 拿到的颜色全被压暗 → 输出乱码
-        //
-        // 性能埋点：sw 起点 = 用户松开鼠标的瞬间；Dispatcher Background 回调执行时 log 耗时，
-        // 让上层能区分"蒙层消失等待"与"后续截屏 / 编码 / 窗口创建"两段开销
-        var sw = Stopwatch.StartNew();
-        Hide();
-        Visibility = Visibility.Collapsed;
-        Dispatcher.BeginInvoke(new Action(() =>
-        {
-            var dispatchMs = sw.ElapsedMilliseconds;
-            Close();
-            _log.Debug("screenshot timing: selection mouseup -> bg dispatch", ("ms", dispatchMs));
-            try { RegionSelected?.Invoke(physical); }
-            catch (Exception ex) { _log.Warn("ocr region callback failed", ("err", ex.Message)); }
-        }), System.Windows.Threading.DispatcherPriority.Background);
+        // 先把 rect 交给上层从冻结快照裁切 / 弹出预览，再关蒙层。
+        // 若先 Close，Closed 会释放快照，裁切会打到已 Dispose 的 Bitmap
+        try { RegionSelected?.Invoke(physical); }
+        catch (Exception ex) { _log.Warn("ocr region callback failed", ("err", ex.Message)); }
+        Close();
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)

@@ -39,9 +39,12 @@ dotnet run --project src/PopClip.App/PopClip.App.csproj -c Release
 | 在光标处唤起浮窗 | `Ctrl+Alt+Space` |
 | 区域 OCR | `Ctrl+Alt+O` |
 | 区域截图 | `Ctrl+Alt+S` |
-| 延时截图 | `Ctrl+Alt+Shift+T` |
+| 截已打开的菜单 | `PrintScreen` |
+| 延时截图 | `Ctrl+Alt+Shift+T`，或托盘 → 延时截图 |
 
-可在 **设置 → 快捷键** 里改。冲突时设置页会标出注册失败原因。
+`Ctrl+Alt+S` 会按下 Alt，菜单栏和不少右键菜单会当场收起。菜单已经打开时请按 **PrintScreen**（不经过 Alt，画面在按键瞬间冻结）。也可以先开始延时截图，再打开菜单，倒计时结束时冻结。
+
+可在 **设置 → OCR / 快捷键** 里改。冲突时设置页会标出注册失败原因。Win 11 若把 PrintScreen 留给系统截图，可在设置里关掉「PrintScreen 直接截图」。
 
 划选弹出默认需要按住 **Alt**。可在 **设置 → 常规** 改成立即弹出、延迟弹出或换修饰键。
 

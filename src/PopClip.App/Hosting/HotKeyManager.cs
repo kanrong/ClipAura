@@ -59,7 +59,7 @@ internal sealed class HotKeyManager : IDisposable
         if (!TryParse(text, out var modifiers, out var key))
         {
             _log.Warn("hotkey parse failed", ("hotkey", text));
-            return HotKeyRegistrationStatus.Invalid("格式错误，请使用 Ctrl+Alt+P 这种写法");
+            return HotKeyRegistrationStatus.Invalid("格式错误，请使用 Ctrl+Alt+P 或 PrintScreen 这种写法");
         }
 
         modifiers |= NativeMethods.MOD_NOREPEAT;
@@ -141,8 +141,14 @@ internal sealed class HotKeyManager : IDisposable
             key = ParseKey(part);
         }
 
-        return modifiers != 0 && key != 0;
+        // PrintScreen / F1 这类专用键允许不带修饰符；字母数字必须带 Ctrl/Alt/Shift/Win，
+        // 否则会变成全局劫持键盘。
+        return key != 0 && (modifiers != 0 || IsStandaloneKey(key));
     }
+
+    private static bool IsStandaloneKey(uint key)
+        => key == NativeMethods.VK_SNAPSHOT
+           || key is >= 0x70 and <= 0x87; // F1-F24
 
     private static uint ParseKey(string key)
     {
@@ -157,6 +163,14 @@ internal sealed class HotKeyManager : IDisposable
         if (key.Equals("Enter", StringComparison.OrdinalIgnoreCase)) return NativeMethods.VK_RETURN;
         if (key.Equals("Esc", StringComparison.OrdinalIgnoreCase)
             || key.Equals("Escape", StringComparison.OrdinalIgnoreCase)) return NativeMethods.VK_ESCAPE;
+        if (key.Equals("PrintScreen", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("Print", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("PrtSc", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("PrtScn", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("Snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            return NativeMethods.VK_SNAPSHOT;
+        }
         if (key.StartsWith("F", StringComparison.OrdinalIgnoreCase)
             && int.TryParse(key[1..], out var f)
             && f is >= 1 and <= 24)

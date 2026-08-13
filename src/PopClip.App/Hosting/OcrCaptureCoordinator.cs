@@ -63,6 +63,7 @@ internal sealed partial class OcrCaptureCoordinator
     private OcrResultWindow? _resultWindow;
     private ScreenshotPreviewWindow? _screenshotWindow;
     private ScreenshotCountdownWindow? _countdownWindow;
+    private FrozenScreen? _frozenScreen;
 
     private enum CapturePurpose
     {
@@ -206,74 +207,144 @@ internal sealed partial class OcrCaptureCoordinator
                 return;
             }
 
-            var window = new OcrSelectionWindow(_log);
+            // 先收起本进程浮层，再冻屏：否则热键触发时浮窗 / 倒计时会被写进快照
+            _toolbar.DismissExternal("capture-freeze");
+            if (_countdownWindow is not null)
+            {
+                try { _countdownWindow.Hide(); } catch { }
+            }
+            NativeMethods.DwmFlush();
+
+            FrozenScreen frozen;
+            try
+            {
+                frozen = FreezeVirtualScreen();
+            }
+            catch (Exception ex)
+            {
+                _log.Error("freeze screen failed", ex);
+                MessageBox.Show("截屏失败：" + ex.Message, "截屏错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            DisposeFrozenScreen();
+            _frozenScreen = frozen;
+            var consumed = false;
+
+            var window = new OcrSelectionWindow(_log, frozen.Preview);
             _currentWindow = window;
             window.Closed += (_, _) =>
             {
                 if (ReferenceEquals(_currentWindow, window)) _currentWindow = null;
+                if (!consumed) DisposeFrozenScreen();
             };
             window.Cancelled += () => _log.Info(purpose == CapturePurpose.Ocr
                 ? "ocr capture cancelled"
                 : "screenshot capture cancelled");
-            window.RegionSelected += physical => _ = RunCaptureAsync(physical, purpose);
+            window.RegionSelected += physical =>
+            {
+                consumed = true;
+                var snapshot = _frozenScreen;
+                _frozenScreen = null;
+                _ = RunCaptureAsync(physical, purpose, snapshot);
+            };
             window.Show();
         });
     }
 
-    private async Task RunCaptureAsync(Rectangle physical, CapturePurpose purpose)
+    private async Task RunCaptureAsync(Rectangle physical, CapturePurpose purpose, FrozenScreen? frozen)
     {
-        if (physical.Width <= 0 || physical.Height <= 0) return;
-        // 性能埋点：sw 从"RegionSelected 抵达 Coordinator"开始计时，
-        // 与 OcrSelectionWindow 的"mouseup -> bg dispatch"埋点拼起来覆盖整条"松手 → 预览出现"链路
-        var sw = Stopwatch.StartNew();
-        try
+        using (frozen)
         {
-            // 等 DWM 消化选区窗 Hide/Close 对桌面合成的影响，再截屏。
-            //
-            // 严格模式由 purpose 决定：OCR 路径必须严格，否则截到半透明蒙层会让 OCR 输出乱码；
-            // Screenshot 路径放宽 —— OcrSelectionWindow.FinalizeSelection 里已经 Hide + Dispatcher.Background
-            // 等过一帧 DWM 合成，这里再 DwmFlush 是冗余的双重保险，对 OCR 必要、对截图预览没价值（偶尔
-            // 截到一点蒙层用户能立刻发现并重截）。砍掉这一段在 1080p 上能省 ~16ms 的"松手 → 预览出现"延迟
-            var strictFlush = purpose == CapturePurpose.Ocr;
-            await WaitForSelectionOverlayToDisappearAsync(strictFlush).ConfigureAwait(false);
-            var afterFlushMs = sw.ElapsedMilliseconds;
-
-            // RegionSelected 回调在 UI 线程触发；WaitForSelectionOverlayToDisappearAsync 命中
-            // DwmFlush==0 立即成功路径时 async 链是同步完成的，await 不会真正 yield，
-            // 后续若直接 CaptureRegion 会在 UI 线程跑 CopyFromScreen + LockBits + Marshal.Copy，
-            // 全屏截图能阻塞 100~300ms。强制 Task.Run 入池让 UI 线程在等待截图期间仍能处理消息
-            var captured = await Task.Run(() => CaptureRegion(physical)).ConfigureAwait(false);
-            var afterCaptureMs = sw.ElapsedMilliseconds;
-
-            _log.Info("screenshot timing capture",
-                ("flushMs", afterFlushMs),
-                ("captureMs", afterCaptureMs - afterFlushMs),
-                ("size", $"{physical.Width}x{physical.Height}"),
-                ("purpose", purpose.ToString()));
-
-            if (purpose == CapturePurpose.Ocr)
+            if (physical.Width <= 0 || physical.Height <= 0) return;
+            var sw = Stopwatch.StartNew();
+            try
             {
-                await RecognizeImageAsync(captured.Image, captured.AnchorRect, captured.Source, closeAfterLoad: null).ConfigureAwait(false);
+                var captured = frozen is not null
+                    ? CropFrozenScreen(frozen, physical)
+                    : CaptureRegion(physical);
+                _log.Info("screenshot timing crop",
+                    ("cropMs", sw.ElapsedMilliseconds),
+                    ("size", $"{physical.Width}x{physical.Height}"),
+                    ("purpose", purpose.ToString()),
+                    ("frozen", frozen is not null));
+
+                if (purpose == CapturePurpose.Ocr)
+                {
+                    await RecognizeImageAsync(captured.Image, captured.AnchorRect, captured.Source, closeAfterLoad: null).ConfigureAwait(false);
+                }
+                else
+                {
+                    await HandleScreenshotCaptureAsync(captured, sw).ConfigureAwait(false);
+                }
             }
-            else
+            catch (OperationCanceledException)
             {
-                await HandleScreenshotCaptureAsync(captured, sw).ConfigureAwait(false);
+                _log.Warn("ocr capture timed out");
+                WpfApplication.Current.Dispatcher.Invoke(() =>
+                    MessageBox.Show("OCR 超时，请缩小截图区域后再试。", "OCR 超时", MessageBoxButton.OK, MessageBoxImage.Warning));
             }
-        }
-        catch (OperationCanceledException)
-        {
-            _log.Warn("ocr capture timed out");
-            WpfApplication.Current.Dispatcher.Invoke(() =>
-                MessageBox.Show("OCR 超时，请缩小截图区域后再试。", "OCR 超时", MessageBoxButton.OK, MessageBoxImage.Warning));
-        }
-        catch (Exception ex)
-        {
-            _log.Error("ocr capture failed", ex);
-            WpfApplication.Current.Dispatcher.Invoke(() =>
-                MessageBox.Show("OCR 失败：" + ex.Message, "OCR 错误", MessageBoxButton.OK, MessageBoxImage.Error));
+            catch (Exception ex)
+            {
+                _log.Error("ocr capture failed", ex);
+                WpfApplication.Current.Dispatcher.Invoke(() =>
+                    MessageBox.Show("OCR 失败：" + ex.Message, "OCR 错误", MessageBoxButton.OK, MessageBoxImage.Error));
+            }
         }
     }
 
+    /// <summary>热键 / 倒计时归零瞬间冻结整个 virtual screen。
+    /// 框选只是从这张快照裁切，桌面在拖框期间怎么变都不影响结果。</summary>
+    private FrozenScreen FreezeVirtualScreen()
+    {
+        var left = NativeMethods.GetSystemMetrics(NativeMethods.SM_XVIRTUALSCREEN);
+        var top = NativeMethods.GetSystemMetrics(NativeMethods.SM_YVIRTUALSCREEN);
+        var width = Math.Max(1, NativeMethods.GetSystemMetrics(NativeMethods.SM_CXVIRTUALSCREEN));
+        var height = Math.Max(1, NativeMethods.GetSystemMetrics(NativeMethods.SM_CYVIRTUALSCREEN));
+
+        var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        try
+        {
+            using (var g = Graphics.FromImage(bitmap))
+            {
+                g.CopyFromScreen(left, top, 0, 0, bitmap.Size);
+            }
+
+            var preview = CreateFrozenPreview(bitmap);
+            _log.Info("screen frozen", ("size", $"{width}x{height}"), ("origin", $"{left},{top}"));
+            return new FrozenScreen(bitmap, preview, left, top);
+        }
+        catch
+        {
+            bitmap.Dispose();
+            throw;
+        }
+    }
+
+    private static CapturedImage CropFrozenScreen(FrozenScreen frozen, Rectangle physical)
+    {
+        var crop = Rectangle.Intersect(
+            new Rectangle(0, 0, frozen.Bitmap.Width, frozen.Bitmap.Height),
+            new Rectangle(
+                physical.X - frozen.VirtualLeft,
+                physical.Y - frozen.VirtualTop,
+                physical.Width,
+                physical.Height));
+        if (crop.Width <= 0 || crop.Height <= 0)
+        {
+            throw new InvalidOperationException("选区超出已冻结的屏幕范围");
+        }
+
+        using var cropped = frozen.Bitmap.Clone(crop, PixelFormat.Format32bppArgb);
+        var image = CreateOcrImage(cropped);
+        var anchorLeft = frozen.VirtualLeft + crop.X;
+        var anchorTop = frozen.VirtualTop + crop.Y;
+        var anchorRect = new SelectionRect(anchorLeft, anchorTop, anchorLeft + crop.Width, anchorTop + crop.Height);
+        return new CapturedImage(image, anchorRect, $"{crop.Width}x{crop.Height}");
+    }
+
+    /// <summary>兜底：没有冻结快照时仍按选区现场 CopyFromScreen。
+    /// 正常框选路径不会走到这里。</summary>
     private CapturedImage CaptureRegion(Rectangle physical)
     {
         using var bitmap = new Bitmap(physical.Width, physical.Height, PixelFormat.Format32bppArgb);
@@ -282,25 +353,34 @@ internal sealed partial class OcrCaptureCoordinator
             g.CopyFromScreen(physical.Left, physical.Top, 0, 0, bitmap.Size);
         }
 
-        // 这里不再立刻 image.GetPngBytes()：OcrImage 的 Lazy<byte[]> 在真正需要 PNG 的消费方
-        // （剪贴板 / 自动保存 / 预览窗 / 历史入库）首次取值时编码并缓存，避免 OCR-only 路径
-        // 多一次 16~64 MB 的全图 PNG 编码
         var image = CreateOcrImage(bitmap);
         var anchorRect = new SelectionRect(physical.Left, physical.Top, physical.Right, physical.Bottom);
         return new CapturedImage(image, anchorRect, $"{physical.Width}x{physical.Height}");
     }
 
-    /// <summary>等待选区蒙层从屏幕合成里彻底消失。
-    /// strict=true：OCR 路径走 DwmFlush 严格等待；DwmFlush 失败退回 32ms 短延迟兜底。
-    /// strict=false：截图预览路径跳过 DwmFlush —— OcrSelectionWindow 已经 Hide + Dispatcher.Background
-    /// 等过一帧合成，这里不再叠等。截图预览偶尔截到蒙层一角用户也能看出来重截，OCR 则必须严格</summary>
-    private static async Task WaitForSelectionOverlayToDisappearAsync(bool strict)
+    private void DisposeFrozenScreen()
     {
-        if (!strict) return;
-        var hr = NativeMethods.DwmFlush();
-        if (hr == 0) return;
+        _frozenScreen?.Dispose();
+        _frozenScreen = null;
+    }
 
-        await Task.Delay(32).ConfigureAwait(false);
+    /// <summary>一次 virtual screen 冻结。Preview 给选区窗当背景，Bitmap 留给框选结束后裁切。</summary>
+    private sealed class FrozenScreen : IDisposable
+    {
+        public FrozenScreen(Bitmap bitmap, BitmapSource preview, int virtualLeft, int virtualTop)
+        {
+            Bitmap = bitmap;
+            Preview = preview;
+            VirtualLeft = virtualLeft;
+            VirtualTop = virtualTop;
+        }
+
+        public Bitmap Bitmap { get; }
+        public BitmapSource Preview { get; }
+        public int VirtualLeft { get; }
+        public int VirtualTop { get; }
+
+        public void Dispose() => Bitmap.Dispose();
     }
 
     private IOcrProvider? PickActiveOrNotify()

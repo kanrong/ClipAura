@@ -19,6 +19,11 @@
          alpha=1 的近黑色像素 (#01000000) 视觉上几乎不可见（叠加到任意背景 < 0.4% 黑），
          但 WPF / DWM hit-test 会正常接收鼠标事件，整个窗口区域都能稳定收到 MouseMove -->
     <Canvas x:Name="RootCanvas" Background="#01000000">
+        <!-- 触发瞬间冻住的全屏快照。选区镂空看到的是这张图，而不是还在动的桌面。 -->
+        <Image x:Name="FrozenBackground"
+               Stretch="Fill"
+               IsHitTestVisible="False" />
+
         <!-- 选区蒙层：单个 Path + CombinedGeometry(Exclude) 渲染"全屏黑 - 选区"的差集。
              旧方案用 4 个 Rectangle 分别覆盖上 / 下 / 左 / 右四侧，选区缩小时 4 块矩形 layout 同时变大，
              加上半透明区域 GPU alpha blend 重负载，导致 60Hz MouseMove 跟手滞后明显（用户反馈"卡卡的"

@@ -142,6 +142,8 @@ internal partial class ScreenshotCountdownWindow : Window
         if (_stopped) return;
         _stopped = true;
         _timer.Stop();
+        // 先从屏幕上拿掉倒计时，再通知宿主冻屏；否则归零那一帧会把本窗写进快照
+        try { Hide(); } catch { }
         try { _onElapsed(); } catch { }
         try { Close(); } catch { }
     }

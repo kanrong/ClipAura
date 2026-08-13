@@ -332,6 +332,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         EnableToolbarHotKeyBox.IsChecked = _settings.EnableToolbarHotKey;
         EnableOcrHotKeyBox.IsChecked = _settings.EnableOcrHotKey;
         EnableScreenshotHotKeyBox.IsChecked = _settings.EnableScreenshotHotKey;
+        EnablePrintScreenScreenshotBox.IsChecked = _settings.EnablePrintScreenScreenshot;
         RefreshHotKeyRegistrationStatus();
 
         BindOcrProviders();
@@ -462,6 +463,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         _settings.EnableToolbarHotKey = EnableToolbarHotKeyBox.IsChecked == true;
         _settings.EnableOcrHotKey = EnableOcrHotKeyBox.IsChecked == true;
         _settings.EnableScreenshotHotKey = EnableScreenshotHotKeyBox.IsChecked == true;
+        _settings.EnablePrintScreenScreenshot = EnablePrintScreenScreenshotBox.IsChecked == true;
 
         _settings.DismissOnMouseLeave = DismissOnMouseLeaveBox.IsChecked == true;
         _settings.DismissOnForegroundChanged = DismissOnForegroundChangedBox.IsChecked == true;
@@ -608,6 +610,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow, INotifyPrope
         // ToggleSwitch / CheckBox / RadioButton 走 Checked/Unchecked
         AttachToggle(FullScreenSuppress, LaunchAtStartup, EnableSelectAllPopupBox,
             EnablePauseHotKeyBox, EnableToolbarHotKeyBox, EnableOcrHotKeyBox, EnableScreenshotHotKeyBox,
+            EnablePrintScreenScreenshotBox,
             EnableToolbarKeyboardShortcutsBox, EnableToolbarTabNavigationBox, EnableToolbarNumberShortcutsBox,
             DismissOnMouseLeaveBox, DismissOnForegroundChangedBox, DismissOnClickOutsideBox,
             DismissOnEscapeKeyBox, DismissOnNewSelectionBox, DismissOnActionInvokedBox,

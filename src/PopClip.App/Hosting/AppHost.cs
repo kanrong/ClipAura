@@ -1,23 +1,20 @@
 using PopClip.Actions.BuiltIn;
 using PopClip.App.Config;
-using PopClip.App.Ocr;
-using PopClip.App.Ocr.Providers;
 using PopClip.App.Services;
 using PopClip.App.UI;
 using PopClip.Core.Logging;
-using PopClip.Core.Session;
 using PopClip.Hooks;
 using PopClip.Uia;
 using PopClip.Uia.Clipboard;
 using Microsoft.Win32;
 using System.Diagnostics;
-using System.IO;
 using System.Windows;
 using WpfApplication = System.Windows.Application;
 
 namespace PopClip.App.Hosting;
 
-/// <summary>整个应用的对象装配点。手动 DI 即可，无需 IServiceCollection 的复杂度</summary>
+/// <summary>整个应用的对象装配点。手动 DI 即可，无需 IServiceCollection 的复杂度。
+/// 历史 / OCR 各自收进 Composition，避免宿主字段继续膨胀。</summary>
 internal sealed class AppHost : IDisposable
 {
     private readonly ILog _log = ConsoleLog.Instance;
@@ -38,14 +35,8 @@ internal sealed class AppHost : IDisposable
     private PauseState? _pause;
     private HotKeyManager? _hotkeys;
     private SettingsWindow? _settingsWindow;
-    private HistoryDatabase? _historyDb;
-    private SqliteConversationStore? _historyStore;
-    private SqliteUsageRecorder? _usage;
-    private ClipboardHistoryService? _clipHistory;
-    private ClipboardHistoryLauncher? _clipHistoryLauncher;
-    private OcrProviderRegistry? _ocrRegistry;
-    private OcrCaptureCoordinator? _ocrCoordinator;
-    private PinnedScreenshotManager? _pinnedManager;
+    private HistoryComposition? _history;
+    private OcrComposition? _ocr;
     private OfflineDictionaryService? _dictionary;
     private HotKeyApplyResult? _lastHotKeyApplyResult;
 
@@ -59,13 +50,37 @@ internal sealed class AppHost : IDisposable
 
     public void Start()
     {
+        StartIpcAndConfig();
+        var pipeline = BuildTextPipeline();
+        BuildUiShell();
+        _history = HistoryComposition.Create(
+            _log, pipeline.ClipboardAccess, pipeline.ClipboardWriter, _replacer!, pipeline.ClipboardPaste);
+        BuildSession(pipeline);
+        BuildOcr(pipeline);
+        BindHotKeys();
+
+        _watcher!.Start();
+        _session!.Start();
+        if (_settings is { FirstRunCompleted: false })
+        {
+            WpfApplication.Current.Dispatcher.BeginInvoke(new Action(() => ShowSettingsWindow(null)));
+        }
+
+        _log.Info("ClipAura started");
+    }
+
+    private void StartIpcAndConfig()
+    {
         _instance!.CommandReceived += OnIpcCommand;
         _instance.StartIpcServer();
 
         _store = new ConfigStore(_log);
         _settings = _store.LoadSettings();
         ConsoleLog.Instance.SetMinimumLevel(_settings.LogLevel);
+    }
 
+    private TextPipeline BuildTextPipeline()
+    {
         _clipboardThread = new ClipboardThread();
         _clipboardThread.Start();
         var clipboardAccess = new ClipboardAccess(_clipboardThread);
@@ -87,7 +102,7 @@ internal sealed class AppHost : IDisposable
         var pasteService = new PasteService(_log, clipboardAccess, clipboardPaste, capturedSelection);
         _dictionary = new OfflineDictionaryService(_log);
         _catalog = new ActionCatalog(_log, pasteService, _dictionary);
-        var cfg = _store.LoadActions();
+        var cfg = _store!.LoadActions();
         if (cfg is not null)
         {
             _catalog.Load(cfg);
@@ -97,56 +112,52 @@ internal sealed class AppHost : IDisposable
             _catalog.Load(DefaultActionsFactory.Create());
         }
 
-        var urlLauncher = new UrlLauncher(_log);
         var clipboardWriter = new ClipboardWriter(_log, clipboardAccess);
+        return new TextPipeline(clipboardAccess, clipboardPaste, clipboardWriter, pasteService);
+    }
 
+    private void BuildUiShell()
+    {
         _pause = new PauseState();
         _tray = new TrayController(_log, _pause);
         _tray.OnSettingsRequested += tag => ShowSettingsWindow(tag);
         _tray.OnClipboardHistoryRequested += OpenClipboardHistory;
         _tray.OnLeftClickRequested += HandleTrayLeftClick;
         _tray.OnExitRequested += () => WpfApplication.Current.Shutdown();
-        _tray.OnDelayedScreenshotRequested += seconds => _ocrCoordinator?.TriggerScreenshotDelayed(seconds);
+        _tray.OnDelayedScreenshotRequested += seconds => _ocr?.Coordinator.TriggerScreenshotDelayed(seconds);
         _tray.Show();
 
         _toolbar = new FloatingToolbar(_log);
         _toolbar.PrewarmLayout();
         // 系统主题/强调色变化时，由浮窗 WndProc 转发到这里重新跑一次全局主题应用
         _toolbar.SystemThemeChanged += OnSystemThemeChanged;
+    }
 
-        // SQLite-backed 历史 / 用量 / 剪贴板存储；初始化失败时退化为 no-op，不阻塞 AI 主流程
-        _historyDb = new HistoryDatabase(_log);
-        _historyDb.Initialize();
-        _historyStore = new SqliteConversationStore(_historyDb, _log);
-        _usage = new SqliteUsageRecorder(_historyDb, _log);
-        _clipHistory = new ClipboardHistoryService(_historyDb, clipboardAccess, _log);
-        clipboardWriter.AttachHistory(_clipHistory);
-        _clipHistory.Start();
-
-        var settingsProvider = new SettingsProvider(_settings);
+    private void BuildSession(TextPipeline pipeline)
+    {
+        var settingsProvider = new SettingsProvider(_settings!);
         var aiTextService = new AiTextService(
-            _log, _settings, _replacer, clipboardWriter, _toolbar,
-            clipboardAccess: clipboardAccess,
-            historyStore: _historyStore,
-            usage: _usage,
-            saveSettings: () => _store?.SaveSettings(_settings));
-        _clipHistoryLauncher = new ClipboardHistoryLauncher(_clipHistory, clipboardWriter, _replacer, clipboardPaste, clipboardAccess);
+            _log, _settings!, _replacer!, pipeline.ClipboardWriter, _toolbar!,
+            clipboardAccess: pipeline.ClipboardAccess,
+            historyStore: _history!.Conversations,
+            usage: _history.Usage,
+            saveSettings: SaveSettings);
         var resultDialog = new SmartResultDialogPresenter();
-        var bubblePresenter = new FloatingToolbarBubblePresenter(_log, _toolbar);
+        var bubblePresenter = new FloatingToolbarBubblePresenter(_log, _toolbar!);
+        var urlLauncher = new UrlLauncher(_log);
         _actionHost = new ActionHost(
-            _log, _replacer, urlLauncher, clipboardWriter, _toolbar,
-            settingsProvider, aiTextService, _dictionary, pasteService, _clipHistoryLauncher,
+            _log, _replacer!, urlLauncher, pipeline.ClipboardWriter, _toolbar!,
+            settingsProvider, aiTextService, _dictionary!, pipeline.PasteService, _history.Launcher,
             resultDialog: resultDialog, bubble: bubblePresenter);
 
-        _gate = new SuppressionGate(_log, _settings);
-
+        _gate = new SuppressionGate(_log, _settings!);
         _session = new SelectionSessionManager(
-            _log, _watcher, _acquisition, _replacer, _catalog, _actionHost, _gate, _toolbar, _pause, _settings,
-            clipboardAccess, clipboardPaste);
+            _log, _watcher!, _acquisition!, _replacer!, _catalog!, _actionHost, _gate, _toolbar!, _pause!, _settings!,
+            pipeline.ClipboardAccess, pipeline.ClipboardPaste);
 
         ApplyRuntimeSettings(reloadActions: false);
 
-        _watcher.GlobalKeyHandler = key =>
+        _watcher!.GlobalKeyHandler = key =>
         {
             // 优先级：浮窗 → AI 气泡。浮窗能处理（如 ESC 关浮窗、数字键触发动作）时短路；
             // 浮窗未处理且气泡可见时，ESC 关闭气泡（VK_ESCAPE = 0x1B）
@@ -154,56 +165,67 @@ internal sealed class AppHost : IDisposable
             if (key.IsDown && key.VirtualKey == 0x1B) return AiBubbleWindow.TryHandleEscape();
             return false;
         };
-        // OCR provider 注册：WeChat 编译进主程序（代码极少，依赖 dll 用户提供），
-        // RapidOcr 走 plugin 目录动态加载（onnxruntime / SkiaSharp 共 ~25 MB 拆出主程序）。
-        // 所有 provider 都遵循"按需 native 加载"：构造不做任何重活，第一次 PrewarmInBackground / RecognizeAsync 才碰底层
-        var pluginRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "plugins");
-        var rapidProviders = OcrPluginLoader.LoadAll(_log, pluginRoot);
-        var wechatProvider = new WeChatOcrProvider(_log);
-        _ocrRegistry = new OcrProviderRegistry(_log,
-            preferredIdReader: () => _settings?.OcrProviderId,
-            providers: rapidProviders.Concat(new IOcrProvider[] { wechatProvider }));
-        // 钉图管理器先于 OcrCaptureCoordinator 构造：Coordinator 在"截图预览 → 钉到桌面"
-        // 与"钉图双击 → OCR"两条路径上都会用到 manager。manager 的 DoubleClickOcrHandler
-        // 在 Coordinator 构造完成后再回填，因为 OCR 调度逻辑在 Coordinator 里
-        _pinnedManager = new PinnedScreenshotManager(_log, clipboardWriter, _clipHistory);
-        _ocrCoordinator = new OcrCaptureCoordinator(_log, _ocrRegistry, _session, clipboardWriter, clipboardAccess, _toolbar,
-            _settings, aiTextService,
-            pinnedManager: _pinnedManager,
-            bubble: bubblePresenter,
-            openSettings: tag => ShowSettingsWindow(tag),
-            saveSettings: () => _store?.SaveSettings(_settings),
-            clipHistory: _clipHistory);
-        _pinnedManager.DoubleClickOcrHandler = (window, anchor)
-            => _ocrCoordinator?.RecognizePinnedScreenshotAsync(window, anchor);
-        // 暴露给快速启动器用作 OCR 按钮的点击回调
-        _session.OcrLauncher = () => _ocrCoordinator?.Trigger();
-        _session.ScreenshotLauncher = () => _ocrCoordinator?.TriggerScreenshot();
-        _session.ClipboardImageOcrLauncher = anchor => _ocrCoordinator?.TriggerClipboardImage(anchor);
 
+        _session.OcrLauncher = () => _ocr?.Coordinator.Trigger();
+        _session.ScreenshotLauncher = () => _ocr?.Coordinator.TriggerScreenshot();
+        _session.ClipboardImageOcrLauncher = anchor => _ocr?.Coordinator.TriggerClipboardImage(anchor);
+        pipeline.AiText = aiTextService;
+        pipeline.Bubble = bubblePresenter;
+    }
+
+    private void BuildOcr(TextPipeline pipeline)
+    {
+        _ocr = OcrComposition.Create(
+            _log, _settings!, _session!, pipeline.ClipboardWriter, pipeline.ClipboardAccess,
+            _toolbar!, pipeline.AiText!, pipeline.Bubble!, _history?.ClipboardHistory,
+            openSettings: tag => ShowSettingsWindow(tag),
+            saveSettings: SaveSettings);
+    }
+
+    private void BindHotKeys()
+    {
         _hotkeys = new HotKeyManager(_log);
         _hotkeys.PauseRequested += TogglePauseFromHotKey;
         _hotkeys.ToolbarRequested += () => _session?.ShowLauncherAtCursor();
-        _hotkeys.OcrRequested += () => _ocrCoordinator?.Trigger();
-        _hotkeys.ScreenshotRequested += () => _ocrCoordinator?.TriggerScreenshot();
+        _hotkeys.OcrRequested += () => _ocr?.Coordinator.Trigger();
+        _hotkeys.ScreenshotRequested += () => _ocr?.Coordinator.TriggerScreenshot();
         _hotkeys.ScreenshotDelayRequested += () =>
-            _ocrCoordinator?.TriggerScreenshotDelayed(_settings?.ScreenshotDelayDefaultSeconds ?? 3);
-        _lastHotKeyApplyResult = _hotkeys.Apply(_settings);
+            _ocr?.Coordinator.TriggerScreenshotDelayed(_settings?.ScreenshotDelayDefaultSeconds ?? 3);
+        _lastHotKeyApplyResult = _hotkeys.Apply(_settings!);
 
         // toolbar 构造完成后才能注册依赖它的事件
-        _tray.OnPauseChanged += paused =>
+        _tray!.OnPauseChanged += paused =>
         {
-            if (paused) _toolbar.DismissExternal("paused");
+            if (paused) _toolbar!.DismissExternal("paused");
         };
+    }
 
-        _watcher.Start();
-        _session.Start();
-        if (!_settings.FirstRunCompleted)
+    private sealed class TextPipeline
+    {
+        public TextPipeline(
+            ClipboardAccess clipboardAccess,
+            ClipboardPaste clipboardPaste,
+            ClipboardWriter clipboardWriter,
+            PasteService pasteService)
         {
-            WpfApplication.Current.Dispatcher.BeginInvoke(new Action(() => ShowSettingsWindow(null)));
+            ClipboardAccess = clipboardAccess;
+            ClipboardPaste = clipboardPaste;
+            ClipboardWriter = clipboardWriter;
+            PasteService = pasteService;
         }
 
-        _log.Info("ClipAura started");
+        public ClipboardAccess ClipboardAccess { get; }
+        public ClipboardPaste ClipboardPaste { get; }
+        public ClipboardWriter ClipboardWriter { get; }
+        public PasteService PasteService { get; }
+        public AiTextService? AiText { get; set; }
+        public FloatingToolbarBubblePresenter? Bubble { get; set; }
+    }
+
+    private void SaveSettings()
+    {
+        if (_store is null || _settings is null) return;
+        _store.SaveSettings(_settings);
     }
 
     private void OnIpcCommand(string command)
@@ -235,10 +257,10 @@ internal sealed class AppHost : IDisposable
 
             _settingsWindow = new SettingsWindow(
                 _store!, _settings!, initialPage,
-                historyStore: _historyStore,
-                usage: _usage,
+                historyStore: _history?.Conversations,
+                usage: _history?.Usage,
                 onOpenConversation: ReopenConversation,
-                ocrProviders: _ocrRegistry?.All,
+                ocrProviders: _ocr?.Registry.All,
                 hotKeyStatusProvider: () => _lastHotKeyApplyResult);
             _settingsWindow.Saved += () =>
             {
@@ -254,8 +276,8 @@ internal sealed class AppHost : IDisposable
     /// 不复活流式状态，只把消息以静态形式展示并允许继续追问</summary>
     private void ReopenConversation(string conversationId)
     {
-        if (_historyStore is null) return;
-        var record = _historyStore.Load(conversationId);
+        if (_history is null) return;
+        var record = _history.Conversations.Load(conversationId);
         if (record is null) return;
         WpfApplication.Current?.Dispatcher.Invoke(() =>
         {
@@ -340,10 +362,10 @@ internal sealed class AppHost : IDisposable
             switch (_settings?.TrayClickAction ?? TrayClickAction.Menu)
             {
                 case TrayClickAction.Ocr:
-                    _ocrCoordinator?.Trigger();
+                    _ocr?.Coordinator.Trigger();
                     break;
                 case TrayClickAction.Screenshot:
-                    _ocrCoordinator?.TriggerScreenshot();
+                    _ocr?.Coordinator.TriggerScreenshot();
                     break;
                 // 剪贴板历史已从设置 UI 移除，但保留运行时分发以兼容老版本 settings.json
                 // 中持久化的 ClipboardHistory 值；下次用户保存设置时 UI 会自动迁移到默认 Menu
@@ -377,7 +399,7 @@ internal sealed class AppHost : IDisposable
         // 但 ForegroundWatcher.Snapshot() 走 OCR/选区流程时可能无过滤地记入本进程窗口，故再排除本进程，
         // 取第一个非本进程窗口即为用户想粘回的目标
         var self = Environment.ProcessId;
-        _clipHistoryLauncher?.Open(null, () => ForegroundWatcher.RecentProcesses()
+        _history?.Launcher.Open(null, () => ForegroundWatcher.RecentProcesses()
             .FirstOrDefault(w => w.Hwnd != 0 && w.ProcessId != self)?.Hwnd ?? 0);
     }
 
@@ -391,12 +413,12 @@ internal sealed class AppHost : IDisposable
         _hotkeys?.Dispose();
         _watcher?.Dispose();
         _tray?.Dispose();
-        _clipHistory?.Dispose();
+        _history?.Dispose();
         _clipboardThread?.Dispose();
         // OCR Registry 负责释放所有 provider：RapidOcr 持三个 ONNX InferenceSession，
         // WeChat 还会调 stop_ocr 终止驻留的 WeChatOCR.exe 子进程；
         // 都集中在 Registry.Dispose 里串行处理，避免 process tear-down 阶段 native finalizer 乱序
-        _ocrRegistry?.Dispose();
+        _ocr?.Dispose();
         _instance?.Dispose();
     }
 }

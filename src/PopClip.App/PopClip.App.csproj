@@ -1,13 +1,11 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <!-- net10.0-windows + 10.0.19041.0 SDK：保留 SDK 主要为兼容历史代码里残留的 WinRT 互操作 API
-         （UIA / clipboard 通过 P/Invoke 不依赖 WinRT；以后清理完可降到 net10.0-windows）。
+    <!-- net10.0-windows：UIA / clipboard / 热键都走 P/Invoke，不再需要 Windows 10.0.19041 WinRT 投影。
          OCR 后端拆成"按需 plugin"：主程序只编译 WeChat provider 与抽象层，
          RapidOCR 由独立 csproj 编译到 plugins/ocr/rapid-onnx/runtime/，~25 MB 依赖按需启用。 -->
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -44,8 +42,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
     <PackageReference Include="MahApps.Metro.IconPacks.MaterialDesign" Version="6.2.1" />
     <PackageReference Include="WPF-UI" Version="4.3.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />

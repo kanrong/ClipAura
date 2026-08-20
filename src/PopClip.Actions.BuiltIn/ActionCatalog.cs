@@ -48,6 +48,7 @@ public sealed class ActionCatalog
             [BuiltInActionIds.TsvToMarkdown] = new TsvToMarkdownAction(),
             [BuiltInActionIds.WordLookup] = new WordLookupAction(dictionary),
             [BuiltInActionIds.VocabularyAnalyze] = new VocabularyAnalyzeAction(dictionary),
+            [BuiltInActionIds.TidyFormat] = new TidyFormatAction(),
         };
     }
 

@@ -44,6 +44,7 @@ public static class BuiltInActionIds
     public const string TsvToMarkdown = "builtin.text.tsv.tomd";
     public const string WordLookup = "builtin.text.word.lookup";
     public const string VocabularyAnalyze = "builtin.text.vocabulary.analyze";
+    public const string TidyFormat = "builtin.text.tidy";
 }
 
 internal abstract class BuiltInAction : IAction

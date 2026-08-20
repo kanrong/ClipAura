@@ -57,6 +57,7 @@ internal sealed class IconKeyToGlyphConverter : IValueConverter
         ["Screenshot"] = "\uE722",   // Camera
         ["Dictionary"] = "\uE82D",   // Dictionary / book
         ["Vocabulary"] = "\uE8D2",   // Reading list
+        ["Tidy"] = "\uE8A4",         // FormatLineSpacing
     };
 
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
@@ -156,6 +157,7 @@ internal sealed class IconKeyToMaterialDesignKindConverter : IValueConverter
         ["Screenshot"] = PackIconMaterialDesignKind.ScreenshotMonitorRound,
         ["Dictionary"] = PackIconMaterialDesignKind.MenuBookRound,
         ["Vocabulary"] = PackIconMaterialDesignKind.SpellcheckRound,
+        ["Tidy"] = PackIconMaterialDesignKind.FormatLineSpacingRound,
         // ============ 通用图形/语义图标（用户在自定义动作里可选） ============
         // 这里的 key 不能与上方"内置功能"重复，否则同一图标会跨语义共用
         ["Star"] = PackIconMaterialDesignKind.StarRound,

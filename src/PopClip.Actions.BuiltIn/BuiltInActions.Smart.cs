@@ -27,6 +27,41 @@ public static class SmartActionIcons
     public const string TsvToMd = "TsvToMd";        // TSV→MD 表，输出是表（与 Table 视觉再区分）
     public const string Dictionary = "Dictionary";  // 离线查词
     public const string Vocabulary = "Vocabulary";  // 段落词汇解析
+    public const string Tidy = "Tidy";              // 整理格式：行距图标
+}
+
+/// <summary>整理格式。压多余空格/空行、去行末空白、逗号行与下行拼接。
+/// CanRun 在整理结果会不同于原文时才显示。原地替换；OCR 退回复制。</summary>
+internal sealed class TidyFormatAction : BuiltInAction
+{
+    public override string Id => BuiltInActionIds.TidyFormat;
+    public override string Title => "整理格式";
+    public override string IconKey => SmartActionIcons.Tidy;
+
+    public override bool CanRun(SelectionContext context)
+        => !context.IsEmpty && TextTidy.NeedsTidy(context.Text);
+
+    public override async Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
+    {
+        var tidied = TextTidy.Apply(context.Text);
+        if (string.Equals(tidied, context.Text, StringComparison.Ordinal)) return;
+
+        if (context.Source == AcquisitionSource.Ocr)
+        {
+            host.Clipboard.SetText(tidied);
+            host.Log.Info("tidy copied (ocr)");
+            return;
+        }
+
+        var ok = await host.Replacer.TryReplaceAsync(context, tidied, ct).ConfigureAwait(false);
+        if (!ok)
+        {
+            host.Clipboard.SetText(tidied);
+            host.Log.Info("tidy copied (replace failed)");
+            return;
+        }
+        host.Log.Info("tidy replaced");
+    }
 }
 
 /// <summary>JSON 格式化动作。
@@ -643,7 +678,8 @@ internal sealed class WordLookupAction : BuiltInAction
         sb.AppendLine();
 
         var level = VocabularyAnalyzeAction.EstimateLevel(item);
-        sb.AppendLine($"难度: {level.Label}");
+        if (level.Rank >= 3)
+            sb.AppendLine($"难度: {level.Label}");
         if (!string.IsNullOrWhiteSpace(item.Tags)) sb.AppendLine("标签: " + item.Tags);
         if (!string.IsNullOrWhiteSpace(item.Translation))
         {
@@ -716,7 +752,7 @@ internal sealed class VocabularyAnalyzeAction : BuiltInAction
             if (HasComputerDefinition(hit)) continue;
             if (HasBasicSchoolTag(hit)) continue;
             var score = ScoreVocabularyItem(hit);
-            if (score < 10) continue;
+            if (EstimateLevel(hit).Rank < 2) continue;
             scored.Add((hit, score));
         }
 
@@ -734,8 +770,6 @@ internal sealed class VocabularyAnalyzeAction : BuiltInAction
         }
 
         var sb = new StringBuilder();
-        sb.AppendLine($"词汇解析（{entries.Count} 个）");
-        sb.AppendLine();
         foreach (var item in entries)
         {
             WordLookupAction.AppendDictionaryItem(sb, item);

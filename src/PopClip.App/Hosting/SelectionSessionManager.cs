@@ -735,6 +735,11 @@ internal sealed class SelectionSessionManager : IDisposable
         {
             return false;
         }
+        // 整理格式：原地替换本身就是结果，再弹 toast 挡视线
+        if (string.Equals(action.Id, BuiltInActionIds.TidyFormat, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
         return true;
     }
 

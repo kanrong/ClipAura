@@ -25,6 +25,7 @@ internal static class DefaultActionsFactory
                 new() { Id = "tsv-to-csv", Type = "builtin", BuiltIn = BuiltInActionIds.TsvToCsv, Title = "TSV → CSV", Icon = "TsvToCsv", OutputMode = BuiltInOutputModes.ClipboardAndBubble, IconLocked = true, Enabled = true },
                 new() { Id = "word-lookup", Type = "builtin", BuiltIn = BuiltInActionIds.WordLookup, Title = "查词", Icon = "Dictionary", OutputMode = BuiltInOutputModes.Bubble, IconLocked = true, Enabled = true },
                 new() { Id = "vocabulary-analyze", Type = "builtin", BuiltIn = BuiltInActionIds.VocabularyAnalyze, Title = "词汇解析", Icon = "Vocabulary", OutputMode = BuiltInOutputModes.Bubble, IconLocked = true, Enabled = true },
+                new() { Id = "tidy-format", Type = "builtin", BuiltIn = BuiltInActionIds.TidyFormat, Title = "整理格式", Icon = "Tidy", IconLocked = true, Enabled = true },
                 new() { Id = "ai-chat", Type = "builtin", BuiltIn = BuiltInActionIds.AiChat, Title = "AI 对话", Icon = "AiChat", IconLocked = true, Enabled = true },
                 new() { Id = "ai-explain", Type = "builtin", BuiltIn = BuiltInActionIds.AiExplain, Title = "AI 解释", Icon = "AiExplain", IconLocked = true, Enabled = true },
             },

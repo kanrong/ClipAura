@@ -20,6 +20,7 @@ internal static class TerminalSurface
                 "Tabby", "Hyper", "Terminus",
                 "Warp", "warp-terminal",
                 "zap", "zap-oss", "OpenWarp",
+                "tty7-app",
                 "FluentTerminal", "FluentTerminal.App",
                 "putty", "puttytel",
                 "cmd", "powershell", "pwsh"))

@@ -186,7 +186,9 @@ internal sealed class TranslateAction : BuiltInAction
             return host.Ai.RunPromptAsync(request, context, ct);
         }
 
-        host.UrlLauncher.Open("https://www.bing.com/translator?text=" + WebUtility.UrlEncode(context.Text));
+        host.UrlLauncher.Open(
+            "https://www.bing.com/translator?text=" + WebUtility.UrlEncode(context.Text),
+            context.Foreground);
         return Task.CompletedTask;
     }
 }
@@ -273,7 +275,7 @@ internal sealed class OpenUrlAction : BuiltInAction
         {
             url = "https://" + url;
         }
-        host.UrlLauncher.Open(url);
+        host.UrlLauncher.Open(url, context.Foreground);
         return Task.CompletedTask;
     }
 }

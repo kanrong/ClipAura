@@ -130,7 +130,7 @@ internal sealed class UrlTemplateAction : IAction
     public Task RunAsync(SelectionContext context, IActionHost host, CancellationToken ct)
     {
         var url = Expand(_descriptor.UrlTemplate ?? "", context.Text);
-        host.UrlLauncher.Open(url);
+        host.UrlLauncher.Open(url, context.Foreground);
         return Task.CompletedTask;
     }
 
